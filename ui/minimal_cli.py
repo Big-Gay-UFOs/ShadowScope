@@ -1,39 +1,46 @@
 import argparse
 import requests
 from datetime import date
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 BASE = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
 
+def _try(payload: Dict[str, Any]) -> Tuple[bool, List[Dict[str, Any]], str]:
+    r = requests.post(BASE, json=payload, timeout=30)
+    if r.status_code == 200:
+        return True, r.json().get("results", []), ""
+    return False, [], f"{r.status_code} {r.text[:500]}"
+
 def fetch_awards(since: str = "2008-01-01", limit: int = 10) -> List[Dict[str, Any]]:
-    """Fetch a small page of awards from USAspending with safe defaults."""
+    """
+    Fetch a small page of awards with safe defaults.
+    Tries a sequence of payloads from most to least specific to avoid 400s.
+    """
     end = date.today().strftime("%Y-%m-%d")
 
-    # Minimal, valid request with explicit award types and a compact field list.
-    fields = [
-        "Award ID",
-        "Recipient Name",
-        "Award Amount",
-        "Action Date",
-    ]
-
-    payload = {
-        "filters": {
-            "time_period": [{"date_type": "action_date", "start_date": since, "end_date": end}],
-            # Explicit award types avoids some 4xx responses on older API revs
-            "award_type_codes": ["A", "B", "C", "D", "IDV"],
-        },
+    base = {
+        "filters": {"time_period": [{"date_type": "action_date", "start_date": since, "end_date": end}]},
         "page": 1,
         "limit": limit,
         "subawards": False,
         "sort": "Action Date",
         "order": "desc",
-        "fields": fields,
     }
 
-    r = requests.post(BASE, json=payload, timeout=30)
-    r.raise_for_status()
-    return r.json().get("results", [])
+    attempts = [
+        {**base, "award_type_codes": ["A", "B", "C", "D"]},  # common contract types
+        base,                                                # drop award_type filter
+        {**base, "sort": "Award Amount", "order": "desc"},   # change sort if API dislikes label
+    ]
+
+    last_err = ""
+    for p in attempts:
+        ok, results, err = _try(p)
+        if ok:
+            return results
+        last_err = err
+
+    raise RuntimeError(f"USAspending request failed after {len(attempts)} attempts; last error: {last_err}")
 
 def main():
     p = argparse.ArgumentParser()
