@@ -1,0 +1,49 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15
+    container_name: shadowscope-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: shadowscope
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: shadowscope-opensearch
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: shadowscope-backend
+    working_dir: /app
+    command: uvicorn backend.app:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/shadowscope
+      PYTHONPATH: /app
+    volumes:
+      - ./:/app
+    depends_on:
+      - db
+      - opensearch
+
+volumes:
+  db_data:
+  opensearch_data:
