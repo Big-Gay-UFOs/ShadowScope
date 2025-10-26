@@ -7,3 +7,7 @@ __pycache__/
 .pytest_cache/
 .opensearch-data
 postgres-data
+.venv/
+dev.db
+test.db
+server.log
