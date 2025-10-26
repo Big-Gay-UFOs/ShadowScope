@@ -30,7 +30,7 @@ def fetch_awards(since: str = "2008-01-01", limit: int = 10) -> List[Dict[str, A
     attempts = [
         {**base, "award_type_codes": ["A", "B", "C", "D"]},  # common contract types
         base,                                                # drop award_type filter
-        {**base, "sort": "Award Amount", "order": "desc"},   # change sort if API doesn’t like the label
+        {**base, "sort": "Award Amount", "order": "desc"},   # change sort if API dislikes label
     ]
 
     last_err = ""
