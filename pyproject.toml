@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shadowscope"
+version = "0.1.0"
+description = "ShadowScope data ingestion and API toolkit"
+requires-python = ">=3.11"
+authors = [{name = "ShadowScope Maintainers"}]
+readme = "README.md"
+dependencies = [
+    "fastapi==0.110.0",
+    "uvicorn[standard]==0.27.0",
+    "sqlalchemy==2.0.25",
+    "pydantic>=2,<3",
+    "requests==2.31.0",
+    "httpx==0.26.0",
+    "pytest==7.4.4",
+    "alembic==1.13.1",
+    "psycopg[binary]>=3.1",
+    "typer==0.12.3",
+    "python-dotenv==1.0.1",
+    "click==8.1.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+ss = "shadowscope.cli:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend", "shadowscope", "backend.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests", "tests"]
+addopts = "-q"
+
