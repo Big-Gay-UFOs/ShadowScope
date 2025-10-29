@@ -20,7 +20,7 @@ def fetch_awards(since: str = "2008-01-01", limit: int = 10) -> List[Dict[str, A
     """
     Fetch a small page of awards with safe defaults and fallbacks.
     Some deployments of /spending_by_award/ require `fields`; others are picky about sort
-    or award_type_codes. We always include `fields` and try a couple of variants.
+    or award_type_codes. We always include `fields` and try a few variants.
     """
     end = date.today().strftime("%Y-%m-%d")
 
@@ -34,19 +34,19 @@ def fetch_awards(since: str = "2008-01-01", limit: int = 10) -> List[Dict[str, A
     }
 
     attempts: List[Dict[str, Any]] = [
-        # Most common: explicit contract types + fields + sort by Action Date desc
+        # 1) Common: explicit contract types + fields + sort by Action Date desc
         {**base, "filters": {**base["filters"], "award_type_codes": ["A", "B", "C", "D"]},
          "fields": fields, "sort": "Action Date", "order": "desc"},
 
-        # Keep award types, change sort if Action Date is rejected
-        {**base, "filters": {**base["filters"], "award_type_codes": ["A", "B", "C", "D"]},
-         "fields": fields, "sort": "Award Amount", "order": "desc"},
-
-        # Drop award_type filter, keep fields and Action Date sort
+        # 2) Drop award_type filter, keep fields + Action Date sort
         {**base, "fields": fields, "sort": "Action Date", "order": "desc"},
 
-        # Drop award_type filter, keep fields, change sort
+        # 3) Keep fields, change sort if Action Date is rejected
         {**base, "fields": fields, "sort": "Award Amount", "order": "desc"},
+
+        # 4) Re-introduce award_type_codes with alternate sort (some deployments require it)
+        {**base, "filters": {**base["filters"], "award_type_codes": ["A", "B", "C", "D"]},
+         "fields": fields, "sort": "Award Amount", "order": "desc"},
     ]
 
     last_err = ""
@@ -60,6 +60,7 @@ def fetch_awards(since: str = "2008-01-01", limit: int = 10) -> List[Dict[str, A
 
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument("--name", default=None, help="(unused in smoke test)")
     p.add_argument("--since", default="2008-01-01")
     p.add_argument("--limit", type=int, default=10)
     a = p.parse_args()
