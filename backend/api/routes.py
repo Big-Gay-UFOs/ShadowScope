@@ -1,13 +1,27 @@
-from fastapi import APIRouter
-
-from backend.api import events
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from backend.db.models import Entity
+from backend.app import get_db_session  # re-use the session dependency
 
 router = APIRouter(prefix="/api", tags=["core"])
-
 
 @router.get("/ping")
 def ping():
     return {"message": "pong"}
 
-
-router.include_router(events.router)
+@router.get("/entities")
+def list_entities(db: Session = Depends(get_db_session)):
+    rows = db.query(Entity).order_by(Entity.id).all()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "cage": r.cage,
+            "uei": r.uei,
+            "parent": r.parent,
+            "type": r.type,
+            "sponsor": r.sponsor,
+            "sites": r.sites_json,
+        }
+        for r in rows
+    ]
