@@ -3,10 +3,14 @@ import os
 from contextlib import contextmanager
 from typing import Iterator, Optional
 
+from dotenv import load_dotenv
+
 from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, func
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from sqlalchemy.exc import OperationalError
+
+load_dotenv()
 
 DEFAULT_DATABASE_URL = "sqlite:///./dev.db"
 Base = declarative_base()

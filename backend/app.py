@@ -1,25 +1,24 @@
-from fastapi import FastAPI, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import text
 import os
 
+from fastapi import Depends, FastAPI
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from backend.api.deps import get_db_session
 from backend.api.routes import router
-from backend.db.models import configure_session, ensure_schema, session_scope
+from backend.db.models import configure_session
+from backend.db.ops import sync_database
+from backend.logging_config import configure_logging
+from backend.runtime import ensure_runtime_directories
 
 app = FastAPI(title="ShadowScope API", version="0.1.0")
-
-
-def get_db_session():
-    database_url = os.getenv("DATABASE_URL")
-    with session_scope(database_url) as s:
-        yield s
-
-
 @app.on_event("startup")
 def startup():
     database_url = os.getenv("DATABASE_URL")
+    configure_logging()
+    ensure_runtime_directories()
     configure_session(database_url)
-    ensure_schema(database_url)
+    sync_database(database_url)
 
 
 @app.get("/health", tags=["system"])

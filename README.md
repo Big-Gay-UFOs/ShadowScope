@@ -2,69 +2,93 @@
 
 ShadowScope is an open-source intelligence (OSINT) pipeline focused on surfacing potential "program shadow" signals across FFRDCs, UARCs, and associated cut-outs. The system ingests public procurement, property, regulatory, security, and transport datasets; normalizes entities; and correlates multi-lane event clusters to highlight leads for further human review.
 
+## Quick start
+
+### Windows 11 (PowerShell)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
+```
+
+The bootstrap script:
+
+1. Creates/activates a `.venv` running on Python 3.11.
+2. Installs ShadowScope in editable mode (`pip install -e .`).
+3. Copies `.env.example` → `.env` (preserving any existing `.env`).
+4. Initializes the Postgres database with Alembic migrations (`ss db init`).
+5. Runs the test suite (`ss test`).
+6. Performs a small USAspending ingest (`ss ingest usaspending --days 3 --limit 25 --pages 1`).
+7. Exports events to CSV and JSONL (paths are printed in the console).
+8. Prints log locations (`logs/app.log`, `logs/ingest.log`).
+9. Starts the API on `http://127.0.0.1:8000`.
+
+### macOS / Linux (Bash)
+
+```bash
+./scripts/bootstrap.sh
+```
+
+The Unix bootstrap performs the same steps as the Windows script and leaves the API process running in the foreground.
+
+### Where things land
+
+- **Virtual environment:** `.venv`
+- **Environment variables:** `.env` (based on `.env.example`)
+- **Raw snapshots:** `data/raw/usaspending/<YYYYMMDD>/page_<n>.json`
+- **Parsed SAM.gov artifacts:** `data/parsed/sam/<notice_id>/`
+- **Exports:** `data/exports/events_<timestamp>.csv` and `.jsonl`
+- **Logs:** `logs/app.log`, `logs/ingest.log`
+- **API:** `http://127.0.0.1:8000` → `/health`, `/api/events`, `/api/events/export`
+
+## ShadowScope CLI (`ss`)
+
+Installing the project (`pip install -e .`) registers the `ss` command powered by Typer:
+
+| Command | Description |
+| --- | --- |
+| `ss db init` | Create the database if needed and align Alembic migrations (auto-stamps existing tables). |
+| `ss db stamp` | Force Alembic to stamp to head when tables already exist. |
+| `ss db reset --destructive` | Drop and recreate the public schema, then upgrade to head. |
+| `ss serve --host 127.0.0.1 --port 8000` | Run the FastAPI app via uvicorn. |
+| `ss test` | Execute `pytest -q backend/tests` using `TEST_DATABASE_URL` if provided. |
+| `ss ingest usaspending --days 7 --limit 100 --pages 2` | Fetch recent USAspending awards, snapshot raw JSON, and upsert deduplicated events. |
+| `ss ingest sam` | Placeholder SAM.gov ingest (skips when `SAM_API_KEY` is missing). |
+| `ss export events --out data/exports` | Write CSV and JSONL exports and print absolute paths. |
+
+## Troubleshooting quick start
+
+| Symptom | Suggested fix |
+| --- | --- |
+| PowerShell blocks the script | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` then re-run. |
+| `psycopg` cannot connect | Ensure Postgres is running on `localhost:5432` and the credentials in `.env` are correct. |
+| `ss db init` reports "connection refused" | Verify the database server is up; on Windows install [PostgreSQL](https://www.postgresql.org/download/windows/). |
+| Port 8000 already in use | Stop the conflicting service or run `ss serve --port 8001`. |
+| SAM ingest skipped | Provide `SAM_API_KEY` in `.env` when ready to integrate the real API. |
+
 ## Repository structure
 
 ```
-shadowscope/
-  docs/                # Architecture plans, design notes, and operational checklists
-  backend/             # FastAPI service, ETL connectors, correlation engine, and database layer
-  ui/                  # Developer-facing CLI utilities and future lightweight interfaces
-  docker-compose.yml   # Local orchestration for Postgres, OpenSearch, and the FastAPI backend
-  requirements.txt     # Python runtime dependencies
+ShadowScope/
+  backend/             # FastAPI service, connectors, database layer, and services
+  data/                # Raw, parsed, and exported artifacts (created on demand)
+  docs/                # Quick start guides and design notes
+  scripts/             # Bootstrap scripts for Windows and Unix
+  tests/               # Legacy test harnesses (pytest collects backend/tests by default)
+  ui/                  # Developer tooling prototypes
 ```
 
-## Getting started
+Key entry points:
 
-1. Read `docs/phase0_plan.md` for the Phase 0 architecture, scope, and dependency notes.
-2. Install Docker and Docker Compose v2.
-3. Copy `.env.example` (to be added in a later phase) and set required credentials.
-4. Build the backend image (installs Python dependencies during the image build so runtime internet access is not required):
-   ```bash
-   docker compose build backend
-   ```
-5. Start the stack:
-   ```bash
-   docker compose up -d
-   ```
-6. Once the services are healthy, visit `http://localhost:8000/health` for a simple readiness check.
+- `backend/app.py` – FastAPI application configured with database and logging.
+- `backend/services/ingest.py` – USAspending ingest workflow with deduplication and raw snapshots.
+- `backend/services/export.py` – CSV/JSONL export helpers.
+- `shadowscope/cli.py` – Typer CLI exposing all common workflows.
 
-### Database migrations
+## Additional notes
 
-The ORM is the source of truth for the relational schema and migrations are managed with Alembic. Apply migrations locally with:
-
-```bash
-alembic upgrade head
-```
-
-The command respects the `DATABASE_URL` environment variable (defaults to the local SQLite dev database).
-
-### Offline-friendly local testing
-
-If you need to run unit tests or work behind a restrictive network proxy, create a local virtual environment **before** network access is removed:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
-```
-
-With the services running (see above) and Postgres listening on `localhost:5432`, tests can be executed offline:
-
-```bash
-export TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/shadowscope
-pytest -q
-```
-
-`requirements.txt` intentionally tracks the Phase 1 runtime footprint (FastAPI service, ORM, migrations, testing). Additional
-libraries called out in `docs/phase0_plan.md` will be added as the corresponding features land.
-
-## Development status
-
-- [x] Phase 0: Scope, architecture outline, and dependency list
-- [x] Phase 1 (bootstrap): Repository scaffold, Docker Compose, FastAPI hello endpoint, and database initialization
-- [ ] Phase 2: Data model, index mappings, and seed data
-- [ ] Phase 3+: Incremental connector, parsing, correlation, and UI development
+- Alembic configuration reads `DATABASE_URL` from `.env` automatically (`python-dotenv` is loaded in `backend/db/models.py`).
+- Running `ss ingest usaspending` multiple times deduplicates events via the `hash` column (unique constraint enforced in migrations).
+- The FastAPI `/api/events/export` endpoint streams the latest CSV so non-developers can download data without the CLI.
 
 ## License
 
