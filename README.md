@@ -28,23 +28,30 @@ shadowscope/
    ```
 6. Once the services are healthy, visit `http://localhost:8000/health` for a simple readiness check.
 
-### Offline-friendly local testing
+### Local testing
 
-If you need to run unit tests or work behind a restrictive network proxy, create a local virtual environment **before** network access is removed:
+Create a virtual environment (once) and install dependencies:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements.txt
 ```
 
-With the services running (see above) and Postgres listening on `localhost:5432`, tests can be executed offline:
+With the environment active you can run the lightweight test suite against SQLite:
 
 ```bash
-export TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/shadowscope
-pytest -q
+pytest -q tests/test_health.py
 ```
+
+To prove outbound HTTP connectivity and confirm the hardened USAspending payload still returns data, execute the CLI smoke:
+
+```bash
+python -m ui.minimal_cli --since 2025-01-01 --limit 5
+```
+
+The script prints how many awards were fetched and surfaces any upstream validation errors if they occur. SAM.gov integration will require authenticated API access and is planned for a later phase, so there is no equivalent smoke test yet.
 
 ## Development status
 
