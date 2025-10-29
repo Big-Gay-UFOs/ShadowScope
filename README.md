@@ -28,6 +28,16 @@ shadowscope/
    ```
 6. Once the services are healthy, visit `http://localhost:8000/health` for a simple readiness check.
 
+### Database migrations
+
+The ORM is the source of truth for the relational schema and migrations are managed with Alembic. Apply migrations locally with:
+
+```bash
+alembic upgrade head
+```
+
+The command respects the `DATABASE_URL` environment variable (defaults to the local SQLite dev database).
+
 ### Offline-friendly local testing
 
 If you need to run unit tests or work behind a restrictive network proxy, create a local virtual environment **before** network access is removed:
@@ -45,6 +55,9 @@ With the services running (see above) and Postgres listening on `localhost:5432`
 export TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/shadowscope
 pytest -q
 ```
+
+`requirements.txt` intentionally tracks the Phase 1 runtime footprint (FastAPI service, ORM, migrations, testing). Additional
+libraries called out in `docs/phase0_plan.md` will be added as the corresponding features land.
 
 ## Development status
 

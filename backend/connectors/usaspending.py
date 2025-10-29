@@ -112,18 +112,23 @@ def normalize_awards(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         occurred_at = _parse_date(action_date)
 
         doc_identifier = record.get("piid") or record.get("Award ID") or record.get("generated_unique_award_id")
+        unique_award_id = record.get("generated_unique_award_id") or record.get("Award ID")
+        source_url = None
+        if unique_award_id:
+            source_url = f"https://www.usaspending.gov/award/{unique_award_id}"
+
         event = AwardEvent(
             category="procurement",
             occurred_at=occurred_at,
             source=SOURCE_NAME,
-            source_url="https://www.usaspending.gov/award/{}".format(record.get("generated_unique_award_id", "")),
+            source_url=source_url,
             doc_id=str(doc_identifier) if doc_identifier else None,
             place_text=place,
             snippet=description,
             raw_json=record,
             hash=digest,
         )
-        events.append(event.dict())
+        events.append(event.model_dump())
     return events
 
 

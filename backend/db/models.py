@@ -3,7 +3,8 @@ import os
 from contextlib import contextmanager
 from typing import Iterator, Optional
 
-from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, func
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from sqlalchemy.exc import OperationalError
 
@@ -21,7 +22,7 @@ class Entity(Base):
     type = Column(String)
     sponsor = Column(String)
     sites_json = Column(JSON)
-    created_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     events = relationship("Event", back_populates="entity")
 
 
@@ -37,12 +38,12 @@ class Event(Base):
     source_url = Column(Text)
     doc_id = Column(String)
     keywords = Column(JSON)
-    clauses  = Column(JSON)
+    clauses = Column(JSON)
     place_text = Column(Text)
     snippet = Column(Text)
     raw_json = Column(JSON)
     hash = Column(String, unique=True, nullable=False)
-    created_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     entity = relationship("Entity", back_populates="events")
 
 
@@ -55,7 +56,7 @@ class Correlation(Base):
     lanes_hit = Column(JSON, nullable=False)
     summary = Column(Text)
     rationale = Column(Text)
-    created_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class CorrelationLink(Base):
@@ -65,32 +66,44 @@ class CorrelationLink(Base):
     event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"))
 
 
-_engine: Optional[object] = None
-_SessionFactory: Optional[sessionmaker] = None
+_engines: dict[str, Engine] = {}
+_session_factories: dict[str, sessionmaker] = {}
 
 
-def get_engine(database_url: Optional[str]=None):
-    url = database_url or os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
-    global _engine
-    if _engine is None:
-        _engine = create_engine(url, future=True)
-    return _engine
+def _resolve_url(database_url: Optional[str] = None) -> str:
+    return database_url or os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 
-def configure_session(database_url: Optional[str]=None) -> sessionmaker:
-    global _SessionFactory
-    engine = get_engine(database_url)
-    _SessionFactory = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
-    return _SessionFactory
+def get_engine(database_url: Optional[str] = None):
+    url = _resolve_url(database_url)
+    engine = _engines.get(url)
+    if engine is None:
+        engine = create_engine(url, future=True)
+        _engines[url] = engine
+    return engine
 
 
-def get_session_factory() -> sessionmaker:
-    return _SessionFactory or configure_session()
+def configure_session(database_url: Optional[str] = None) -> sessionmaker:
+    url = _resolve_url(database_url)
+    factory = _session_factories.get(url)
+    if factory is None:
+        engine = get_engine(url)
+        factory = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
+        _session_factories[url] = factory
+    return factory
+
+
+def get_session_factory(database_url: Optional[str] = None) -> sessionmaker:
+    url = _resolve_url(database_url)
+    factory = _session_factories.get(url)
+    if factory is None:
+        factory = configure_session(url)
+    return factory
 
 
 @contextmanager
 def session_scope(database_url: Optional[str]=None) -> Iterator[Session]:
-    session_cls = configure_session(database_url)
+    session_cls = get_session_factory(database_url)
     session = session_cls()
     try:
         yield session
