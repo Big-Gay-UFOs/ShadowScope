@@ -198,22 +198,30 @@ def fetch_sam_notices(q: str, since: str, until: str, limit: int) -> List[Dict]:
                 payload = response.json()
             except ValueError:
                 payload = {}
-            messages: List[str] = []
-            if isinstance(payload, dict):
-                for key in ("code", "message", "detail", "error"):
-                    value = payload.get(key)
-                    if isinstance(value, str):
-                        messages.append(value)
-            elif isinstance(payload, list):
-                for item in payload:
-                    if isinstance(item, dict):
-                        msg = item.get("message")
-                        if isinstance(msg, str):
-                            messages.append(msg)
+                body_text = response.text or ""
+            else:
+                body_text = ""
+
+            def _collect_messages(data: object) -> List[str]:
+                messages: List[str] = []
+                if isinstance(data, dict):
+                    for value in data.values():
+                        if isinstance(value, str):
+                            messages.append(value)
+                        else:
+                            messages.extend(_collect_messages(value))
+                elif isinstance(data, list):
+                    for item in data:
+                        messages.extend(_collect_messages(item))
+                return messages
+
+            messages = _collect_messages(payload)
+            if body_text:
+                messages.append(body_text)
             combined = " ".join(messages).lower()
-            keywords = ["api key", "api_key", "apikey"]
+            keywords = ["api key", "api_key", "apikey", "x-api-key"]
             mentions_key = any(term in combined for term in keywords)
-            if response.status_code in {401, 403} and mentions_key:
+            if response.status_code in {401, 403}:
                 return True
             if response.status_code == 400 and mentions_key:
                 return True
