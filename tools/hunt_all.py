@@ -171,7 +171,6 @@ def fetch_sam_notices(q: str, since: str, until: str, limit: int) -> List[Dict]:
     keywords = ",".join(split_or(q))
     while len(got) < limit:
         params = {
-            "api_key": api_key,
             "limit": size,
             "offset": offset,
             "postedFrom": since,
@@ -179,7 +178,30 @@ def fetch_sam_notices(q: str, since: str, until: str, limit: int) -> List[Dict]:
             "keywords": keywords,
             "ptype": "k",  # broad
         }
-        resp = requests.get(SAM_API, params=params, timeout=60)
+        # SAM.gov has historically accepted the API key in the query string,
+        # but their gateway intermittently rejects it with an "API_KEY_INVALID"
+        # response even when the key is correct.  When that happens we retry
+        # with the key provided in the "X-API-KEY" header which is accepted by
+        # the newer infrastructure.  Keeping the query parameter first avoids
+        # breaking older behaviour while still allowing the request to succeed
+        # for the updated gateway.
+        resp = requests.get(
+            SAM_API,
+            params={"api_key": api_key, **params},
+            timeout=60,
+        )
+        if resp.status_code == 403:
+            try:
+                payload = resp.json()
+            except ValueError:
+                payload = {}
+            if payload.get("code") == "API_KEY_INVALID":
+                resp = requests.get(
+                    SAM_API,
+                    params=params,
+                    headers={"X-API-KEY": api_key},
+                    timeout=60,
+                )
         if resp.status_code != 200:
             raise SystemExit(f"SAM.gov {resp.status_code}: {resp.text}")
         results = resp.json().get("opportunitiesData") or []
