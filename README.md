@@ -10,6 +10,16 @@ ShadowScope is an open-source intelligence (OSINT) pipeline focused on surfacing
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
 ```
 
+After the bootstrap script completes you can start the API in a console window with:
+
+```powershell
+Start-Process -FilePath .\Start-ShadowScope.cmd
+```
+
+The helper command file sets up a local SQLite database (`dev.db`) and launches Uvicorn on
+`http://127.0.0.1:8000` so you have a quick way to verify the stack without opening the
+virtual environment manually.
+
 The bootstrap script:
 
 1. Creates/activates a `.venv` running on Python 3.11.
