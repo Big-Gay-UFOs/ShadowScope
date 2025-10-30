@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+
+from backend.api.deps import get_db_session
 from backend.db.models import Entity
-from backend.app import get_db_session  # re-use the session dependency
 
 router = APIRouter(prefix="/api", tags=["core"])
 
