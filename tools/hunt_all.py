@@ -171,7 +171,6 @@ def fetch_sam_notices(q: str, since: str, until: str, limit: int) -> List[Dict]:
     keywords = ",".join(split_or(q))
     while len(got) < limit:
         params = {
-            "api_key": api_key,
             "limit": size,
             "offset": offset,
             "postedFrom": since,
@@ -179,7 +178,56 @@ def fetch_sam_notices(q: str, since: str, until: str, limit: int) -> List[Dict]:
             "keywords": keywords,
             "ptype": "k",  # broad
         }
-        resp = requests.get(SAM_API, params=params, timeout=60)
+        # SAM.gov has historically accepted the API key in the query string,
+        # but their gateway intermittently rejects it with an "API_KEY_INVALID"
+        # response even when the key is correct.  When that happens we retry
+        # with the key provided in the "X-API-KEY" header which is accepted by
+        # the newer infrastructure.  Keeping the query parameter first avoids
+        # breaking older behaviour while still allowing the request to succeed
+        # for the updated gateway.
+        common_headers = {"X-API-KEY": api_key}
+        resp = requests.get(
+            SAM_API,
+            params={"api_key": api_key, **params},
+            headers=common_headers,
+            timeout=60,
+        )
+
+        def _needs_header_retry(response: requests.Response) -> bool:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+            messages: List[str] = []
+            if isinstance(payload, dict):
+                for key in ("code", "message", "detail", "error"):
+                    value = payload.get(key)
+                    if isinstance(value, str):
+                        messages.append(value)
+            elif isinstance(payload, list):
+                for item in payload:
+                    if isinstance(item, dict):
+                        msg = item.get("message")
+                        if isinstance(msg, str):
+                            messages.append(msg)
+            combined = " ".join(messages).lower()
+            keywords = ["api key", "api_key", "apikey"]
+            mentions_key = any(term in combined for term in keywords)
+            if response.status_code in {401, 403} and mentions_key:
+                return True
+            if response.status_code == 400 and mentions_key:
+                return True
+            if isinstance(payload, dict) and payload.get("code") == "API_KEY_INVALID":
+                return True
+            return False
+
+        if _needs_header_retry(resp):
+            resp = requests.get(
+                SAM_API,
+                params=params,
+                headers=common_headers,
+                timeout=60,
+            )
         if resp.status_code != 200:
             raise SystemExit(f"SAM.gov {resp.status_code}: {resp.text}")
         results = resp.json().get("opportunitiesData") or []
