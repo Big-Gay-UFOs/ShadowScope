@@ -10,6 +10,16 @@ ShadowScope is an open-source intelligence (OSINT) pipeline focused on surfacing
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
 ```
 
+After the bootstrap script completes you can start the API in a console window with:
+
+```powershell
+Start-Process -FilePath .\Start-ShadowScope.cmd
+```
+
+The helper command file sets up a local SQLite database (`dev.db`) and launches Uvicorn on
+`http://127.0.0.1:8000` so you have a quick way to verify the stack without opening the
+virtual environment manually.
+
 The bootstrap script:
 
 1. Creates/activates a `.venv` running on Python 3.11.
@@ -89,6 +99,42 @@ Key entry points:
 - Alembic configuration reads `DATABASE_URL` from `.env` automatically (`python-dotenv` is loaded in `backend/db/models.py`).
 - Running `ss ingest usaspending` multiple times deduplicates events via the `hash` column (unique constraint enforced in migrations).
 - The FastAPI `/api/events/export` endpoint streams the latest CSV so non-developers can download data without the CLI.
+- To hunt multiple procurement sources at once, export your `SAM_API_KEY` (or add it to `.env`) and run `tools/hunt_all.py` with the matrix terms you care about.
+
+### Multi-source procurement hunts
+
+The `tools/hunt_all.py` helper script queries USAspending awards, USAspending transactions, and SAM.gov notices concurrently, then normalizes, scores, and exports the combined results.
+
+1. Provide your SAM.gov key once per shell session:
+
+   - PowerShell: `setx SAM_API_KEY "<your key>"` (persist) or `$env:SAM_API_KEY = "<your key>"` (current session)
+   - Bash: `export SAM_API_KEY="<your key>"`
+
+2. Run the script from the project root with whichever virtual environment Python you prefer (examples assume `.venv`):
+
+   ```powershell
+   & ".venv\Scripts\python.exe" tools\hunt_all.py `
+     --q "metamaterial OR metasurface OR negative index" `
+     --since 2007-10-01 --limit 200 `
+     --tech "metamaterial, metasurface" `
+     --platform "stealth, LO" `
+     --org "DARPA, AFRL" `
+     --min-amount 200000 `
+     --csv exotic_all_sources.csv --json exotic_all_sources.json
+   ```
+
+   ```bash
+   .venv/bin/python tools/hunt_all.py \
+     --q "metamaterial OR metasurface OR negative index" \
+     --since 2007-10-01 --limit 200 \
+     --tech "metamaterial, metasurface" \
+     --platform "stealth, LO" \
+     --org "DARPA, AFRL" \
+     --min-amount 200000 \
+     --csv exotic_all_sources.csv --json exotic_all_sources.json
+   ```
+
+The console prints the highest scoring 12 rows so you can triage quickly, while the optional CSV/JSON outputs contain the full deduplicated result set. Use `--sources awards,txns` or `--sources sam` to narrow the fetch list.
 
 ## License
 
