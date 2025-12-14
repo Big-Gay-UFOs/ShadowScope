@@ -102,7 +102,7 @@ graph TD
 
 ## Minimal dependency list (Phase 1+)
 
-- Python 3.11 runtime
+- Python 3.13 runtime
 - FastAPI + Uvicorn
 - SQLAlchemy + Alembic (migrations)
 - psycopg[binary]

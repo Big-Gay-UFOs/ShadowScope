@@ -4,7 +4,7 @@
 
 - macOS 13+ or a recent Linux distribution
 - Git
-- Python 3.11 available on `PATH` (Homebrew `python@3.11` or system package)
+- Python 3.13 available on `PATH` (Homebrew `python@3.13` or system package)
 - PostgreSQL running locally on `localhost:5432` with `postgres` / `postgres`
 - Optional: `SAM_API_KEY` for SAM.gov ingestion (the bootstrap will skip when missing)
 
@@ -18,7 +18,7 @@ From the repository root, run:
 
 The script performs the following steps:
 
-1. Creates or reuses `.venv` with Python 3.11 and installs dependencies via `pip install -e .`.
+1. Creates or reuses `.venv` with Python 3.13 and installs dependencies via `pip install -e .`.
 2. Copies `.env.example` to `.env` if missing.
 3. Initializes the database (`ss db init`).
 4. Runs tests (`ss test`).

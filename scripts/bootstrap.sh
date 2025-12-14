@@ -6,8 +6,8 @@ cd "$REPO_ROOT"
 
 echo "ShadowScope bootstrap starting..."
 
-if command -v python3.11 >/dev/null 2>&1; then
-  PY_CMD="python3.11"
+if command -v python3.13 >/dev/null 2>&1; then
+  PY_CMD="python3.13"
 elif command -v python3 >/dev/null 2>&1; then
   PY_CMD="python3"
 else
