@@ -73,7 +73,9 @@ def fetch_usaspending_awards(q: str, since: str, until: str, limit: int) -> List
         }
         resp = requests.post(USA_AWARD_API, json=payload, timeout=60)
         if resp.status_code != 200:
-            raise SystemExit(f"USAspending awards {resp.status_code}: {resp.text}")
+            raise RuntimeError(
+                f"USAspending awards {resp.status_code}: {resp.text}"
+            )
         results = resp.json().get("results", []) or []
         if not results:
             break
@@ -131,7 +133,9 @@ def fetch_usaspending_txns(q: str, since: str, until: str, limit: int) -> List[D
         }
         resp = requests.post(USA_TXN_API, json=payload, timeout=60)
         if resp.status_code != 200:
-            raise SystemExit(f"USAspending txns {resp.status_code}: {resp.text}")
+            raise RuntimeError(
+                f"USAspending txns {resp.status_code}: {resp.text}"
+            )
         results = resp.json().get("results", []) or []
         if not results:
             break
@@ -164,7 +168,7 @@ SAM_API = "https://api.sam.gov/opportunities/v2/search"
 def fetch_sam_notices(q: str, since: str, until: str, limit: int) -> List[Dict]:
     api_key = os.environ.get("SAM_API_KEY")
     if not api_key:
-        raise SystemExit("Set SAM_API_KEY env var for SAM.gov.")
+        raise RuntimeError("Set SAM_API_KEY env var for SAM.gov.")
     size = min(100, limit)
     offset = 0
     got = []
@@ -203,7 +207,7 @@ def fetch_sam_notices(q: str, since: str, until: str, limit: int) -> List[Dict]:
                     timeout=60,
                 )
         if resp.status_code != 200:
-            raise SystemExit(f"SAM.gov {resp.status_code}: {resp.text}")
+            raise RuntimeError(f"SAM.gov {resp.status_code}: {resp.text}")
         results = resp.json().get("opportunitiesData") or []
         if not results:
             break
@@ -270,29 +274,41 @@ def main() -> None:
     srcs = {s.strip().lower() for s in args.sources.split(",") if s.strip()}
 
     tasks = []
+    task_sources: Dict[cf.Future, str] = {}
     with cf.ThreadPoolExecutor(max_workers=3) as executor:
         if "awards" in srcs:
-            tasks.append(
-                executor.submit(
-                    fetch_usaspending_awards, args.q, args.since, args.until, args.limit
-                )
+            future = executor.submit(
+                fetch_usaspending_awards, args.q, args.since, args.until, args.limit
             )
+            tasks.append(future)
+            task_sources[future] = "usaspending_awards"
         if "txns" in srcs:
-            tasks.append(
-                executor.submit(
-                    fetch_usaspending_txns, args.q, args.since, args.until, args.limit
-                )
+            future = executor.submit(
+                fetch_usaspending_txns, args.q, args.since, args.until, args.limit
             )
+            tasks.append(future)
+            task_sources[future] = "usaspending_txns"
         if "sam" in srcs:
-            tasks.append(
-                executor.submit(
-                    fetch_sam_notices, args.q, args.since, args.until, args.limit
-                )
+            future = executor.submit(
+                fetch_sam_notices, args.q, args.since, args.until, args.limit
             )
+            tasks.append(future)
+            task_sources[future] = "sam_notices"
 
         all_rows: List[Dict] = []
+        errors: List[str] = []
         for task in cf.as_completed(tasks):
-            all_rows += task.result()
+            source = task_sources.get(task, "unknown")
+            try:
+                all_rows += task.result()
+            except Exception as exc:
+                errors.append(f"{source}: {exc}")
+        if errors:
+            print(
+                "Some sources failed and were skipped:\n  - "
+                + "\n  - ".join(errors),
+                file=sys.stderr,
+            )
 
     # filters + scoring
     filtered = []
