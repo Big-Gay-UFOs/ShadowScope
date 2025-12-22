@@ -14,20 +14,20 @@ Write-Host "ShadowScope bootstrap starting..." -ForegroundColor Cyan
 
 $venvPath = Join-Path $RepoRoot ".venv"
 
-function Resolve-Python311 {
+function Resolve-Python313 {
     if (Get-Command py -ErrorAction SilentlyContinue) {
-        return "py -3.11"
+        return "py -3.13"
     }
-    if (Get-Command python3.11 -ErrorAction SilentlyContinue) {
-        return "python3.11"
+    if (Get-Command python3.13 -ErrorAction SilentlyContinue) {
+        return "python3.13"
     }
     if (Get-Command python -ErrorAction SilentlyContinue) {
         return "python"
     }
-    throw "Python 3.11 executable not found. Install Python 3.11 from https://www.python.org/downloads/"
+    throw "Python 3.13 executable not found. Install Python 3.13 from https://www.python.org/downloads/"
 }
 
-$pythonCmd = Resolve-Python311
+$pythonCmd = Resolve-Python313
 
 if (-not (Test-Path $venvPath)) {
     Write-Host "Creating virtual environment at $venvPath" -ForegroundColor Yellow

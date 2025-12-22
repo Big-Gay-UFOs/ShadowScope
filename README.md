@@ -22,7 +22,7 @@ virtual environment manually.
 
 The bootstrap script:
 
-1. Creates/activates a `.venv` running on Python 3.11.
+1. Creates/activates a `.venv` running on Python 3.13.
 2. Installs ShadowScope in editable mode (`pip install -e .`).
 3. Copies `.env.example` → `.env` (preserving any existing `.env`).
 4. Initializes the Postgres database with Alembic migrations (`ss db init`).

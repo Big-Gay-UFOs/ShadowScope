@@ -8,7 +8,7 @@ set "UVICORN_LOG_LEVEL=%UVICORN_LOG_LEVEL%"
 if not defined UVICORN_LOG_LEVEL set "UVICORN_LOG_LEVEL=debug"
 
 set "VENV_PY=.venv\Scripts\python.exe"
-if exist ".venv311\Scripts\python.exe" set "VENV_PY=.venv311\Scripts\python.exe"
+if exist ".venv313\Scripts\python.exe" set "VENV_PY=.venv313\Scripts\python.exe"
 
 if not exist "%VENV_PY%" (
     echo Unable to locate a virtual environment python interpreter.

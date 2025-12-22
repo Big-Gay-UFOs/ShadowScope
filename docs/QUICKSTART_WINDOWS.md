@@ -17,7 +17,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
 
 The script will:
 
-1. Create or reuse `.venv` with Python 3.11 and install dependencies via `pip install -e .`.
+1. Create or reuse `.venv` with Python 3.13 and install dependencies via `pip install -e .`.
 2. Copy `.env.example` to `.env` if the latter is missing.
 3. Initialize the Postgres database with Alembic migrations using `ss db init`.
 4. Run the pytest suite (`ss test`).
