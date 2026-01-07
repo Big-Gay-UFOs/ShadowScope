@@ -1,0 +1,2 @@
+[console_scripts]
+ss = shadowscope.cli:run

@@ -1,6 +1,6 @@
-<#!
+﻿<#!
     ShadowScope Windows bootstrap script.
-!>
+#>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -16,7 +16,7 @@ $venvPath = Join-Path $RepoRoot ".venv"
 
 function Resolve-Python313 {
     if (Get-Command py -ErrorAction SilentlyContinue) {
-        return "py -3.13"
+        return "python"
     }
     if (Get-Command python3.13 -ErrorAction SilentlyContinue) {
         return "python3.13"
