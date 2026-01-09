@@ -1,0 +1,290 @@
+{
+  "spending_level": "awards",
+  "limit": 25,
+  "results": [
+    {
+      "internal_id": 354165922,
+      "Award ID": "9531CB26F0009",
+      "Recipient Name": "NEW TECH SOLUTIONS, INC.",
+      "Award Amount": 24747.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "GITHUB LICENSES",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_9531CB26F0009_955F_NNG15SC82B_8000"
+    },
+    {
+      "internal_id": 354165917,
+      "Award ID": "90MC0026P0043",
+      "Recipient Name": "SONORA & ASSOCIATES LLC",
+      "Award Amount": 129331.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "SR. NETWORK ENGINEER EMPLOYEE",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_90MC0026P0043_9000_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165916,
+      "Award ID": "89503326FWA400210",
+      "Recipient Name": "GOVCONNECTION INC",
+      "Award Amount": 15151.65,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "SNR BEALE CAT RTU EQUIPMENT",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_89503326FWA400210_8900_NNG15SC36B_8000"
+    },
+    {
+      "internal_id": 354165915,
+      "Award ID": "89503326FWA000127",
+      "Recipient Name": "ENVIRONMENTAL RESEARCH GROUP, L.L.C.",
+      "Award Amount": 113813.4,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "CALL #4 BIOLOGICAL SUPPORT SERVICES FOR ROW VEGETATION REMOVAL PROJECT - 241201, WESTERN AREA POWER ADMINISTRATION, SIERRA NEVADA REGION",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_89503326FWA000127_8900_89503325AWA000014_8900"
+    },
+    {
+      "internal_id": 354165902,
+      "Award ID": "89233126PNA000208",
+      "Recipient Name": "AMAZON WEB SERVICES, INC.",
+      "Award Amount": 10000000.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "AWS GENESIS DEMONSTRATOR",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_89233126PNA000208_8900_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165896,
+      "Award ID": "80NSSC26FA103",
+      "Recipient Name": "CARAHSOFT TECHNOLOGY CORP",
+      "Award Amount": 54500.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "OSISOFT PI PROFESSIONAL SERVICES",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_80NSSC26FA103_8000_NNG15SC03B_8000"
+    },
+    {
+      "internal_id": 354165895,
+      "Award ID": "80NSSC26FA099",
+      "Recipient Name": "NEW TECH SOLUTIONS, INC.",
+      "Award Amount": 15771.44,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "QUEST FY 26 DELL V-RANGER (QUEST)",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_80NSSC26FA099_8000_NNG15SC82B_8000"
+    },
+    {
+      "internal_id": 354165894,
+      "Award ID": "80NSSC26FA098",
+      "Recipient Name": "ACCESSAGILITY LLC",
+      "Award Amount": 61118.73,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "FY26 SONARQUBE SERVER DEVELOPER EDITION",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_80NSSC26FA098_8000_NNG15SC23B_8000"
+    },
+    {
+      "internal_id": 354165892,
+      "Award ID": "80NSSC26FA046",
+      "Recipient Name": "FEDDATA TECHNOLOGY SOLUTIONS, LLC",
+      "Award Amount": 14234.25,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "UBIQUITI NETWORKS HARDWARE",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_80NSSC26FA046_8000_NNG15SD84B_8000"
+    },
+    {
+      "internal_id": 354165835,
+      "Award ID": "75R60226F34097",
+      "Recipient Name": "MACGINNITIE ANDREW J",
+      "Award Amount": 24375.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "HSB MEDICAL EXPERT SERVICES VICP.",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75R60226F34097_7526_75R60223A00003_7526"
+    },
+    {
+      "internal_id": 354165834,
+      "Award ID": "75R60226F34010",
+      "Recipient Name": "BRIAN OLSHANSKY, MD, LLC",
+      "Award Amount": 7500.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "HSB MEDICAL EXPERT SERVICES VICP",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75R60226F34010_7526_75R60221A00078_7526"
+    },
+    {
+      "internal_id": 354165833,
+      "Award ID": "75R60226F34003",
+      "Recipient Name": "BENSON, LESLIE A",
+      "Award Amount": 3750.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "HSB MEDICAL EXPERT SERVICES VICP.",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75R60226F34003_7526_75R60224A00021_7526"
+    },
+    {
+      "internal_id": 354165832,
+      "Award ID": "75P00226P00003",
+      "Recipient Name": "MERIDIAN MEDICAL TECHNOLOGIES, LLC",
+      "Award Amount": 418637.55,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "DUODOTE AUTO INJECTORS, FPAE NDC # 11704-0620-01",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75P00226P00003_7570_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165822,
+      "Award ID": "75N94026P00093",
+      "Recipient Name": "PEAK SCIENTIFIC INC",
+      "Award Amount": 16701.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "NICHD: SUPPLIES - THIS FIRM FIXED PRICE PURCHASE ORDER IS AWARDED FOR SOLARIS XE NITROGEN GENERATOR RELATED MAINTENANCE TO PEAK SCIENTIFIC INC.:1173056 - SEVERABLE QUOTE# 10096862",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75N94026P00093_7529_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165821,
+      "Award ID": "75N94026P00092",
+      "Recipient Name": "ONE PARKING 6700 ROCKLEDGE INC",
+      "Award Amount": 45900.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "NIAAA: SERVICE: THIS FIRM FIXED PRICE PURCHASE ORDER IS AWARDED FOR 40 PARKING SPACES FOR 12 MONTHS.",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75N94026P00092_7529_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165820,
+      "Award ID": "75N93026F00001",
+      "Recipient Name": "MEDICAL SCIENCE & COMPUTING, LLC",
+      "Award Amount": 150509.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "NIAID PROFESSIONAL, SCIENTIFIC, AND TECHNICAL SUPPORT SERVICES FOR DIR",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75N93026F00001_7529_75N93019D00023_7529"
+    },
+    {
+      "internal_id": 354165816,
+      "Award ID": "75N90026P00039",
+      "Recipient Name": "VWR INTERNATIONAL LLC",
+      "Award Amount": 321024.46,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "CGMP CLEANING SUPPLIES FROM VWR INTERNATIONAL:1110027 [26-001796]",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75N90026P00039_7529_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165815,
+      "Award ID": "75N90026P00038",
+      "Recipient Name": "BIO-RAD LABORATORIES, INC.",
+      "Award Amount": 30298.8,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "BIO-RAD LABORATORIES:1110109 [26-000112]",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75N90026P00038_7529_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165814,
+      "Award ID": "75H71226F80006",
+      "Recipient Name": "TRILLAMED LLC",
+      "Award Amount": 42090.25,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "TRURIZE CLINICAL CHAIRS AND ACCESSORIES",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75H71226F80006_7527_36F79720D0041_3600"
+    },
+    {
+      "internal_id": 354165801,
+      "Award ID": "75H70526P00009",
+      "Recipient Name": "FUJIFILM HEALTHCARE AMERICAS CORP",
+      "Award Amount": 70498.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "RLSU SYNAPSE UPGRADE TO SYNAPSE V7.4 AND HARDWARE UPGRADE",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75H70526P00009_7527_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165799,
+      "Award ID": "75H70126F30002",
+      "Recipient Name": "COOPER ZIETZ ENGINEERS, INC.",
+      "Award Amount": 177788.62,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "FORT YUMA DRIVE-THROUGH PHARMACY DESIGN, PH25YU01C6",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75H70126F30002_7527_75H70124D00001_7527"
+    },
+    {
+      "internal_id": 354165794,
+      "Award ID": "75F40126F80007",
+      "Recipient Name": "EXECUTIVE INFORMATION SYSTEMS, L.L.C.",
+      "Award Amount": 1159984.27,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "ODT - SAS AND JMP SOFTWARE LICENSE MAINTENANCE",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_75F40126F80007_7524_47QTCA18D0081_4732"
+    },
+    {
+      "internal_id": 354165776,
+      "Award ID": "70Z0G126CSLIS0001",
+      "Recipient Name": "GALVIN BROS., INC.",
+      "Award Amount": 587500.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "DREDGE CHANNEL AT USCG STATION EATONS NECK (FY26) NORTHPORT, NY",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_70Z0G126CSLIS0001_7008_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165775,
+      "Award ID": "70Z08526PIBCT0037",
+      "Recipient Name": "BLUEWATER MANAGEMENT GROUP LLC",
+      "Award Amount": 58025.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "GSA SCHEDULE CONTRACT NUMBER GS-33F-053AA USCGC WIRE MESSING AND BERTHING POP 06JAN26-02MAR26",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_70Z08526PIBCT0037_7008_-NONE-_-NONE-"
+    },
+    {
+      "internal_id": 354165774,
+      "Award ID": "70Z08426FLALB0005",
+      "Recipient Name": "PATRIOT ENVIRONMENTAL SERVICES, INC.",
+      "Award Amount": 15000.0,
+      "Action Date": null,
+      "Last Modified Date": "2026-01-05",
+      "Description": "UCGPA26009 - PROVIDE LABOR, MATERIALS AND EQUIPMENT TO MITIGATE THE HARMFUL EFFECTS OF AN OIL SPILL OR HAZARDOUS CHEMICALS INCIDENT AS DIRECTED BY THE FOSC.",
+      "Place of Performance": null,
+      "generated_internal_id": "CONT_AWD_70Z08426FLALB0005_7008_70Z08421GA0004100_7008"
+    }
+  ],
+  "page_metadata": {
+    "page": 1,
+    "hasNext": true,
+    "last_record_unique_id": 354165774,
+    "last_record_sort_value": "1767571200000"
+  },
+  "messages": [
+    "For searches, time period start and end dates are currently limited to an earliest date of 2007-10-01.  For data going back to 2000-10-01, use either the Custom Award Download feature on the website or one of our download or bulk_download API endpoints as listed on https://api.usaspending.gov/docs/endpoints. "
+  ]
+}

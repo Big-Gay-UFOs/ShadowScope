@@ -12,16 +12,17 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
-DEFAULT_LIMIT = 200
-MAX_LIMIT = 500
+
+# Practical max page size for this endpoint. If you want 200, we do 2 pages of 100.
+MAX_PAGE_SIZE = 100
+DEFAULT_LIMIT = 100
 SOURCE_NAME = "USAspending"
 
 
 class AwardFilter(BaseModel):
     """Input parameters for the USAspending search API."""
-
     since: date = Field(default=date(2008, 1, 1))
-    limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT)
+    limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=MAX_PAGE_SIZE)
     page: int = Field(default=1, ge=1)
 
 
@@ -41,8 +42,12 @@ class AwardEvent(BaseModel):
     hash: str
 
 
-def _build_request_payload(filters: AwardFilter) -> Dict[str, Any]:
-    return {
+def _build_request_payload(
+    filters: AwardFilter,
+    recipient_search_text: Optional[List[str]] = None,
+    keywords: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
         "fields": [
             "Award ID",
             "Recipient Name",
@@ -67,17 +72,35 @@ def _build_request_payload(filters: AwardFilter) -> Dict[str, Any]:
         "sort": "Last Modified Date",
         "order": "desc",
         "subawards": False,
-}
+    }
+
+    # Optional narrowing (pre-filtering) so we don't pull the entire federal firehose.
+    if recipient_search_text:
+        payload["filters"]["recipient_search_text"] = recipient_search_text
+    if keywords:
+        payload["filters"]["keywords"] = keywords
+
+    return payload
 
 
 def fetch_awards_page(
-    session: requests.Session, filters: AwardFilter, timeout: int = 60
+    session: requests.Session,
+    filters: AwardFilter,
+    timeout: int = 60,
+    recipient_search_text: Optional[List[str]] = None,
+    keywords: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Fetch a single page of awards with the provided session."""
-    payload = _build_request_payload(filters)
+    payload = _build_request_payload(filters, recipient_search_text=recipient_search_text, keywords=keywords)
     logger.debug("USAspending request payload: %s", payload)
+
     response = session.post(BASE_URL, json=payload, timeout=timeout)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError:
+        logger.error("USAspending error %s: %s", response.status_code, response.text)
+        raise
+
     return response.json()
 
 
@@ -86,6 +109,8 @@ def fetch_awards(
     limit: int = 2000,
     session: Optional[requests.Session] = None,
     max_pages: Optional[int] = None,
+    recipient_search_text: Optional[List[str]] = None,
+    keywords: Optional[List[str]] = None,
 ) -> Iterable[Dict[str, Any]]:
     """Fetch awards from USAspending with automatic pagination."""
     sess = session or requests.Session()
@@ -93,9 +118,22 @@ def fetch_awards(
     page = 1
 
     while remaining > 0 and (max_pages is None or page <= max_pages):
-        page_limit = min(MAX_LIMIT, remaining)
-        filters = AwardFilter(since=date.fromisoformat(since), limit=page_limit, page=page)
-        data = fetch_awards_page(sess, filters)
+        # Force page size <= 100 to avoid 422s
+        page_limit = min(MAX_PAGE_SIZE, remaining)
+
+        filters = AwardFilter(
+            since=date.fromisoformat(since),
+            limit=page_limit,
+            page=page,
+        )
+
+        data = fetch_awards_page(
+            sess,
+            filters,
+            recipient_search_text=recipient_search_text,
+            keywords=keywords,
+        )
+
         results = data.get("results", [])
         logger.info("Fetched %d awards from USAspending (page %d)", len(results), page)
 
@@ -104,6 +142,7 @@ def fetch_awards(
 
         if len(results) < page_limit:
             break
+
         remaining -= len(results)
         page += 1
 
@@ -114,6 +153,7 @@ def normalize_awards(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for record in records:
         unique_key = str(record.get("internal_id") or record.get("generated_unique_award_id") or record)
         digest = hashlib.sha256(unique_key.encode("utf-8")).hexdigest()
+
         action_date = (
             record.get("Action Date")
             or record.get("action_date")
@@ -126,9 +166,8 @@ def normalize_awards(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         doc_identifier = record.get("piid") or record.get("Award ID") or record.get("generated_unique_award_id")
         unique_award_id = record.get("generated_unique_award_id") or record.get("Award ID")
-        source_url = None
-        if unique_award_id:
-            source_url = f"https://www.usaspending.gov/award/{unique_award_id}"
+
+        source_url = f"https://www.usaspending.gov/award/{unique_award_id}" if unique_award_id else None
 
         event = AwardEvent(
             category="procurement",
