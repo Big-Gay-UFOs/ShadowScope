@@ -39,7 +39,7 @@ def ingest_usaspending(
     days: int,
     limit: int,
     pages: int,
-    database_url: Optional[str] = None,
+    start_page: int = 1, database_url: Optional[str] = None,
 ) -> Dict[str, object]:
     ensure_runtime_directories()
     session = _build_retrying_session()
