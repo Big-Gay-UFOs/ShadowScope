@@ -23,6 +23,7 @@ class AwardFilter(BaseModel):
     """Input parameters for the USAspending search API."""
     since: date = Field(default=date(2008, 1, 1))
     limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=MAX_PAGE_SIZE)
+MAX_LIMIT = 100  # USAspending spending_by_award per-page cap
     page: int = Field(default=1, ge=1)
 
 
