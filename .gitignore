@@ -12,3 +12,6 @@ dev.db
 test.db
 server.log
 shadowscope.egg-info/
+
+logs/
+data/
