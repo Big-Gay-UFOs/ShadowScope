@@ -1,6 +1,4 @@
-version: '3.9'
-
-services:
+﻿services:
   db:
     image: postgres:15
     container_name: shadowscope-db
@@ -13,6 +11,11 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shadowscope"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
 
   opensearch:
     image: opensearchproject/opensearch:2.11.0
@@ -41,8 +44,10 @@ services:
     volumes:
       - ./:/app
     depends_on:
-      - db
-      - opensearch
+      db:
+        condition: service_healthy
+      opensearch:
+        condition: service_started
 
 volumes:
   db_data:
