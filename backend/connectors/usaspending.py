@@ -16,6 +16,7 @@ BASE_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
 # Practical max page size for this endpoint. If you want 200, we do 2 pages of 100.
 MAX_PAGE_SIZE = 100
 DEFAULT_LIMIT = 100
+MAX_LIMIT = 100  # USAspending spending_by_award per-page cap
 SOURCE_NAME = "USAspending"
 
 
@@ -23,7 +24,6 @@ class AwardFilter(BaseModel):
     """Input parameters for the USAspending search API."""
     since: date = Field(default=date(2008, 1, 1))
     limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=MAX_PAGE_SIZE)
-MAX_LIMIT = 100  # USAspending spending_by_award per-page cap
     page: int = Field(default=1, ge=1)
 
 
