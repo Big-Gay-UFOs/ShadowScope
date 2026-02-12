@@ -54,7 +54,7 @@ def ingest_usaspending(
     SessionFactory = get_session_factory(database_url)
     db = SessionFactory()
     try:
-        for page in range(1, pages + 1):
+        for page in range(start_page, start_page + pages):
             if total_fetched >= limit:
                 break
             page_limit = min(usaspending.MAX_LIMIT, limit - total_fetched)
@@ -70,6 +70,7 @@ def ingest_usaspending(
             if not normalized:
                 continue
             inserted += _upsert_events(db, normalized)
+            db.commit()
             if len(results) < page_limit:
                 break
         db.commit()
@@ -90,8 +91,8 @@ def _upsert_events(session: Session, events):
     if dialect == "postgresql":
         stmt = pg_insert(Event).values(events)
         stmt = stmt.on_conflict_do_nothing(index_elements=["hash"])
-        result = session.execute(stmt)
-        return result.rowcount or 0
+        result = session.execute(stmt.returning(Event.id))
+        return len(result.fetchall())
     inserted = 0
     for event in events:
         exists = session.query(Event.id).filter_by(hash=event["hash"]).first()

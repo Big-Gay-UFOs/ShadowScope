@@ -7,9 +7,27 @@ from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
+import time
+import random
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+def _post_with_retries(session, url, payload, timeout=60, max_retries=8, backoff_base=0.75):
+    for attempt in range(max_retries + 1):
+        try:
+            resp = session.post(url, json=payload, timeout=timeout)
+            # Retry on common transient statuses
+            if resp.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(f"HTTP {resp.status_code}", response=resp)
+            return resp
+        except requests.RequestException as exc:
+            if attempt >= max_retries:
+                raise
+            sleep_s = min(60.0, backoff_base * (2 ** attempt)) + random.random()
+            logger.warning("USAspending request failed (%s). Retry %d/%d in %.1fs", type(exc).__name__, attempt + 1, max_retries, sleep_s)
+            time.sleep(sleep_s)
 
 BASE_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
 
@@ -95,7 +113,7 @@ def fetch_awards_page(
     payload = _build_request_payload(filters, recipient_search_text=recipient_search_text, keywords=keywords)
     logger.debug("USAspending request payload: %s", payload)
 
-    response = session.post(BASE_URL, json=payload, timeout=timeout)
+    response = _post_with_retries(session, BASE_URL, payload, timeout=timeout)
     try:
         response.raise_for_status()
     except requests.HTTPError:

@@ -84,9 +84,10 @@ def ingest_usaspending_cli(
     days: int = typer.Option(7, help="Number of days of history to request"),
     limit: int = typer.Option(100, help="Maximum records to pull"),
     pages: int = typer.Option(1, help="Maximum API pages to request"),
+    start_page: int = typer.Option(1, \"--start-page\", help=\"Start page (for resume/chunking)\"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
-    result = ingest_usaspending(days=days, limit=limit, pages=pages, database_url=database_url)
+    result = ingest_usaspending(days=days, limit=limit, pages=pages, start_page=start_page, database_url=database_url)
     typer.echo(
         f"Ingested {result['fetched']} rows ({result['inserted']} inserted, {result['normalized']} normalized)."
     )
