@@ -89,7 +89,7 @@ def _upsert_events(session: Session, events):
     dialect = session.bind.dialect.name  # type: ignore[attr-defined]
     if dialect == "postgresql":
         stmt = pg_insert(Event).values(events)
-        stmt = stmt.on_conflict_do_nothing(constraint="uq_events_hash")
+        stmt = stmt.on_conflict_do_nothing(index_elements=["hash"])
         result = session.execute(stmt)
         return result.rowcount or 0
     inserted = 0
