@@ -29,3 +29,6 @@ postgres-data/
 
 # Build artifacts
 shadowscope.egg-info/
+*.bak
+
+backups/
