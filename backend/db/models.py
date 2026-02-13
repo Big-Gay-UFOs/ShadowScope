@@ -5,7 +5,7 @@ from typing import Iterator, Optional
 
 from dotenv import load_dotenv
 
-from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, func
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, func
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from sqlalchemy.exc import OperationalError
@@ -32,6 +32,7 @@ class Entity(Base):
 
 class Event(Base):
     __tablename__ = "events"
+    __table_args__ = (UniqueConstraint("hash", name="uq_events_hash"),)
     id = Column(Integer, primary_key=True)
     entity_id = Column(Integer, ForeignKey("entities.id"))
     category = Column(String, nullable=False)
@@ -46,7 +47,7 @@ class Event(Base):
     place_text = Column(Text)
     snippet = Column(Text)
     raw_json = Column(JSON)
-    hash = Column(String, unique=True, nullable=False)
+    hash = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     entity = relationship("Entity", back_populates="events")
 
