@@ -2,16 +2,30 @@ __pycache__/
 *.pyc
 *.pyo
 *.log
+
+# Env files (do not commit real .env)
 .env
 .env.*
+!.env.example
+
+# Pytest
 .pytest_cache/
-.opensearch-data
-postgres-data
+
+# Virtualenv
 .venv/
+
+# Local DBs
 dev.db
 test.db
-server.log
-shadowscope.egg-info/
 
+# Runtime artifacts
+server.log
 logs/
 data/
+
+# Legacy/local volume dirs (if used)
+.opensearch-data/
+postgres-data/
+
+# Build artifacts
+shadowscope.egg-info/
