@@ -9,6 +9,7 @@ from typing import Dict, Optional
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -37,13 +38,27 @@ def _build_retrying_session() -> requests.Session:
 
 def ingest_usaspending(
     days: int,
-    limit: int,
     pages: int,
-    start_page: int = 1, database_url: Optional[str] = None,
+    page_size: int = usaspending.MAX_LIMIT,
+    max_records: Optional[int] = None,
+    start_page: int = 1,
+    database_url: Optional[str] = None,
 ) -> Dict[str, object]:
+    """Ingest USAspending awards into the events table.
+
+    Semantics:
+      - pages: maximum pages to request (starting at start_page)
+      - page_size: max records per page (capped to <= 100 by the upstream API)
+      - max_records: optional total cap across all pages (defaults to pages * page_size)
+    """
     ensure_runtime_directories()
     session = _build_retrying_session()
+
     since = date.today() - timedelta(days=max(days, 1))
+
+    page_size = max(1, min(int(page_size), usaspending.MAX_LIMIT))
+    max_total = int(max_records) if max_records is not None else pages * page_size
+
     total_fetched = 0
     normalized_total = 0
     inserted = 0
@@ -53,46 +68,61 @@ def ingest_usaspending(
 
     SessionFactory = get_session_factory(database_url)
     db = SessionFactory()
+
     try:
         for page in range(start_page, start_page + pages):
-            if total_fetched >= limit:
+            remaining = max_total - total_fetched
+            if remaining <= 0:
                 break
-            page_limit = min(usaspending.MAX_LIMIT, limit - total_fetched)
+
+            page_limit = min(page_size, remaining)
+
             filters = usaspending.AwardFilter(since=since, limit=page_limit, page=page)
             data = usaspending.fetch_awards_page(session, filters)
+
             raw_path = snapshot_dir / f"page_{page}.json"
             raw_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
             results = data.get("results", [])
             LOGGER.info("Fetched %d USAspending rows (page %d)", len(results), page)
+
             total_fetched += len(results)
             normalized = usaspending.normalize_awards(results)
             normalized_total += len(normalized)
-            if not normalized:
-                continue
-            inserted += _upsert_events(db, normalized)
-            db.commit()
+
+            if normalized:
+                inserted += _upsert_events(db, normalized)
+                db.commit()
+
+            # If API returns fewer than requested, we've hit the end of results
             if len(results) < page_limit:
                 break
+
         db.commit()
     finally:
         db.close()
+
     return {
         "fetched": total_fetched,
         "normalized": normalized_total,
         "inserted": inserted,
         "snapshot_dir": snapshot_dir,
+        "page_size": page_size,
+        "max_total": max_total,
     }
 
 
 def _upsert_events(session: Session, events):
     if not events:
         return 0
+
     dialect = session.bind.dialect.name  # type: ignore[attr-defined]
     if dialect == "postgresql":
         stmt = pg_insert(Event).values(events)
         stmt = stmt.on_conflict_do_nothing(index_elements=["hash"])
         result = session.execute(stmt.returning(Event.id))
         return len(result.fetchall())
+
     inserted = 0
     for event in events:
         exists = session.query(Event.id).filter_by(hash=event["hash"]).first()
