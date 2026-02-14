@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 import os
@@ -127,3 +127,17 @@ def list_leads(
         }
         for sc, e in top
     ]
+
+from backend.search.opensearch import opensearch_search
+
+@router.get("/search")
+def search(
+    q: str,
+    limit: int = 50,
+    source: str | None = None,
+    category: str | None = None,
+):
+    try:
+        return opensearch_search(q=q, limit=limit, source=source, category=category)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))

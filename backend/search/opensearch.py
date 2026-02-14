@@ -40,3 +40,58 @@ def opensearch_health(timeout: float = 2.0) -> Dict[str, Any]:
     except Exception as e:
         out["error"] = str(e)
         return out
+def opensearch_search(
+    q: str,
+    limit: int = 50,
+    source: str | None = None,
+    category: str | None = None,
+    timeout: float = 5.0,
+) -> list[dict]:
+    url, index = get_opensearch_config()
+    url = url.rstrip("/")
+
+    if not q or not q.strip():
+        return []
+
+    body: Dict[str, Any] = {
+        "size": max(1, min(int(limit), 200)),
+        "query": {
+            "bool": {
+                "must": [
+                    {
+                        "multi_match": {
+                            "query": q,
+                            "fields": ["snippet^2", "place_text", "doc_id", "keywords"],
+                            "type": "best_fields",
+                        }
+                    }
+                ],
+                "filter": [],
+            }
+        },
+        "sort": ["_score"],
+    }
+
+    if source:
+        body["query"]["bool"]["filter"].append({"term": {"source": source}})
+    if category:
+        body["query"]["bool"]["filter"].append({"term": {"category": category}})
+
+    r = requests.post(f"{url}/{index}/_search", json=body, timeout=timeout)
+    if r.status_code == 404:
+        raise RuntimeError(f"OpenSearch index not found: {index}")
+    r.raise_for_status()
+
+    data = r.json()
+    hits = data.get("hits", {}).get("hits", [])
+    out = []
+    for h in hits:
+        src = h.get("_source", {})
+        out.append(
+            {
+                "score": h.get("_score"),
+                "hash": h.get("_id") or src.get("hash"),
+                **src,
+            }
+        )
+    return out
