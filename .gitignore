@@ -32,3 +32,6 @@ shadowscope.egg-info/
 *.bak
 
 backups/
+
+docker-compose.override.yml
+
