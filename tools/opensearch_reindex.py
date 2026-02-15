@@ -57,7 +57,6 @@ def ensure_index(s: Session, base_url: str, index: str, recreate: bool) -> None:
     wait_for_opensearch(s, base_url)
 
     if recreate:
-        # ignore failures if missing
         try:
             req(s, "DELETE", f"{base_url}/{index}", timeout=30)
         except requests.RequestException:
@@ -129,7 +128,6 @@ def to_iso(dt: Any) -> Optional[str]:
 
 
 def get_max_event_id_in_index(s: Session, base_url: str, index: str) -> int:
-    # If index doesn't exist, treat as empty
     r = req(s, "GET", f"{base_url}/{index}", attempts=2, timeout=15)
     if r.status_code != 200:
         return 0
@@ -176,10 +174,6 @@ def bulk_index(
     indexed = 0
     last_id = start_id
 
-    with engine.connect() as conn:
-        total = conn.execute(text("select count(*) from events")).scalar_one()
-        max_id = conn.execute(text("select coalesce(max(id),0) from events")).scalar_one()
-
     while True:
         with engine.connect() as conn:
             rows = fetch_batch(conn, last_id=last_id, limit=batch)
@@ -220,14 +214,9 @@ def bulk_index(
         resp.raise_for_status()
         data = resp.json()
         if data.get("errors"):
-            bad = [it for it in data.get("items", []) if list(it.values())[0].get("error")]
-            print("Bulk indexing errors detected. First 3:", bad[:3])
             raise SystemExit(2)
 
         indexed += len(rows)
-
-        if indexed and indexed % (batch * 5) == 0:
-            print(f"Indexed {indexed} rows... (db max_id={max_id}, db total={total})")
 
     req(s, "POST", f"{base_url}/{index}/_refresh", timeout=60)
     return indexed, last_id
@@ -241,29 +230,22 @@ def main() -> None:
     ap.add_argument("--batch", type=int, default=500)
     ap.add_argument("--recreate", action="store_true", help="Drop and recreate the index (full reindex).")
     ap.add_argument("--full", action="store_true", help="Full reindex without dropping the index.")
+    ap.add_argument("--json", action="store_true", help="Print a one-line JSON summary to stdout.")
     args = ap.parse_args()
 
     if not args.database_url:
         raise SystemExit("DATABASE_URL is not set")
 
-    # Avoid leaking creds in output
     db_hint = args.database_url.split("@")[-1]
-    print("OpenSearch:", args.opensearch_url)
-    print("Index:", args.index)
-    print("DB:", db_hint)
-
     s = make_session()
     ensure_index(s, args.opensearch_url, args.index, recreate=args.recreate)
 
     if args.recreate or args.full:
         start_id = 0
+        mode = "recreate" if args.recreate else "full"
     else:
         start_id = get_max_event_id_in_index(s, args.opensearch_url, args.index)
-
-    if start_id:
-        print(f"Incremental mode: indexing events with id > {start_id}")
-    else:
-        print("Full mode: indexing from id 1")
+        mode = "incremental"
 
     n, last_id = bulk_index(
         s,
@@ -273,11 +255,21 @@ def main() -> None:
         batch=args.batch,
         start_id=start_id,
     )
-    summary = {"indexed": n, "last_event_id": last_id, "index": args.index, "opensearch_url": args.opensearch_url, "db": db_hint, "mode": ("recreate" if args.recreate else ("full" if args.full else "incremental")), "start_id": start_id}
-if args.json:
-    print(json.dumps(summary))
-else:
-    print(f"Done. Indexed {n} documents. Last event_id={last_id}")
+
+    summary = {
+        "indexed": n,
+        "last_event_id": last_id,
+        "index": args.index,
+        "opensearch_url": args.opensearch_url,
+        "db": db_hint,
+        "mode": mode,
+        "start_id": start_id,
+    }
+
+    if args.json:
+        print(json.dumps(summary))
+    else:
+        print(f"Done. Indexed {n} documents. Last event_id={last_id}")
 
 
 if __name__ == "__main__":

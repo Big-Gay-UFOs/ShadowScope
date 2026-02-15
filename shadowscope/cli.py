@@ -101,6 +101,9 @@ def ingest_usaspending_cli(
         start_page=start_page,
         database_url=database_url,
     )
+    run_id = result.get("run_id")
+    typer.echo(f"Run ID: {run_id}")
+    typer.echo(f"Summary: source=USAspending run_id={run_id} fetched={result['fetched']} inserted={result['inserted']} normalized={result['normalized']}")
     typer.echo(
         f"Ingested {result['fetched']} rows ({result['inserted']} inserted, {result['normalized']} normalized)."
     )
