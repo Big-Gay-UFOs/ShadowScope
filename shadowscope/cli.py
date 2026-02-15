@@ -140,3 +140,22 @@ def run() -> None:
 if __name__ == "__main__":
     run()
 
+
+@ontology_app.command("validate")
+def ontology_validate(
+    path: Path = typer.Option(Path("ontology.json"), "--path", "-p", help="Path to ontology.json"),
+):
+    import json as _json
+    from backend.analysis.ontology import load_ontology, validate_ontology, summarize_ontology
+
+    obj = load_ontology(path)
+    errs = validate_ontology(obj)
+    if errs:
+        typer.echo("Ontology INVALID:")
+        for e in errs:
+            typer.echo(f"- {e}")
+        raise typer.Exit(code=2)
+
+    summary = summarize_ontology(obj)
+    typer.echo("Ontology OK")
+    typer.echo(_json.dumps(summary, indent=2))
