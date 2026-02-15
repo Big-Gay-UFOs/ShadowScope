@@ -126,3 +126,25 @@ def ensure_schema(database_url: Optional[str]=None) -> None:
         Base.metadata.create_all(engine)
     except OperationalError as exc:
         raise RuntimeError("Unable to initialize database schema") from exc
+
+class IngestRun(Base):
+    __tablename__ = "ingest_runs"
+
+    id = Column(Integer, primary_key=True)
+    source = Column(String(32), nullable=False)
+    status = Column(String(16), nullable=False, default="running")
+    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+
+    days = Column(Integer)
+    start_page = Column(Integer)
+    pages = Column(Integer)
+    page_size = Column(Integer)
+    max_records = Column(Integer)
+
+    fetched = Column(Integer, nullable=False, default=0)
+    normalized = Column(Integer, nullable=False, default=0)
+    inserted = Column(Integer, nullable=False, default=0)
+
+    snapshot_dir = Column(Text)
+    error = Column(Text)

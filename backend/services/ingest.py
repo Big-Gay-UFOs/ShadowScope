@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
 from typing import Dict, Optional
 
 import requests
@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from backend.connectors import usaspending
-from backend.db.models import Event, get_session_factory
+from backend.db.models import Event, IngestRun, get_session_factory
 from backend.runtime import RAW_SOURCES, ensure_runtime_directories
 
 LOGGER = logging.getLogger("shadowscope.ingest")
@@ -69,6 +69,19 @@ def ingest_usaspending(
     SessionFactory = get_session_factory(database_url)
     db = SessionFactory()
 
+    run = IngestRun(
+        source="USAspending",
+        status="running",
+        days=days,
+        start_page=start_page,
+        pages=pages,
+        page_size=page_size,
+        max_records=max_total,
+        snapshot_dir=str(snapshot_dir),
+    )
+    db.add(run)
+    db.commit()  # ensure run id exists
+
     try:
         for page in range(start_page, start_page + pages):
             remaining = max_total - total_fetched
@@ -94,15 +107,28 @@ def ingest_usaspending(
                 inserted += _upsert_events(db, normalized)
                 db.commit()
 
-            # If API returns fewer than requested, we've hit the end of results
             if len(results) < page_limit:
                 break
 
+        run.status = "success"
+        run.fetched = total_fetched
+        run.normalized = normalized_total
+        run.inserted = inserted
+        run.ended_at = datetime.now(timezone.utc)
         db.commit()
+
+    except Exception as e:
+        db.rollback()
+        run.status = "failed"
+        run.error = str(e)
+        run.ended_at = datetime.now(timezone.utc)
+        db.commit()
+        raise
     finally:
         db.close()
 
     return {
+        "run_id": run.id,
         "fetched": total_fetched,
         "normalized": normalized_total,
         "inserted": inserted,
