@@ -273,6 +273,10 @@ def main() -> None:
         batch=args.batch,
         start_id=start_id,
     )
+    summary = {"indexed": n, "last_event_id": last_id, "index": args.index, "opensearch_url": args.opensearch_url, "db": db_hint, "mode": ("recreate" if args.recreate else ("full" if args.full else "incremental")), "start_id": start_id}
+if args.json:
+    print(json.dumps(summary))
+else:
     print(f"Done. Indexed {n} documents. Last event_id={last_id}")
 
 
