@@ -3,13 +3,20 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db_session
 from backend.analysis.scoring import score_from_keywords_clauses
-from backend.db.models import AnalysisRun, Entity, Event
+from backend.db.models import (
+    AnalysisRun,
+    Entity,
+    Event,
+    LeadSnapshot,
+    LeadSnapshotItem,
+)
 from backend.search.opensearch import opensearch_search
+from backend.services.deltas import lead_deltas
 
 router = APIRouter(prefix="/api", tags=["core"])
 
@@ -114,7 +121,6 @@ def list_leads(
     include_details: bool = True,
     db: Session = Depends(get_db_session),
 ):
-    # Pull a window of recent events and rank them in Python.
     rows = db.execute(select(Event).order_by(Event.id.desc()).limit(5000)).scalars().all()
 
     scored = []
@@ -152,6 +158,129 @@ def list_leads(
         out.append(item)
 
     return out
+
+
+@router.get("/lead-snapshots")
+def list_lead_snapshots(
+    limit: int = 50,
+    analysis_run_id: Optional[int] = None,
+    source: Optional[str] = None,
+    db: Session = Depends(get_db_session),
+):
+    q = db.query(LeadSnapshot).order_by(LeadSnapshot.id.desc()).limit(limit)
+    if analysis_run_id is not None:
+        q = q.filter(LeadSnapshot.analysis_run_id == analysis_run_id)
+    if source:
+        q = q.filter(LeadSnapshot.source == source)
+
+    snaps = q.all()
+    ids = [int(s.id) for s in snaps]
+
+    counts = {}
+    if ids:
+        rows = db.execute(
+            select(LeadSnapshotItem.snapshot_id, func.count(LeadSnapshotItem.id))
+            .where(LeadSnapshotItem.snapshot_id.in_(ids))
+            .group_by(LeadSnapshotItem.snapshot_id)
+        ).all()
+        counts = {int(sid): int(cnt) for sid, cnt in rows}
+
+    return [
+        {
+            "id": int(s.id),
+            "analysis_run_id": s.analysis_run_id,
+            "source": s.source,
+            "min_score": s.min_score,
+            "limit": s.limit,
+            "scoring_version": s.scoring_version,
+            "notes": s.notes,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "items": counts.get(int(s.id), 0),
+        }
+        for s in snaps
+    ]
+
+
+@router.get("/lead-snapshots/{snapshot_id}")
+def get_lead_snapshot(snapshot_id: int, db: Session = Depends(get_db_session)):
+    snap = db.execute(select(LeadSnapshot).where(LeadSnapshot.id == snapshot_id)).scalar_one_or_none()
+    if snap is None:
+        raise HTTPException(status_code=404, detail=f"lead_snapshot {snapshot_id} not found")
+
+    count = db.execute(
+        select(func.count(LeadSnapshotItem.id)).where(LeadSnapshotItem.snapshot_id == snapshot_id)
+    ).scalar_one()
+
+    return {
+        "id": int(snap.id),
+        "analysis_run_id": snap.analysis_run_id,
+        "source": snap.source,
+        "min_score": snap.min_score,
+        "limit": snap.limit,
+        "scoring_version": snap.scoring_version,
+        "notes": snap.notes,
+        "created_at": snap.created_at.isoformat() if snap.created_at else None,
+        "items": int(count),
+    }
+
+
+@router.get("/lead-snapshots/{snapshot_id}/items")
+def list_lead_snapshot_items(
+    snapshot_id: int,
+    limit: int = 200,
+    include_score_details: bool = True,
+    db: Session = Depends(get_db_session),
+):
+    snap = db.execute(select(LeadSnapshot.id).where(LeadSnapshot.id == snapshot_id)).scalar_one_or_none()
+    if snap is None:
+        raise HTTPException(status_code=404, detail=f"lead_snapshot {snapshot_id} not found")
+
+    rows = (
+        db.query(LeadSnapshotItem, Event)
+        .join(Event, LeadSnapshotItem.event_id == Event.id)
+        .filter(LeadSnapshotItem.snapshot_id == snapshot_id)
+        .order_by(LeadSnapshotItem.rank.asc())
+        .limit(limit)
+        .all()
+    )
+
+    out = []
+    for item, ev in rows:
+        d = {
+            "snapshot_id": int(item.snapshot_id),
+            "rank": int(item.rank),
+            "score": int(item.score),
+            "event_id": int(item.event_id),
+            "event_hash": item.event_hash,
+            "event": {
+                "id": int(ev.id),
+                "hash": ev.hash,
+                "source": ev.source,
+                "doc_id": ev.doc_id,
+                "source_url": ev.source_url,
+                "snippet": ev.snippet,
+                "place_text": ev.place_text,
+                "occurred_at": ev.occurred_at.isoformat() if ev.occurred_at else None,
+                "created_at": ev.created_at.isoformat() if ev.created_at else None,
+            },
+        }
+        if include_score_details:
+            d["score_details"] = item.score_details
+        out.append(d)
+
+    return out
+
+
+@router.get("/lead-deltas")
+def get_lead_deltas(
+    from_snapshot_id: int,
+    to_snapshot_id: int,
+    db: Session = Depends(get_db_session),
+):
+    try:
+        return lead_deltas(db, from_snapshot_id=from_snapshot_id, to_snapshot_id=to_snapshot_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/search")

@@ -203,6 +203,29 @@ def leads_snapshot(
     )
 
 
+@leads_app.command("delta")
+def leads_delta(
+    from_snapshot_id: int = typer.Option(..., "--from-snapshot-id", help="Baseline lead snapshot id"),
+    to_snapshot_id: int = typer.Option(..., "--to-snapshot-id", help="Comparison lead snapshot id"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+    json_out: bool = typer.Option(True, "--json/--no-json", help="Print full JSON delta output"),
+):
+    from backend.services.deltas import compute_lead_deltas
+
+    res = compute_lead_deltas(
+        from_snapshot_id=from_snapshot_id,
+        to_snapshot_id=to_snapshot_id,
+        database_url=database_url,
+    )
+
+    c = res.get("counts", {})
+    typer.echo(
+        f"Delta summary: from={from_snapshot_id} to={to_snapshot_id} "
+        f"new={c.get('new')} removed={c.get('removed')} changed={c.get('changed')}"
+    )
+    if json_out:
+        typer.echo(json.dumps(res, indent=2))
+
 def run() -> None:
     app()
 
