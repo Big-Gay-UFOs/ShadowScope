@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.analysis.scoring import score_from_keywords_clauses
-from backend.db.models import Event, LeadSnapshot, LeadSnapshotItem, get_session_factory
+from backend.db.models import AnalysisRun, Event, LeadSnapshot, LeadSnapshotItem, get_session_factory
 
 
 def _norm_list(value: Any) -> list:
@@ -69,7 +69,13 @@ def create_lead_snapshot(
             min_score=min_score,
             source=source,
             exclude_source=exclude_source,
-        )
+        )        if analysis_run_id is not None:
+            ok = db.execute(select(AnalysisRun.id).where(AnalysisRun.id == analysis_run_id)).scalar_one_or_none()
+            if ok is None:
+                raise ValueError(
+                    f"analysis_run_id {analysis_run_id} not found in analysis_runs. Run 'ss ontology apply ...' and use the printed analysis_run_id, or omit --analysis-run-id."
+                )
+
 
         snap = LeadSnapshot(
             analysis_run_id=analysis_run_id,
