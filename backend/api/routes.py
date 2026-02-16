@@ -1,17 +1,20 @@
+from __future__ import annotations
+
+from typing import Any, Optional
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from sqlalchemy import select
-import os
-from typing import Any
+from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db_session
-from backend.db.models import Entity, Event, session_scope
+from backend.analysis.scoring import score_from_keywords_clauses
+from backend.db.models import AnalysisRun, Entity, Event
+from backend.search.opensearch import opensearch_search
 
 router = APIRouter(prefix="/api", tags=["core"])
 
 
 def _norm_list(value: Any) -> list:
-    """Normalize JSON-ish fields (some older rows may store {} instead of [])."""
     if value is None:
         return []
     if isinstance(value, dict):
@@ -45,15 +48,8 @@ def list_entities(db: Session = Depends(get_db_session)):
 
 
 @router.get("/events")
-def list_events(limit: int = 50):
-    database_url = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
-    with session_scope(database_url) as s:
-        rows = (
-            s.execute(select(Event).order_by(Event.id.desc()).limit(limit))
-            .scalars()
-            .all()
-        )
-
+def list_events(limit: int = 50, db: Session = Depends(get_db_session)):
+    rows = db.execute(select(Event).order_by(Event.id.desc()).limit(limit)).scalars().all()
     return [
         {
             "id": e.id,
@@ -77,42 +73,67 @@ def list_events(limit: int = 50):
     ]
 
 
+@router.get("/analysis-runs")
+def list_analysis_runs(
+    limit: int = 50,
+    analysis_type: Optional[str] = None,
+    db: Session = Depends(get_db_session),
+):
+    q = db.query(AnalysisRun).order_by(AnalysisRun.id.desc()).limit(limit)
+    if analysis_type:
+        q = q.filter(AnalysisRun.analysis_type == analysis_type)
+
+    rows = q.all()
+    return [
+        {
+            "id": r.id,
+            "analysis_type": r.analysis_type,
+            "status": r.status,
+            "source": r.source,
+            "days": r.days,
+            "ontology_version": r.ontology_version,
+            "ontology_hash": r.ontology_hash,
+            "dry_run": bool(getattr(r, "dry_run", False)),
+            "scanned": r.scanned,
+            "updated": r.updated,
+            "unchanged": r.unchanged,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "ended_at": r.ended_at.isoformat() if r.ended_at else None,
+            "error": r.error,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/leads")
 def list_leads(
     limit: int = 50,
     min_score: int = 1,
     source: str | None = None,
     exclude_source: str | None = None,
+    include_details: bool = True,
+    db: Session = Depends(get_db_session),
 ):
-    database_url = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
-    with session_scope(database_url) as s:
-        rows = (
-            s.execute(select(Event).order_by(Event.id.desc()).limit(2000))
-            .scalars()
-            .all()
-        )
-
-    def score(e: Event) -> int:
-        k = _norm_list(e.keywords)
-        return (10 if e.entity_id else 0) + (3 * len(k))
+    # Pull a window of recent events and rank them in Python.
+    rows = db.execute(select(Event).order_by(Event.id.desc()).limit(5000)).scalars().all()
 
     scored = []
     for e in rows:
-        # Apply requested filters
         if source and e.source != source:
             continue
         if exclude_source and e.source == exclude_source:
             continue
 
-        sc = score(e)
+        sc, details = score_from_keywords_clauses(e.keywords, e.clauses, has_entity=bool(e.entity_id))
         if sc >= min_score:
-            scored.append((sc, e))
+            scored.append((sc, e, details))
 
     scored.sort(key=lambda t: (t[0], t[1].id), reverse=True)
     top = scored[:limit]
 
-    return [
-        {
+    out = []
+    for sc, e, details in top:
+        item = {
             "score": sc,
             "id": e.id,
             "entity_id": e.entity_id,
@@ -123,12 +144,15 @@ def list_leads(
             "place_text": e.place_text,
             "snippet": e.snippet,
             "keywords": _norm_list(e.keywords),
+            "clauses": _norm_list(e.clauses),
             "source_url": e.source_url,
         }
-        for sc, e in top
-    ]
+        if include_details:
+            item["score_details"] = details
+        out.append(item)
 
-from backend.search.opensearch import opensearch_search
+    return out
+
 
 @router.get("/search")
 def search(
