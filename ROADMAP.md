@@ -4,7 +4,7 @@ Last updated: 2026-02-16
 
 ## Current status
 - M0 (Plumbing baseline): DONE
-- M3 (Tagging + Scoring): IN PROGRESS (M3-01/02/03 DONE, starting M3-04)
+- M3 (Investigator signal): IN PROGRESS (M3-01/02/03/04 DONE, starting M3-05)
 
 ## M3 - Investigator signal (IN PROGRESS)
 
@@ -25,11 +25,13 @@ Last updated: 2026-02-16
 - [x] analysis_runs table + migrations
 - [x] ss ontology apply creates analysis_runs rows (success/failed, counters, dry_run)
 
-### M3-04 scoring + leads upgrade (NEXT)
-- [ ] Implement scoring function (sum clause weights, with keyword fallback)
-- [ ] Upgrade /api/leads to rank by clause-weight score
-- [ ] Include score breakdown in response (top clauses, pack/rule counts)
-- [ ] Tests for scoring
+### M3-04 scoring + leads upgrade (DONE)
+- [x] Scoring function (sum clause weights, keyword fallback, entity bonus)
+- [x] /api/leads ranks by score
+- [x] score breakdown included (top clauses, pack/rule counts)
+- [x] Tests for scoring
 
-### M3-05 deltas + clustering (LATER)
-- [ ] Persist clusters and run-to-run deltas
+### M3-05 deltas + clustering (NEXT)
+- [ ] Persist lead snapshots per analysis run (recommended next)
+- [ ] Compute deltas between snapshots (new/removed/changed leads)
+- [ ] Optional: clustering on top of deltas
