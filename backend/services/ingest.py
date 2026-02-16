@@ -143,22 +143,76 @@ def _upsert_events(session: Session, events):
         return 0
 
     dialect = session.bind.dialect.name  # type: ignore[attr-defined]
+
+    inserted = 0
     if dialect == "postgresql":
         stmt = pg_insert(Event).values(events)
         stmt = stmt.on_conflict_do_nothing(index_elements=["hash"])
         result = session.execute(stmt.returning(Event.id))
-        return len(result.fetchall())
+        inserted = len(result.fetchall())
+    else:
+        for event in events:
+            exists = session.query(Event.id).filter_by(hash=event["hash"]).first()
+            if exists:
+                continue
+            session.add(Event(**event))
+            session.flush()
+            inserted += 1
 
-    inserted = 0
-    for event in events:
-        exists = session.query(Event.id).filter_by(hash=event["hash"]).first()
-        if exists:
-            continue
-        session.add(Event(**event))
-        session.flush()
-        inserted += 1
+    # Backfill missing fields on existing rows (do not touch keywords/clauses).
+    hashes = [e.get("hash") for e in events if e.get("hash")]
+    if hashes:
+        rows = session.query(Event).filter(Event.hash.in_(hashes)).all()
+        by_hash = {r.hash: r for r in rows}
+
+        backfilled = 0
+        for ev in events:
+            h = ev.get("hash")
+            row = by_hash.get(h)
+            if row is None:
+                continue
+
+            changed = False
+
+            # raw_json: fill missing keys only (safe merge)
+            new_raw = ev.get("raw_json")
+            if isinstance(new_raw, dict) and new_raw:
+                cur_raw = row.raw_json
+                if cur_raw is None:
+                    row.raw_json = new_raw
+                    changed = True
+                elif isinstance(cur_raw, dict):
+                    merged = dict(cur_raw)
+                    for k, v in new_raw.items():
+                        if k not in merged or merged.get(k) in (None, "", [], {}):
+                            merged[k] = v
+                    if merged != cur_raw:
+                        row.raw_json = merged
+                        changed = True
+
+            if not row.doc_id and ev.get("doc_id"):
+                row.doc_id = ev.get("doc_id")
+                changed = True
+            if not row.source_url and ev.get("source_url"):
+                row.source_url = ev.get("source_url")
+                changed = True
+            if not row.snippet and ev.get("snippet"):
+                row.snippet = ev.get("snippet")
+                changed = True
+            if not row.place_text and ev.get("place_text"):
+                row.place_text = ev.get("place_text")
+                changed = True
+            if row.occurred_at is None and ev.get("occurred_at") is not None:
+                row.occurred_at = ev.get("occurred_at")
+                changed = True
+
+            if changed:
+                backfilled += 1
+
+        if backfilled:
+            LOGGER.info("Backfilled %d existing events with missing fields", backfilled)
+
     return inserted
-
 
 def ingest_sam_opportunities(api_key: Optional[str]) -> Dict[str, object]:
     ensure_runtime_directories()
