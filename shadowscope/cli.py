@@ -134,6 +134,35 @@ def ontology_validate(path: Path = typer.Option(Path("ontology.json"), "--path",
     typer.echo(json.dumps(summary, indent=2))
 
 
+
+@ontology_app.command("apply")
+def ontology_apply(
+    path: Path = typer.Option(Path("ontology.json"), "--path", "-p", help="Path to ontology.json"),
+    days: int = typer.Option(30, "--days", help="Only tag events with occurred_at within N days (or null occurred_at)"),
+    source: str = typer.Option("USAspending", "--source", help="Event source to tag (default USAspending)"),
+    batch: int = typer.Option(500, "--batch", help="DB batch size"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute changes but do not write updates"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    from backend.services.tagging import apply_ontology_to_events
+
+    result = apply_ontology_to_events(
+        ontology_path=path,
+        days=days,
+        source=source,
+        batch=batch,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+
+    ont = result["ontology"]
+    typer.echo(
+        "Ontology apply summary: "
+        f"dry_run={result['dry_run']} source={result['source']} days={result['days']} "
+        f"scanned={result['scanned']} updated={result['updated']} unchanged={result['unchanged']} "
+        f"ontology_hash={ont.get('hash')} rules={ont.get('total_rules')}"
+    )
+
 def run() -> None:
     app()
 
