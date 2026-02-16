@@ -180,7 +180,7 @@ class LeadSnapshot(Base):
 
     source = Column(String(32))
     min_score = Column(Integer, nullable=False, default=1)
-    limit = Column(Integer, nullable=False, default=200)
+    limit = Column("max_items", Integer, nullable=False, default=200)
     scoring_version = Column(String(32), nullable=False, default="v1")
     notes = Column(Text)
 

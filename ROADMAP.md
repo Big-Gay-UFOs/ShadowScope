@@ -4,34 +4,46 @@ Last updated: 2026-02-16
 
 ## Current status
 - M0 (Plumbing baseline): DONE
-- M3 (Investigator signal): IN PROGRESS (M3-01/02/03/04 DONE, starting M3-05)
+- M3 (Investigator signal): DONE (ontology -> tagging -> scoring -> analysis_runs -> lead snapshots -> deltas)
+- M4 (Entity enrichment + correlations): NEXT
 
-## M3 - Investigator signal (IN PROGRESS)
+## M0 - Plumbing baseline (DONE)
+- [x] Compose stack reproducible (backend + Postgres + OpenSearch)
+- [x] Deterministic migrations (advisory lock + alembic_version TEXT)
+- [x] Ingest semantics clarified (pages + page-size + max-records)
+- [x] Idempotent ingest (stable hash + uq_events_hash)
+- [x] ingest_runs tracking
+- [x] OpenSearch reindex: recreate + incremental + --json + wait/retry
+- [x] /health includes OpenSearch
+- [x] /api/search backed by OpenSearch
+- [x] Ops runbook
+- [x] CI (pytest)
 
-### M3-01 Ontology spec + default file + validator (DONE)
-- [x] ontology.json (default packs/rules/weights/fields)
-- [x] ss ontology validate
-- [x] tests validate default ontology
+## M3 - Investigator signal (DONE)
+Goal: produce rankable, explainable leads from public procurement text via ontology hits.
 
-### M3-02 Tagger (populate events.keywords / events.clauses) (DONE)
-- [x] Tagger engine (phrase + regex; per-field; case-insensitive default)
-- [x] Persist keyword hits to Postgres (idempotent updates)
-- [x] Persist structured clause hits to Postgres (events.clauses)
-- [x] CLI: ss ontology apply --days N [--source] [--dry-run]
-- [x] OpenSearch refresh after tagging (tools/opensearch_reindex.py --full)
-- [x] Tests: matcher correctness + idempotent DB update
+- [x] M3-01 Ontology spec + validator (ontology.json + ss ontology validate)
+- [x] M3-02 Tagger writes events.keywords + events.clauses (idempotent) (ss ontology apply)
+- [x] M3-03 analysis_runs persisted for ontology apply (success/failed + counters + dry_run)
+- [x] M3-04 Scoring + /api/leads (score breakdown included)
+- [x] M3-05 Lead snapshots + deltas
+  - [x] lead_snapshots + lead_snapshot_items tables
+  - [x] ss leads snapshot
+  - [x] ss leads delta (compare two snapshots)
+  - [x] API endpoints: /api/lead-snapshots, /api/lead-snapshots/{id}/items, /api/lead-deltas
+  - [x] Schema cleanup: renamed lead_snapshots.limit -> max_items (avoid SQL keyword quoting issues)
 
-### M3-03 analysis_runs persistence (DONE)
-- [x] analysis_runs table + migrations
-- [x] ss ontology apply creates analysis_runs rows (success/failed, counters, dry_run)
+## M4 - Entity enrichment + correlations (NEXT)
+Goal: link events into explainable investigative graphs (who/what/where patterns across time).
 
-### M3-04 scoring + leads upgrade (DONE)
-- [x] Scoring function (sum clause weights, keyword fallback, entity bonus)
-- [x] /api/leads ranks by score
-- [x] score breakdown included (top clauses, pack/rule counts)
-- [x] Tests for scoring
+### M4-01 Entity extraction + normalization
+- [ ] Normalize vendor/entity identifiers where available (CAGE/UEI/name variants)
+- [ ] Link events -> entities more reliably
 
-### M3-05 deltas + clustering (NEXT)
-- [ ] Persist lead snapshots per analysis run (recommended next)
-- [ ] Compute deltas between snapshots (new/removed/changed leads)
-- [ ] Optional: clustering on top of deltas
+### M4-02 Correlation / relationship layer
+- [ ] Define correlation heuristics (same entity, shared addresses, repeated doc_id patterns, etc.)
+- [ ] Persist correlations and correlation links
+
+### M4-03 API + exports
+- [ ] /api/entities/{id}/events and /api/correlations endpoints
+- [ ] Export correlation views for investigation
