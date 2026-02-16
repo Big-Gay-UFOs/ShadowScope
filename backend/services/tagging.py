@@ -71,7 +71,7 @@ def apply_ontology_to_events(
         days=days,
         ontology_version=str(summary.get("version") or ""),
         ontology_hash=str(summary.get("hash") or ""),
-        dry_run=1 if dry_run else 0,
+        dry_run=dry_run,
     )
     db.add(analysis_run)
     db.commit()  # ensures analysis_run.id exists

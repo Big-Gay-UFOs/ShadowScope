@@ -5,7 +5,7 @@ from typing import Iterator, Optional
 
 from dotenv import load_dotenv
 
-from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, func
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, func
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from sqlalchemy.exc import OperationalError
@@ -162,7 +162,7 @@ class AnalysisRun(Base):
     days = Column(Integer)
 
     ontology_version = Column(String(32))
-    ontology_hash = Column(String(64))
+    ontology_hash = Column(String(64)) dry_run = Column(Boolean, nullable=False, default=False)
 
     scanned = Column(Integer, nullable=False, default=0)
     updated = Column(Integer, nullable=False, default=0)
