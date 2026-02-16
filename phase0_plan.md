@@ -1,4 +1,4 @@
-﻿# Phase 0 — Architecture & Scope
+# Phase 0 — Architecture & Scope
 
 ## Clarified goal (batch investigative mode)
 
