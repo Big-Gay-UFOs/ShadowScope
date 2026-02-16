@@ -156,8 +156,9 @@ def ontology_apply(
     )
 
     ont = result["ontology"]
+    arid = result.get("analysis_run_id")
     typer.echo(
-        "Ontology apply summary: "
+        "Ontology apply summary: " + (f"analysis_run_id={arid} " if arid else "")
         f"dry_run={result['dry_run']} source={result['source']} days={result['days']} "
         f"scanned={result['scanned']} updated={result['updated']} unchanged={result['unchanged']} "
         f"ontology_hash={ont.get('hash')} rules={ont.get('total_rules')}"

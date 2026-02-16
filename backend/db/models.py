@@ -148,3 +148,24 @@ class IngestRun(Base):
 
     snapshot_dir = Column(Text)
     error = Column(Text)
+
+class AnalysisRun(Base):
+    __tablename__ = "analysis_runs"
+
+    id = Column(Integer, primary_key=True)
+    analysis_type = Column(String(32), nullable=False)
+    status = Column(String(16), nullable=False, default="running")
+    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+
+    source = Column(String(32))
+    days = Column(Integer)
+
+    ontology_version = Column(String(32))
+    ontology_hash = Column(String(64))
+
+    scanned = Column(Integer, nullable=False, default=0)
+    updated = Column(Integer, nullable=False, default=0)
+    unchanged = Column(Integer, nullable=False, default=0)
+
+    error = Column(Text)

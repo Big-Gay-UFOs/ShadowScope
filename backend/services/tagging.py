@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.analysis.ontology import load_ontology, validate_ontology, summarize_ontology
 from backend.analysis.tagger import compile_for_tagging, tag_fields
-from backend.db.models import Event, get_session_factory
+from backend.db.models import Event, AnalysisRun, get_session_factory
 
 
 def _canon_list(v: Any) -> list:
@@ -65,6 +65,17 @@ def apply_ontology_to_events(
     SessionFactory = get_session_factory(database_url)
     db: Session = SessionFactory()
 
+    analysis_run = AnalysisRun(
+        analysis_type="ontology_apply",
+        status="running",
+        source=source,
+        days=days,
+        ontology_version=str(summary.get("version") or ""),
+        ontology_hash=str(summary.get("hash") or ""),
+    )
+    db.add(analysis_run)
+    db.commit()
+
     scanned = 0
     updated = 0
     unchanged = 0
@@ -116,6 +127,13 @@ def apply_ontology_to_events(
             if not dry_run:
                 db.commit()
 
+                analysis_run.scanned = scanned
+        analysis_run.updated = updated
+        analysis_run.unchanged = unchanged
+        analysis_run.status = "success"
+        analysis_run.ended_at = datetime.now(timezone.utc)
+        db.commit()
+
         return {
             "status": "ok",
             "dry_run": dry_run,
@@ -128,5 +146,12 @@ def apply_ontology_to_events(
             "ontology": summary,
         }
 
+        except Exception as e:
+        db.rollback()
+        analysis_run.status = "failed"
+        analysis_run.error = str(e)
+        analysis_run.ended_at = datetime.now(timezone.utc)
+        db.commit()
+        raise
     finally:
         db.close()
