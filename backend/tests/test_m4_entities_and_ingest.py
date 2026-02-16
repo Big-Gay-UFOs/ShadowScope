@@ -111,3 +111,43 @@ def test_entity_linking_uei_first_is_idempotent(tmp_path: Path):
     evs = db2.query(Event).order_by(Event.id.asc()).all()
     assert evs[0].entity_id == evs[1].entity_id
     db2.close()
+def test_entity_sites_json_meta_persists_on_update(tmp_path: Path):
+    db_url = f"sqlite:///{tmp_path / 'meta.db'}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    db = SessionFactory()
+
+    now = datetime.now(timezone.utc)
+
+    # Existing entity has UEI and only duns in sites_json
+    ent = Entity(name="ACME INC", uei="UEI123", sites_json={"duns": "123456789"})
+    db.add(ent)
+    db.flush()
+
+    # New event references same UEI but adds recipient_id
+    db.add(
+        Event(
+            category="procurement",
+            source="USAspending",
+            hash="hmeta",
+            raw_json={
+                "Recipient Name": "ACME INC",
+                "Recipient UEI": "UEI123",
+                "Recipient DUNS Number": "123456789",
+                "recipient_id": "RID-XYZ",
+            },
+            created_at=now,
+        )
+    )
+    db.commit()
+    db.close()
+
+    res = link_entities_from_events(source="USAspending", days=3650, batch=100, dry_run=False, database_url=db_url)
+    assert res["linked"] == 1
+
+    db2 = SessionFactory()
+    ent2 = db2.query(Entity).filter_by(uei="UEI123").one()
+    assert isinstance(ent2.sites_json, dict)
+    assert ent2.sites_json.get("duns") == "123456789"
+    assert ent2.sites_json.get("recipient_id") == "RID-XYZ"
+    db2.close()
