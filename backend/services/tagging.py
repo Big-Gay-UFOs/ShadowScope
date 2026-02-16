@@ -76,7 +76,7 @@ def apply_ontology_to_events(
                 db.query(Event)
                 .filter(Event.id > last_id)
                 .filter(Event.source == source)
-                .filter(or_(Event.occurred_at == None, Event.occurred_at >= since))  # noqa: E711
+                .filter(or_(Event.created_at >= since, Event.occurred_at == None, Event.occurred_at >= since))  # noqa: E711
                 .order_by(Event.id.asc())
                 .limit(int(batch))
             )

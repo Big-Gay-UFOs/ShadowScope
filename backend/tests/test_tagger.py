@@ -19,7 +19,7 @@ def test_tagger_phrase_and_regex():
                 "enabled": True,
                 "rules": [
                     {"id": "r1", "type": "phrase", "pattern": "radiation", "weight": 5},
-                    {"id": "r2", "type": "regex", "pattern": r"\\bhot\\s*cell\\b", "weight": 7},
+                    {"id": "r2", "type": "regex", "pattern": r"\bhot\s*cell\b", "weight": 7},
                 ],
             }
         ],

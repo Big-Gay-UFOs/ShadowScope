@@ -138,7 +138,7 @@ def ontology_validate(path: Path = typer.Option(Path("ontology.json"), "--path",
 @ontology_app.command("apply")
 def ontology_apply(
     path: Path = typer.Option(Path("ontology.json"), "--path", "-p", help="Path to ontology.json"),
-    days: int = typer.Option(30, "--days", help="Only tag events with occurred_at within N days (or null occurred_at)"),
+    days: int = typer.Option(30, "--days", help="Tag events created in the last N days (and/or occurred_at within window or null)"),
     source: str = typer.Option("USAspending", "--source", help="Event source to tag (default USAspending)"),
     batch: int = typer.Option(500, "--batch", help="DB batch size"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Compute changes but do not write updates"),
