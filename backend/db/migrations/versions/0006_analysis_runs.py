@@ -30,6 +30,8 @@ def upgrade() -> None:
         sa.Column("ontology_version", sa.String(32), nullable=True),
         sa.Column("ontology_hash", sa.String(64), nullable=True),
 
+        sa.Column("dry_run", sa.Boolean, nullable=False, server_default=sa.text("false")),
+
         sa.Column("scanned", sa.Integer, nullable=False, server_default="0"),
         sa.Column("updated", sa.Integer, nullable=False, server_default="0"),
         sa.Column("unchanged", sa.Integer, nullable=False, server_default="0"),

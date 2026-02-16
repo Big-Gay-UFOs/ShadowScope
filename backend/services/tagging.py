@@ -32,7 +32,7 @@ def _canon_clauses(v: Any) -> list[dict]:
     for x in items:
         if isinstance(x, dict):
             out.append(x)
-    out_sorted = sorted(
+    return sorted(
         out,
         key=lambda c: (
             c.get("pack", ""),
@@ -41,7 +41,6 @@ def _canon_clauses(v: Any) -> list[dict]:
             str(c.get("match", "")),
         ),
     )
-    return out_sorted
 
 
 def apply_ontology_to_events(
@@ -72,9 +71,10 @@ def apply_ontology_to_events(
         days=days,
         ontology_version=str(summary.get("version") or ""),
         ontology_hash=str(summary.get("hash") or ""),
+        dry_run=1 if dry_run else 0,
     )
     db.add(analysis_run)
-    db.commit()
+    db.commit()  # ensures analysis_run.id exists
 
     scanned = 0
     updated = 0
@@ -91,7 +91,6 @@ def apply_ontology_to_events(
                 .order_by(Event.id.asc())
                 .limit(int(batch))
             )
-
             rows = q.all()
             if not rows:
                 break
@@ -127,7 +126,7 @@ def apply_ontology_to_events(
             if not dry_run:
                 db.commit()
 
-                analysis_run.scanned = scanned
+        analysis_run.scanned = scanned
         analysis_run.updated = updated
         analysis_run.unchanged = unchanged
         analysis_run.status = "success"
@@ -136,6 +135,7 @@ def apply_ontology_to_events(
 
         return {
             "status": "ok",
+            "analysis_run_id": analysis_run.id,
             "dry_run": dry_run,
             "source": source,
             "days": days,
@@ -146,7 +146,7 @@ def apply_ontology_to_events(
             "ontology": summary,
         }
 
-        except Exception as e:
+    except Exception as e:
         db.rollback()
         analysis_run.status = "failed"
         analysis_run.error = str(e)

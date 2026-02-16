@@ -134,7 +134,6 @@ def ontology_validate(path: Path = typer.Option(Path("ontology.json"), "--path",
     typer.echo(json.dumps(summary, indent=2))
 
 
-
 @ontology_app.command("apply")
 def ontology_apply(
     path: Path = typer.Option(Path("ontology.json"), "--path", "-p", help="Path to ontology.json"),
@@ -157,12 +156,14 @@ def ontology_apply(
 
     ont = result["ontology"]
     arid = result.get("analysis_run_id")
+    ar = f"analysis_run_id={arid} " if arid else ""
     typer.echo(
-        "Ontology apply summary: " + (f"analysis_run_id={arid} " if arid else "")
-        f"dry_run={result['dry_run']} source={result['source']} days={result['days']} "
+        "Ontology apply summary: "
+        f"{ar}dry_run={result['dry_run']} source={result['source']} days={result['days']} "
         f"scanned={result['scanned']} updated={result['updated']} unchanged={result['unchanged']} "
         f"ontology_hash={ont.get('hash')} rules={ont.get('total_rules')}"
     )
+
 
 def run() -> None:
     app()
