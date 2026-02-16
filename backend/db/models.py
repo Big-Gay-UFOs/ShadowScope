@@ -162,8 +162,8 @@ class AnalysisRun(Base):
     days = Column(Integer)
 
     ontology_version = Column(String(32))
-    ontology_hash = Column(String(64)) dry_run = Column(Boolean, nullable=False, default=False)
-
+    ontology_hash = Column(String(64))
+    dry_run = Column(Boolean, nullable=False, default=False)
     scanned = Column(Integer, nullable=False, default=0)
     updated = Column(Integer, nullable=False, default=0)
     unchanged = Column(Integer, nullable=False, default=0)
