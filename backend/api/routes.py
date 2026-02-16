@@ -1,3 +1,4 @@
+from backend.api.correlations import router as correlations_router
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -294,3 +295,4 @@ def search(
         return opensearch_search(q=q, limit=limit, source=source, category=category)
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
+api_router.include_router(correlations_router)

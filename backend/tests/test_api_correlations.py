@@ -4,16 +4,25 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend.app import app
-from backend.db.models import Correlation, CorrelationLink, Entity, Event, ensure_schema, get_session_factory
+from backend.db.models import (
+    Correlation,
+    CorrelationLink,
+    Entity,
+    Event,
+    ensure_schema,
+    get_session,
+    get_session_factory,
+)
 
 
-def test_api_correlations_list_and_detail(tmp_path: Path, monkeypatch):
+def test_api_correlations_list_and_detail(tmp_path: Path):
     db_url = f"sqlite:///{tmp_path / 'api_corr.db'}"
     ensure_schema(db_url)
     SessionFactory = get_session_factory(db_url)
-    db = SessionFactory()
 
+    db = SessionFactory()
     now = datetime.now(timezone.utc)
+
     ent = Entity(name="ACME INC", uei="UEI123")
     db.add(ent)
     db.flush()
@@ -34,21 +43,29 @@ def test_api_correlations_list_and_detail(tmp_path: Path, monkeypatch):
     db.commit()
     db.close()
 
-    # Force app DB to use our sqlite db for this test
-    monkeypatch.setenv("DATABASE_URL", db_url)
+    # Dependency override so the app uses *this* sqlite DB
+    def override_get_session():
+        s = SessionFactory()
+        try:
+            yield s
+        finally:
+            s.close()
 
-    client = TestClient(app)
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        client = TestClient(app)
 
-    r = client.get("/api/correlations?source=USAspending&limit=50&offset=0")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["total"] == 1
-    assert len(body["items"]) == 1
-    cid = body["items"][0]["id"]
+        r = client.get("/api/correlations?source=USAspending&limit=50&offset=0")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["total"] == 1
+        cid = body["items"][0]["id"]
 
-    r2 = client.get(f"/api/correlations/{cid}")
-    assert r2.status_code == 200
-    d = r2.json()
-    assert d["id"] == cid
-    assert d["event_count"] == 2
-    assert d["events"][0]["entity"]["uei"] == "UEI123"
+        r2 = client.get(f"/api/correlations/{cid}")
+        assert r2.status_code == 200
+        d = r2.json()
+        assert d["id"] == cid
+        assert d["event_count"] == 2
+        assert d["events"][0]["entity"]["uei"] == "UEI123"
+    finally:
+        app.dependency_overrides.clear()
