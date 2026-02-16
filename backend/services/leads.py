@@ -40,7 +40,7 @@ def compute_leads(
 
         score, details = score_from_keywords_clauses(e.keywords, e.clauses, has_entity=bool(e.entity_id))
         if score >= int(min_score):
-            scored.append((score, e, details))
+            scored.append((int(score), e, details))
 
     scored.sort(key=lambda t: (t[0], t[1].id), reverse=True)
     return scored[: int(limit)], scanned
@@ -62,6 +62,14 @@ def create_lead_snapshot(
     db: Session = SessionFactory()
 
     try:
+        if analysis_run_id is not None:
+            ok = db.execute(select(AnalysisRun.id).where(AnalysisRun.id == analysis_run_id)).scalar_one_or_none()
+            if ok is None:
+                raise ValueError(
+                    f"analysis_run_id {analysis_run_id} not found in analysis_runs. "
+                    f"Run 'ss ontology apply ...' and use the printed analysis_run_id, or omit --analysis-run-id."
+                )
+
         ranked, scanned = compute_leads(
             db,
             scan_limit=scan_limit,
@@ -69,13 +77,7 @@ def create_lead_snapshot(
             min_score=min_score,
             source=source,
             exclude_source=exclude_source,
-        )        if analysis_run_id is not None:
-            ok = db.execute(select(AnalysisRun.id).where(AnalysisRun.id == analysis_run_id)).scalar_one_or_none()
-            if ok is None:
-                raise ValueError(
-                    f"analysis_run_id {analysis_run_id} not found in analysis_runs. Run 'ss ontology apply ...' and use the printed analysis_run_id, or omit --analysis-run-id."
-                )
-
+        )
 
         snap = LeadSnapshot(
             analysis_run_id=analysis_run_id,
