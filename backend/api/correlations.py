@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Integer, cast, func
 from sqlalchemy.orm import Session
-
-from backend.db.models import Correlation, CorrelationLink, Entity, Event, get_session
+from backend.api.deps import get_db_session
+from backend.db.models import Correlation, CorrelationLink, Entity, Event
 
 router = APIRouter(prefix="/correlations", tags=["correlations"])
 
@@ -20,14 +20,14 @@ def _try_int(v: Optional[str]) -> Optional[int]:
         return None
 
 
-@router.get("")
+@router.get("/")
 def list_correlations(
     source: Optional[str] = Query("USAspending", description="Event source filter (blank for all)"),
     window_days: Optional[int] = Query(None, ge=1, description="Filter by window_days"),
     min_score: Optional[int] = Query(None, ge=0, description="Minimum numeric score (best-effort; score stored as text)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """
     List correlations with lightweight metadata.
@@ -78,7 +78,7 @@ def list_correlations(
 @router.get("/{correlation_id}")
 def get_correlation(
     correlation_id: int,
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_db_session),
 ) -> Dict[str, Any]:
     c = db.get(Correlation, int(correlation_id))
     if not c:

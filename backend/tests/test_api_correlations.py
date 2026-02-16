@@ -4,13 +4,14 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend.app import app
+from backend.api.deps import get_db_session
 from backend.db.models import (
     Correlation,
     CorrelationLink,
     Entity,
     Event,
     ensure_schema,
-    get_session,
+
     get_session_factory,
 )
 
@@ -51,7 +52,7 @@ def test_api_correlations_list_and_detail(tmp_path: Path):
         finally:
             s.close()
 
-    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_db_session] = override_get_session
     try:
         client = TestClient(app)
 
