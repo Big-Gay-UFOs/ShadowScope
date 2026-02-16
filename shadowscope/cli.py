@@ -258,3 +258,28 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
+# ---- Correlation utilities (M4-02) ----
+correlate_app = typer.Typer(help="Correlation utilities")
+
+@correlate_app.command("rebuild")
+def correlate_rebuild(
+    window_days: int = typer.Option(30, "--window-days", help="Lookback window (days) for correlation grouping"),
+    source: str = typer.Option("USAspending", "--source", help="Event source to correlate (blank for all)"),
+    min_events: int = typer.Option(2, "--min-events", help="Minimum events required to form a correlation"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute only; do not write to DB"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+):
+    from backend.correlate import correlate
+    res = correlate.rebuild_entity_correlations(
+        window_days=window_days,
+        source=source if source else None,
+        min_events=min_events,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+    typer.echo(
+        "Correlation rebuild: "
+        + " ".join([f"{k}={v}" for k, v in res.items() if k in ("dry_run","source","window_days","min_events","entities_seen","eligible_entities","deleted_correlations","deleted_links","correlations_created","links_created")])
+    )
+
+app.add_typer(correlate_app, name="correlate")
