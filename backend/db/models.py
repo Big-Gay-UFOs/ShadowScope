@@ -169,3 +169,37 @@ class AnalysisRun(Base):
     unchanged = Column(Integer, nullable=False, default=0)
 
     error = Column(Text)
+
+class LeadSnapshot(Base):
+    __tablename__ = "lead_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    analysis_run_id = Column(Integer, ForeignKey("analysis_runs.id"), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    source = Column(String(32))
+    min_score = Column(Integer, nullable=False, default=1)
+    limit = Column(Integer, nullable=False, default=200)
+    scoring_version = Column(String(32), nullable=False, default="v1")
+    notes = Column(Text)
+
+    items = relationship("LeadSnapshotItem", back_populates="snapshot", cascade="all, delete-orphan")
+
+
+class LeadSnapshotItem(Base):
+    __tablename__ = "lead_snapshot_items"
+
+    id = Column(Integer, primary_key=True)
+    snapshot_id = Column(Integer, ForeignKey("lead_snapshots.id"), nullable=False)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+
+    event_hash = Column(String(64), nullable=False)
+
+    rank = Column(Integer, nullable=False)
+    score = Column(Integer, nullable=False)
+    score_details = Column(JSON)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    snapshot = relationship("LeadSnapshot", back_populates="items")
