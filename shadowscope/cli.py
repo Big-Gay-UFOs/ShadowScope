@@ -23,12 +23,14 @@ ingest_app = typer.Typer(help="Data ingestion routines")
 export_app = typer.Typer(help="Data export routines")
 ontology_app = typer.Typer(help="Ontology utilities")
 leads_app = typer.Typer(help="Lead utilities")
+entities_app = typer.Typer(help="Entity utilities")
 
 app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(export_app, name="export")
 app.add_typer(ontology_app, name="ontology")
 app.add_typer(leads_app, name="leads")
+app.add_typer(entities_app, name="entities")
 
 
 @app.callback()
@@ -225,6 +227,30 @@ def leads_delta(
     )
     if json_out:
         typer.echo(json.dumps(res, indent=2))
+
+@entities_app.command("link")
+def entities_link(
+    source: str = typer.Option("USAspending", "--source", help="Event source to link (default USAspending)"),
+    days: int = typer.Option(30, "--days", help="Only process events created in the last N days"),
+    batch: int = typer.Option(500, "--batch", help="DB batch size"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute changes but do not write updates"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    from backend.services.entities import link_entities_from_events
+
+    res = link_entities_from_events(
+        source=source,
+        days=days,
+        batch=batch,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+    typer.echo(
+        "Entity link summary: "
+        f"dry_run={res['dry_run']} source={res['source']} days={res['days']} "
+        f"scanned={res['scanned']} linked={res['linked']} skipped_no_name={res['skipped_no_name']} "
+        f"entities_created={res['entities_created']}"
+    )
 
 def run() -> None:
     app()
