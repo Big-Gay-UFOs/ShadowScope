@@ -22,11 +22,13 @@ db_app = typer.Typer(help="Database lifecycle commands")
 ingest_app = typer.Typer(help="Data ingestion routines")
 export_app = typer.Typer(help="Data export routines")
 ontology_app = typer.Typer(help="Ontology utilities")
+leads_app = typer.Typer(help="Lead utilities")
 
 app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(export_app, name="export")
 app.add_typer(ontology_app, name="ontology")
+app.add_typer(leads_app, name="leads")
 
 
 @app.callback()
@@ -93,7 +95,9 @@ def ingest_usaspending_cli(
     )
     run_id = result.get("run_id")
     typer.echo(f"Run ID: {run_id}")
-    typer.echo(f"Summary: source=USAspending run_id={run_id} fetched={result['fetched']} inserted={result['inserted']} normalized={result['normalized']}")
+    typer.echo(
+        f"Summary: source=USAspending run_id={run_id} fetched={result['fetched']} inserted={result['inserted']} normalized={result['normalized']}"
+    )
     typer.echo(f"Ingested {result['fetched']} rows ({result['inserted']} inserted, {result['normalized']} normalized).")
     typer.echo(f"Raw snapshots: {Path(result['snapshot_dir']).resolve()}")
 
@@ -162,6 +166,40 @@ def ontology_apply(
         f"{ar}dry_run={result['dry_run']} source={result['source']} days={result['days']} "
         f"scanned={result['scanned']} updated={result['updated']} unchanged={result['unchanged']} "
         f"ontology_hash={ont.get('hash')} rules={ont.get('total_rules')}"
+    )
+
+
+@leads_app.command("snapshot")
+def leads_snapshot(
+    analysis_run_id: Optional[int] = typer.Option(None, "--analysis-run-id", help="Optional link to an analysis_runs.id"),
+    source: Optional[str] = typer.Option(None, "--source", help="Filter by event source (e.g. USAspending)"),
+    exclude_source: Optional[str] = typer.Option(None, "--exclude-source", help="Exclude an event source"),
+    min_score: int = typer.Option(1, "--min-score", help="Minimum score to include"),
+    limit: int = typer.Option(200, "--limit", help="Max leads to store"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="How many recent events to scan before ranking"),
+    scoring_version: str = typer.Option("v1", "--scoring-version", help="Scoring version label"),
+    notes: Optional[str] = typer.Option(None, "--notes", help="Optional snapshot notes"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    from backend.services.leads import create_lead_snapshot
+
+    result = create_lead_snapshot(
+        analysis_run_id=analysis_run_id,
+        source=source,
+        exclude_source=exclude_source,
+        min_score=min_score,
+        limit=limit,
+        scan_limit=scan_limit,
+        scoring_version=scoring_version,
+        notes=notes,
+        database_url=database_url,
+    )
+
+    typer.echo(
+        "Lead snapshot created: "
+        f"snapshot_id={result['snapshot_id']} items={result['items']} scanned={result['scanned']} "
+        f"analysis_run_id={result['analysis_run_id']} source={result['source']} min_score={result['min_score']} "
+        f"limit={result['limit']} scoring_version={result['scoring_version']}"
     )
 
 
