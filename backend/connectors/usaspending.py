@@ -67,16 +67,18 @@ def _build_request_payload(
     keywords: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
-        "fields": [
-            "Award ID",
-            "Recipient Name",
-            "Award Amount",
-            "Action Date",
-            "Last Modified Date",
-            "Description",
-            "Place of Performance",
-        ],
-        "filters": {
+                "fields": [
+                    "Award ID",
+                    "Recipient Name",
+                    "Recipient UEI",
+                    "Recipient DUNS Number",
+                    "Award Amount",
+                    "Action Date",
+                    "Last Modified Date",
+                    "Description",
+                    "Place of Performance",
+                ],
+                "filters": {
             "award_type_codes": ["A", "B", "C", "D"],
             "time_period": [
                 {
