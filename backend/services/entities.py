@@ -35,6 +35,7 @@ def _extract_usaspending_identity(raw_json: Any) -> Dict[str, Optional[str]]:
         out["duns"] = _clean_id(duns)
     if isinstance(recipient_id, str) and recipient_id.strip():
         out["recipient_id"] = _clean_text(recipient_id)
+
     return out
 
 
@@ -64,13 +65,19 @@ def _get_or_create_entity(
             changed = True
 
         if meta:
-            if ent.sites_json is None:
-                ent.sites_json = {}
-            if isinstance(ent.sites_json, dict):
-                for k, v in meta.items():
-                    if v and not ent.sites_json.get(k):
-                        ent.sites_json[k] = v
-                        changed = True
+            cur_sites = ent.sites_json if isinstance(ent.sites_json, dict) else {}
+            merged_sites = dict(cur_sites)
+            sites_changed = False
+
+            for k, v in meta.items():
+                if v and not merged_sites.get(k):
+                    merged_sites[k] = v
+                    sites_changed = True
+
+            if sites_changed:
+                # IMPORTANT: reassign so SQLAlchemy reliably persists JSON updates
+                ent.sites_json = merged_sites
+                changed = True
 
         if changed:
             db.flush()
@@ -132,14 +139,14 @@ def link_entities_from_events(
                 ident = _extract_usaspending_identity(ev.raw_json)
 
                 # Choose a display name (prefer actual recipient name)
-                name = ident["name"]
-                if not name:
+                display_name = ident["name"]
+                if not display_name:
                     if ident["uei"]:
-                        name = f"UEI:{ident['uei']}"
+                        display_name = f"UEI:{ident['uei']}"
                     elif ident["duns"]:
-                        name = f"DUNS:{ident['duns']}"
+                        display_name = f"DUNS:{ident['duns']}"
                     elif ident["recipient_id"]:
-                        name = f"RID:{ident['recipient_id']}"
+                        display_name = f"RID:{ident['recipient_id']}"
                     else:
                         skipped_no_name += 1
                         continue
@@ -150,7 +157,7 @@ def link_entities_from_events(
                 if ident["recipient_id"]:
                     meta["recipient_id"] = ident["recipient_id"]
 
-                ent, created = _get_or_create_entity(db, name=name, uei=ident["uei"], meta=meta or None)
+                ent, created = _get_or_create_entity(db, name=display_name, uei=ident["uei"], meta=meta or None)
                 if created:
                     entities_created += 1
 
