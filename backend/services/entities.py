@@ -64,15 +64,30 @@ def _get_or_create_entity(
             changed = True
 
         if meta:
-            if ent.sites_json is None:
-                ent.sites_json = {}
-            if isinstance(ent.sites_json, dict):
-                for k, v in meta.items():
-                    if v and not ent.sites_json.get(k):
-                        ent.sites_json[k] = v
-                        changed = True
 
-        if changed:
+            cur_sites = ent.sites_json if isinstance(ent.sites_json, dict) else {}
+
+            merged_sites = dict(cur_sites)
+
+            sites_changed = False
+
+
+            for k, v in meta.items():
+
+                if v and not merged_sites.get(k):
+
+                    merged_sites[k] = v
+
+                    sites_changed = True
+
+
+            if sites_changed:
+
+                # IMPORTANT: reassign so SQLAlchemy reliably persists JSON updates
+
+                ent.sites_json = merged_sites
+
+                changed = True        if changed:
             db.flush()
 
         return ent, False
