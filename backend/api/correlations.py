@@ -15,6 +15,7 @@ router = APIRouter(prefix="/correlations", tags=["correlations"])
 @router.get("/")
 def list_correlations(
     source: Optional[str] = Query("USAspending", description="Event source filter (blank for all)"),
+    lane: Optional[str] = Query(None, description="Filter by correlation lane (e.g., same_entity, same_uei)"),
     window_days: Optional[int] = Query(None, ge=1, description="Filter by window_days"),
     min_score: Optional[int] = Query(None, ge=0, description="Minimum numeric score (best-effort; score stored as text)"),
     limit: int = Query(50, ge=1, le=500),
@@ -23,13 +24,17 @@ def list_correlations(
 ) -> Dict[str, Any]:
     q = db.query(Correlation)
 
+    # Lane filter uses correlation_key prefix (cross-DB safe, no JSON ops)
+    if lane:
+        q = q.filter(Correlation.correlation_key.like(f"{lane}|%"))
+
     if window_days is not None:
         q = q.filter(Correlation.window_days == int(window_days))
 
     if min_score is not None:
         q = q.filter(cast(Correlation.score, Integer) >= int(min_score))
 
-    # Postgres-safe source filter: filter by correlation IDs (avoid DISTINCT on json columns)
+    # Postgres-safe source filter: filter by correlation IDs (avoid DISTINCT on json lanes_hit)
     if source:
         corr_ids = (
             db.query(CorrelationLink.correlation_id)
@@ -47,6 +52,7 @@ def list_correlations(
         items.append(
             {
                 "id": c.id,
+                "correlation_key": c.correlation_key,
                 "score": c.score,
                 "window_days": c.window_days,
                 "radius_km": c.radius_km,
@@ -99,6 +105,7 @@ def get_correlation(correlation_id: int, db: Session = Depends(get_db_session)) 
 
     return {
         "id": c.id,
+        "correlation_key": c.correlation_key,
         "score": c.score,
         "window_days": c.window_days,
         "radius_km": c.radius_km,

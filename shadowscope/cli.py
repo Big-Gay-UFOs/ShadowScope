@@ -304,22 +304,4 @@ def correlate_rebuild_uei(
         + " ".join([f"{k}={v}" for k, v in res.items() if k in ("dry_run","source","window_days","min_events","ueis_seen","eligible_ueis","correlations_created","correlations_updated","correlations_deleted","links_created")])
     )
 app.add_typer(correlate_app, name="correlate")
-@export_app.command("correlations")
-def export_correlations_cmd(
-    out: str = typer.Option("data/exports/correlations.json", "--out", help="Output JSON path"),
-    source: str = typer.Option("USAspending", "--source", help="Event source filter (blank for all)"),
-    window_days: int = typer.Option(None, "--window-days", help="Filter correlations by window_days"),
-    min_score: int = typer.Option(None, "--min-score", help="Minimum numeric score"),
-    limit: int = typer.Option(500, "--limit", help="Max correlations to export"),
-    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
-):
-    from backend.services.export_correlations import export_correlations
-    res = export_correlations(
-        out_path=out,
-        source=source if source else None,
-        window_days=window_days,
-        min_score=min_score,
-        limit=limit,
-        database_url=database_url,
-    )
-    typer.echo(f"Exported correlations: count={res['count']} out={res['out_path']}")
+
