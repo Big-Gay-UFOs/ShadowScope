@@ -13,6 +13,7 @@ def export_correlations(
     *,
     out_path: str,
     source: Optional[str] = "USAspending",
+    lane: Optional[str] = None,
     window_days: Optional[int] = None,
     min_score: Optional[int] = None,
     limit: int = 500,
@@ -24,13 +25,11 @@ def export_correlations(
     try:
         q = db.query(Correlation)
 
+        if lane:
+            q = q.filter(Correlation.correlation_key.like(f"{lane}|%"))
+
         if window_days is not None:
             q = q.filter(Correlation.window_days == int(window_days))
-
-        # best-effort numeric min_score (score stored as text). If non-numeric scores appear later, they will be ignored by caller expectations.
-        if min_score is not None:
-            # keep it simple: filter in Python to avoid SQL casting edge cases across DBs
-            pass
 
         if source:
             corr_ids = (
@@ -46,7 +45,6 @@ def export_correlations(
 
         items: List[Dict[str, Any]] = []
         for c in rows:
-            # linked events
             links = (
                 db.query(Event, Entity)
                 .join(CorrelationLink, CorrelationLink.event_id == Event.id)
@@ -75,34 +73,38 @@ def export_correlations(
                     }
                 )
 
-            item = {
-                "id": c.id,
-                "correlation_key": getattr(c, "correlation_key", None),
-                "score": c.score,
-                "window_days": c.window_days,
-                "radius_km": c.radius_km,
-                "lanes_hit": c.lanes_hit,
-                "summary": c.summary,
-                "rationale": c.rationale,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
-                "event_count": len(events),
-                "events": events,
-            }
-            items.append(item)
+            items.append(
+                {
+                    "id": c.id,
+                    "correlation_key": getattr(c, "correlation_key", None),
+                    "score": c.score,
+                    "window_days": c.window_days,
+                    "radius_km": c.radius_km,
+                    "lanes_hit": c.lanes_hit,
+                    "summary": c.summary,
+                    "rationale": c.rationale,
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
+                    "event_count": len(events),
+                    "events": events,
+                }
+            )
 
-        # optional python-side min_score filter
+        # python-side min_score filter (avoids cross-DB casting issues)
         if min_score is not None:
             ms = int(min_score)
+
             def _as_int(s: Any) -> Optional[int]:
                 try:
                     return int(s)
                 except Exception:
                     return None
+
             items = [it for it in items if (_as_int(it.get("score")) is not None and _as_int(it.get("score")) >= ms)]
 
         payload = {
             "exported_at": datetime.utcnow().isoformat() + "Z",
             "source": source,
+            "lane": lane,
             "window_days": window_days,
             "min_score": min_score,
             "limit": limit,
