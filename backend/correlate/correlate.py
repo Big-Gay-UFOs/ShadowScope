@@ -23,12 +23,12 @@ def rebuild_entity_correlations(
     database_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Rebuild correlations using the simplest lane:
-      - same entity_id within the last `window_days`
+    Idempotent rebuild (same-entity lane) using correlation_key:
+      key format: same_entity|<source>|<window_days>|entity:<entity_id>
 
-    Derived-table style:
-      - non-dry-run: deletes all correlations + links, then rebuilds
-      - dry-run: computes counts only
+    - Updates existing correlations if key exists
+    - Creates new ones if missing
+    - Deletes stale ones for this lane/window/source
     """
     window_days = int(window_days)
     min_events = int(min_events)
@@ -36,6 +36,10 @@ def rebuild_entity_correlations(
         raise ValueError("window_days must be > 0")
     if min_events < 2:
         raise ValueError("min_events must be >= 2")
+
+    lane = "same_entity"
+    src_key = source if source else "*"
+    key_prefix = f"{lane}|{src_key}|{window_days}|entity:"
 
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=window_days)
@@ -47,39 +51,40 @@ def rebuild_entity_correlations(
 
     try:
         groups_q = (
-            db.query(
-                Event.entity_id,
-                func.count(Event.id),
-                func.min(ts),
-                func.max(ts),
-            )
+            db.query(Event.entity_id, func.count(Event.id))
             .filter(Event.entity_id.isnot(None))
             .filter(ts >= since)
         )
         if source:
             groups_q = groups_q.filter(Event.source == source)
-
         groups = groups_q.group_by(Event.entity_id).all()
-        eligible = [(eid, int(cnt), tmin, tmax) for (eid, cnt, tmin, tmax) in groups if int(cnt) >= min_events]
 
-        deleted_correlations = 0
-        deleted_links = 0
-        if not dry_run:
-            deleted_links = db.query(CorrelationLink).delete(synchronize_session=False)
-            deleted_correlations = db.query(Correlation).delete(synchronize_session=False)
-            db.commit()
+        eligible = [(int(eid), int(cnt)) for (eid, cnt) in groups if int(cnt) >= min_events]
+        eligible_keys = set(f"{key_prefix}{eid}" for (eid, _cnt) in eligible)
+
+        # Load existing correlations for this lane/window/source
+        existing = (
+            db.query(Correlation)
+            .filter(Correlation.correlation_key.like(f"{key_prefix}%"))
+            .all()
+        )
+        existing_by_key = {c.correlation_key: c for c in existing if c.correlation_key}
 
         correlations_created = 0
+        correlations_updated = 0
+        correlations_deleted = 0
         links_created = 0
-        entities_seen = len(groups)
+        links_deleted = 0
 
-        for (entity_id, cnt, tmin, tmax) in eligible:
+        for (entity_id, cnt) in eligible:
+            key = f"{key_prefix}{entity_id}"
+
             ent = db.get(Entity, int(entity_id))
             ent_name = ent.name if ent else f"entity_id={entity_id}"
             ent_uei = ent.uei if ent else None
 
             lanes_hit = {
-                "lane": "same_entity",
+                "lane": lane,
                 "entity_id": int(entity_id),
                 "uei": ent_uei,
                 "event_count": cnt,
@@ -87,23 +92,36 @@ def rebuild_entity_correlations(
                 "until": now.isoformat(),
             }
 
-            corr = Correlation(
-                score=str(cnt),  # score column is varchar in current schema
-                window_days=window_days,
-                radius_km=float(radius_km),
-                lanes_hit=lanes_hit,
-                summary=f"{cnt} events share entity {ent_name}",
-                rationale=f"Grouped events with entity_id={entity_id} within last {window_days} days (min_events={min_events}).",
-                created_at=now,
-            )
-
             if dry_run:
-                correlations_created += 1
-                links_created += cnt
                 continue
 
-            db.add(corr)
-            db.flush()
+            c = existing_by_key.get(key)
+            if c is None:
+                c = Correlation(
+                    correlation_key=key,
+                    score=str(cnt),
+                    window_days=window_days,
+                    radius_km=float(radius_km),
+                    lanes_hit=lanes_hit,
+                    summary=f"{cnt} events share entity {ent_name}",
+                    rationale=f"Grouped events with entity_id={entity_id} within last {window_days} days (min_events={min_events}).",
+                    created_at=now,
+                )
+                db.add(c)
+                db.flush()
+                correlations_created += 1
+            else:
+                c.score = str(cnt)
+                c.window_days = window_days
+                c.radius_km = float(radius_km)
+                c.lanes_hit = lanes_hit
+                c.summary = f"{cnt} events share entity {ent_name}"
+                c.rationale = f"Grouped events with entity_id={entity_id} within last {window_days} days (min_events={min_events})."
+                c.created_at = now
+                correlations_updated += 1
+
+            # rebuild links for this correlation
+            links_deleted += db.query(CorrelationLink).filter(CorrelationLink.correlation_id == int(c.id)).delete(synchronize_session=False)
 
             ids_q = db.query(Event.id).filter(Event.entity_id == int(entity_id)).filter(ts >= since)
             if source:
@@ -111,10 +129,14 @@ def rebuild_entity_correlations(
             event_ids = [r[0] for r in ids_q.all()]
 
             for ev_id in event_ids:
-                db.add(CorrelationLink(correlation_id=int(corr.id), event_id=int(ev_id)))
-
-            correlations_created += 1
+                db.add(CorrelationLink(correlation_id=int(c.id), event_id=int(ev_id)))
             links_created += len(event_ids)
+
+        # Delete stale correlations for this lane/window/source
+        if not dry_run:
+            stale_keys = [k for k in existing_by_key.keys() if k not in eligible_keys]
+            if stale_keys:
+                correlations_deleted = db.query(Correlation).filter(Correlation.correlation_key.in_(stale_keys)).delete(synchronize_session=False)
 
         if not dry_run:
             db.commit()
@@ -126,12 +148,13 @@ def rebuild_entity_correlations(
             "window_days": window_days,
             "min_events": min_events,
             "since": since.isoformat(),
-            "entities_seen": entities_seen,
+            "entities_seen": len(groups),
             "eligible_entities": len(eligible),
-            "deleted_correlations": deleted_correlations,
-            "deleted_links": deleted_links,
             "correlations_created": correlations_created,
+            "correlations_updated": correlations_updated,
+            "correlations_deleted": correlations_deleted,
             "links_created": links_created,
+            "links_deleted": links_deleted,
         }
     finally:
         db.close()
