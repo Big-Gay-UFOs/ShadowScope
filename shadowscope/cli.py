@@ -282,6 +282,27 @@ def correlate_rebuild(
         + " ".join([f"{k}={v}" for k, v in res.items() if k in ("dry_run","source","window_days","min_events","entities_seen","eligible_entities","deleted_correlations","deleted_links","correlations_created","links_created")])
     )
 
+
+@correlate_app.command("rebuild-uei")
+def correlate_rebuild_uei(
+    window_days: int = typer.Option(30, "--window-days", help="Lookback window (days)"),
+    source: str = typer.Option("USAspending", "--source", help="Event source (blank for all)"),
+    min_events: int = typer.Option(2, "--min-events", help="Minimum events to form a correlation"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute only; do not write to DB"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+):
+    from backend.correlate import correlate
+    res = correlate.rebuild_uei_correlations(
+        window_days=window_days,
+        source=source if source else None,
+        min_events=min_events,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+    typer.echo(
+        "UEI correlation rebuild: "
+        + " ".join([f"{k}={v}" for k, v in res.items() if k in ("dry_run","source","window_days","min_events","ueis_seen","eligible_ueis","correlations_created","correlations_updated","correlations_deleted","links_created")])
+    )
 app.add_typer(correlate_app, name="correlate")
 @export_app.command("correlations")
 def export_correlations_cmd(
