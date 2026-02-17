@@ -3,59 +3,44 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Integer, cast, func
+from sqlalchemy import Integer, cast
 from sqlalchemy.orm import Session
 
-from backend.db.models import Correlation, CorrelationLink, Entity, Event, get_session
+from backend.api.deps import get_db_session
+from backend.db.models import Correlation, CorrelationLink, Entity, Event
 
 router = APIRouter(prefix="/correlations", tags=["correlations"])
 
 
-def _try_int(v: Optional[str]) -> Optional[int]:
-    if v is None:
-        return None
-    try:
-        return int(v)
-    except Exception:
-        return None
-
-
-@router.get("")
+@router.get("/")
 def list_correlations(
     source: Optional[str] = Query("USAspending", description="Event source filter (blank for all)"),
     window_days: Optional[int] = Query(None, ge=1, description="Filter by window_days"),
     min_score: Optional[int] = Query(None, ge=0, description="Minimum numeric score (best-effort; score stored as text)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_db_session),
 ) -> Dict[str, Any]:
-    """
-    List correlations with lightweight metadata.
-    """
     q = db.query(Correlation)
 
     if window_days is not None:
         q = q.filter(Correlation.window_days == int(window_days))
 
-    # Best-effort numeric filter: only applies when score is parseable as integer
     if min_score is not None:
         q = q.filter(cast(Correlation.score, Integer) >= int(min_score))
 
-    # Source filter: join through links->events (exists)
+    # Postgres-safe source filter: filter by correlation IDs (avoid DISTINCT on json columns)
     if source:
-        q = q.join(CorrelationLink, CorrelationLink.correlation_id == Correlation.id)\
-             .join(Event, Event.id == CorrelationLink.event_id)\
-             .filter(Event.source == source)\
-             .distinct()
+        corr_ids = (
+            db.query(CorrelationLink.correlation_id)
+            .join(Event, Event.id == CorrelationLink.event_id)
+            .filter(Event.source == source)
+            .distinct()
+        )
+        q = q.filter(Correlation.id.in_(corr_ids))
 
     total = q.count()
-
-    rows = (
-        q.order_by(Correlation.id.desc())
-        .offset(int(offset))
-        .limit(int(limit))
-        .all()
-    )
+    rows = q.order_by(Correlation.id.desc()).offset(int(offset)).limit(int(limit)).all()
 
     items: List[Dict[str, Any]] = []
     for c in rows:
@@ -76,15 +61,11 @@ def list_correlations(
 
 
 @router.get("/{correlation_id}")
-def get_correlation(
-    correlation_id: int,
-    db: Session = Depends(get_session),
-) -> Dict[str, Any]:
+def get_correlation(correlation_id: int, db: Session = Depends(get_db_session)) -> Dict[str, Any]:
     c = db.get(Correlation, int(correlation_id))
     if not c:
         raise HTTPException(status_code=404, detail="Correlation not found")
 
-    # fetch linked events + entity details
     links = (
         db.query(CorrelationLink, Event, Entity)
         .join(Event, Event.id == CorrelationLink.event_id)
