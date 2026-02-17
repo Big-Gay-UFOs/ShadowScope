@@ -1,24 +1,13 @@
-from __future__ import annotations
-        raise HTTPException(status_code=503, detail=str(e))
-router.include_router(correlations_router)
-from __future__ import annotations
-from backend.api.correlations import router as correlations_router
-
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db_session
+from backend.api.correlations import router as correlations_router
 from backend.analysis.scoring import score_from_keywords_clauses
-from backend.db.models import (
-    AnalysisRun,
-    Entity,
-    Event,
-    LeadSnapshot,
-    LeadSnapshotItem,
-)
+from backend.db.models import AnalysisRun, Entity, Event, LeadSnapshot, LeadSnapshotItem
 from backend.search.opensearch import opensearch_search
 from backend.services.deltas import lead_deltas
 
@@ -93,7 +82,6 @@ def list_analysis_runs(
     q = db.query(AnalysisRun).order_by(AnalysisRun.id.desc()).limit(limit)
     if analysis_type:
         q = q.filter(AnalysisRun.analysis_type == analysis_type)
-
     rows = q.all()
     return [
         {
@@ -126,18 +114,15 @@ def list_leads(
     db: Session = Depends(get_db_session),
 ):
     rows = db.execute(select(Event).order_by(Event.id.desc()).limit(5000)).scalars().all()
-
     scored = []
     for e in rows:
         if source and e.source != source:
             continue
         if exclude_source and e.source == exclude_source:
             continue
-
         sc, details = score_from_keywords_clauses(e.keywords, e.clauses, has_entity=bool(e.entity_id))
         if sc >= min_score:
             scored.append((sc, e, details))
-
     scored.sort(key=lambda t: (t[0], t[1].id), reverse=True)
     top = scored[:limit]
 
@@ -160,7 +145,6 @@ def list_leads(
         if include_details:
             item["score_details"] = details
         out.append(item)
-
     return out
 
 
@@ -176,17 +160,19 @@ def list_lead_snapshots(
         q = q.filter(LeadSnapshot.analysis_run_id == analysis_run_id)
     if source:
         q = q.filter(LeadSnapshot.source == source)
-
     snaps = q.all()
-    ids = [int(s.id) for s in snaps]
 
+    ids = [int(s.id) for s in snaps]
     counts = {}
     if ids:
-        rows = db.execute(
-            select(LeadSnapshotItem.snapshot_id, func.count(LeadSnapshotItem.id))
-            .where(LeadSnapshotItem.snapshot_id.in_(ids))
-            .group_by(LeadSnapshotItem.snapshot_id)
-        ).all()
+        rows = (
+            db.execute(
+                select(LeadSnapshotItem.snapshot_id, func.count(LeadSnapshotItem.id))
+                .where(LeadSnapshotItem.snapshot_id.in_(ids))
+                .group_by(LeadSnapshotItem.snapshot_id)
+            )
+            .all()
+        )
         counts = {int(sid): int(cnt) for sid, cnt in rows}
 
     return [
@@ -211,9 +197,7 @@ def get_lead_snapshot(snapshot_id: int, db: Session = Depends(get_db_session)):
     if snap is None:
         raise HTTPException(status_code=404, detail=f"lead_snapshot {snapshot_id} not found")
 
-    count = db.execute(
-        select(func.count(LeadSnapshotItem.id)).where(LeadSnapshotItem.snapshot_id == snapshot_id)
-    ).scalar_one()
+    count = db.execute(select(func.count(LeadSnapshotItem.id)).where(LeadSnapshotItem.snapshot_id == snapshot_id)).scalar_one()
 
     return {
         "id": int(snap.id),
@@ -271,7 +255,6 @@ def list_lead_snapshot_items(
         if include_score_details:
             d["score_details"] = item.score_details
         out.append(d)
-
     return out
 
 
@@ -298,3 +281,7 @@ def search(
         return opensearch_search(q=q, limit=limit, source=source, category=category)
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+
+# Mount correlations API under /api/correlations/*
+router.include_router(correlations_router)

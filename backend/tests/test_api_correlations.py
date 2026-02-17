@@ -1,22 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import importlib
 
 from fastapi.testclient import TestClient
 
-from backend.app import app
 from backend.api.deps import get_db_session
-from backend.db.models import (
-    Correlation,
-    CorrelationLink,
-    Entity,
-    Event,
-    ensure_schema,
-
-    get_session_factory,
-)
+from backend.db.models import Correlation, CorrelationLink, Entity, Event, ensure_schema, get_session_factory
 
 
-def test_api_correlations_list_and_detail(tmp_path: Path):
+def test_api_correlations_list_and_detail(tmp_path: Path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'api_corr.db'}"
     ensure_schema(db_url)
     SessionFactory = get_session_factory(db_url)
@@ -37,26 +29,34 @@ def test_api_correlations_list_and_detail(tmp_path: Path):
     db.add(corr)
     db.flush()
 
-    db.add_all([
-        CorrelationLink(correlation_id=corr.id, event_id=ev1.id),
-        CorrelationLink(correlation_id=corr.id, event_id=ev2.id),
-    ])
+    db.add_all(
+        [
+            CorrelationLink(correlation_id=corr.id, event_id=ev1.id),
+            CorrelationLink(correlation_id=corr.id, event_id=ev2.id),
+        ]
+    )
     db.commit()
     db.close()
 
-    # Dependency override so the app uses *this* sqlite DB
-    def override_get_session():
+    # Ensure the app bootstraps against this sqlite DB in lifespan
+    monkeypatch.setenv("DATABASE_URL", db_url)
+
+    import backend.app as app_mod
+    importlib.reload(app_mod)
+    app = app_mod.app
+
+    def override_get_db_session():
         s = SessionFactory()
         try:
             yield s
         finally:
             s.close()
 
-    app.dependency_overrides[get_db_session] = override_get_session
+    app.dependency_overrides[get_db_session] = override_get_db_session
     try:
         client = TestClient(app)
 
-        r = client.get("/api/correlations?source=USAspending&limit=50&offset=0")
+        r = client.get("/api/correlations/?source=USAspending&limit=50&offset=0")
         assert r.status_code == 200
         body = r.json()
         assert body["total"] == 1
