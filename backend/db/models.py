@@ -55,6 +55,7 @@ class Event(Base):
 class Correlation(Base):
     __tablename__ = "correlations"
     id = Column(Integer, primary_key=True)
+    correlation_key = Column(String(255), unique=True, index=True, nullable=True)
     score = Column(String, nullable=False)
     window_days = Column(Integer, nullable=False)
     radius_km = Column(Float, nullable=False)
