@@ -29,13 +29,15 @@ def list_correlations(
     if min_score is not None:
         q = q.filter(cast(Correlation.score, Integer) >= int(min_score))
 
+    # Postgres-safe source filter: filter by correlation IDs (avoid DISTINCT on json columns)
     if source:
-        q = (
-            q.join(CorrelationLink, CorrelationLink.correlation_id == Correlation.id)
+        corr_ids = (
+            db.query(CorrelationLink.correlation_id)
             .join(Event, Event.id == CorrelationLink.event_id)
             .filter(Event.source == source)
             .distinct()
         )
+        q = q.filter(Correlation.id.in_(corr_ids))
 
     total = q.count()
     rows = q.order_by(Correlation.id.desc()).offset(int(offset)).limit(int(limit)).all()
