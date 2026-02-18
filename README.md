@@ -14,6 +14,39 @@ Last updated: 2026-02-16
 
 ---
 
+## Roadmap status
+
+M0 (plumbing): done  
+M3 (investigator signal): done  
+M4 (entity enrichment + correlations): baseline complete
+
+M4 baseline now includes:
+- Entity enrichment: USAspending UEI/DUNS ingested; idempotent entity linking
+- Tagging: ontology validate/apply; analysis_runs tracking
+- Correlation lanes: same_entity, same_uei, same_keyword (keyword lane depends on ontology coverage)
+- Correlation stability: correlation_key supports idempotent rebuilds
+- Correlation persistence: correlation_links FKs + uniqueness + indexes
+- API:
+  - GET /api/correlations (supports lane=..., source=..., window_days=..., min_score=...)
+  - GET /api/correlations/{id}
+- Export:
+  - ss export correlations (supports --lane, --source, --window-days, --min-score, --limit)
+
+Investigator flow (typical)
+- ss ingest usaspending --days N --pages N --page-size N
+- ss entities link --source USAspending --days 3650
+- ss ontology validate
+- ss ontology apply --source USAspending --days 3650
+- ss correlate rebuild --source USAspending --window-days 30 --min-events 2
+- ss correlate rebuild-uei --source USAspending --window-days 30 --min-events 2
+- ss correlate rebuild-keywords --source USAspending --window-days 30 --min-events 2 --max-events 200
+- ss export correlations --source USAspending --lane same_keyword --window-days 30 --out data/exports/corr_same_keyword.json
+
+Next
+- Expand ontology packs/rules (term/topic list → higher tagging coverage)
+- Add additional correlation heuristics beyond single-key clustering (co-occurrence, keyword overlap scoring, etc.)
+- SAM.gov ingestion/enrichment (separate track)
+
 ## Current status
 
 Plumbing is stable and M3 "investigator signal" is complete:

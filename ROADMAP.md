@@ -3,9 +3,31 @@
 Last updated: 2026-02-16
 
 ## Current status
-- M0 (Plumbing baseline): DONE
-- M3 (Investigator signal): DONE (ontology -> tagging -> scoring -> analysis_runs -> lead snapshots -> deltas)
-- M4 (Entity enrichment + correlations): NEXT
+
+- [x] M0 Plumbing (Docker Compose, FastAPI, Postgres, OpenSearch)
+- [x] M3 Investigator signal (ontology -> tagging -> scoring -> analysis_runs -> lead snapshots -> deltas)
+- [x] M4 Baseline complete:
+  - [x] M4-01 Entity enrichment: ingest UEI/DUNS + idempotent entity linking
+  - [x] M4-02 Correlations + persistence:
+    - [x] Lanes: same_entity, same_uei, same_keyword
+    - [x] correlation_key (idempotent rebuilds)
+    - [x] correlation_links constraints (FKs, uniqueness, indexes)
+  - [x] M4-03 Read paths + exports:
+    - [x] API: /api/correlations (lane filter) and /api/correlations/{id}
+    - [x] Export: ss export correlations (lane filter)
+
+## Next up
+
+- [ ] M4-04 Ontology content expansion (primary dependency for stronger keyword-based correlations)
+  - add packs/rules based on term/topic list
+  - iterate using coverage metrics (events_with_keywords, top keyword frequencies)
+- [ ] M4-05 Correlation heuristics v2 (beyond single-key clustering)
+  - keyword overlap scoring between events/entities
+  - co-occurrence within time windows
+  - optional geospatial radius and agency/office attributes when available
+- [ ] M4-06 Graph export formats (optional)
+  - GraphML / JSON graph for investigator tooling
+- [ ] M5 SAM.gov ingestion/enrichment (separate track)
 
 ## M0 - Plumbing baseline (DONE)
 - [x] Compose stack reproducible (backend + Postgres + OpenSearch)
