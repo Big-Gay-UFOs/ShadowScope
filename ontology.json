@@ -1,4 +1,4 @@
-﻿{
+{
     "version":  "0.1",
     "updated_at":  "2026-02-15",
     "description":  "Default ontology packs for investigative tagging/scoring. Used to populate events.keywords later.",
@@ -140,9 +140,13 @@
                   {
                       "id":  "space_nasa",
                       "name":  "Space / NASA",
+                      "enabled":  true,
+                      "default_weight":  6,
                       "rules":  [
                                     {
                                         "id":  "nasa",
+                                        "type":  "phrase",
+                                        "pattern":  "NASA",
                                         "weight":  6,
                                         "fields":  [
                                                        "snippet",
@@ -152,6 +156,8 @@
                                     },
                                     {
                                         "id":  "jpl",
+                                        "type":  "phrase",
+                                        "pattern":  "JPL",
                                         "weight":  6,
                                         "fields":  [
                                                        "snippet",
@@ -161,6 +167,8 @@
                                     },
                                     {
                                         "id":  "jet_propulsion_laboratory",
+                                        "type":  "regex",
+                                        "pattern":  "Jet Propulsion Laboratory",
                                         "weight":  10,
                                         "fields":  [
                                                        "snippet",
@@ -170,6 +178,8 @@
                                     },
                                     {
                                         "id":  "deep_space_network",
+                                        "type":  "regex",
+                                        "pattern":  "Deep Space Network",
                                         "weight":  10,
                                         "fields":  [
                                                        "snippet",
@@ -179,6 +189,8 @@
                                     },
                                     {
                                         "id":  "spacecraft",
+                                        "type":  "phrase",
+                                        "pattern":  "spacecraft",
                                         "weight":  4,
                                         "fields":  [
                                                        "snippet",
