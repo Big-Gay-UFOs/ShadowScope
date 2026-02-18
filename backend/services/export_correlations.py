@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -89,7 +89,6 @@ def export_correlations(
                 }
             )
 
-        # python-side min_score filter (avoids cross-DB casting issues)
         if min_score is not None:
             ms = int(min_score)
 
@@ -102,7 +101,7 @@ def export_correlations(
             items = [it for it in items if (_as_int(it.get("score")) is not None and _as_int(it.get("score")) >= ms)]
 
         payload = {
-            "exported_at": datetime.utcnow().isoformat() + "Z",
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "source": source,
             "lane": lane,
             "window_days": window_days,

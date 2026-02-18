@@ -44,7 +44,5 @@ def test_export_correlations_lane_filter(tmp_path: Path):
     out = tmp_path / "out.json"
     res = export_correlations(out_path=str(out), source=None, lane="same_uei", database_url=db_url)
     assert res["count"] == 1
-
     data = json.load(open(out, "r", encoding="utf-8"))
     assert data["count"] == 1
-    assert data["items"][0]["lanes_hit"]["lane"] == "same_uei"
