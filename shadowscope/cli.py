@@ -303,6 +303,29 @@ def correlate_rebuild_uei(
         "UEI correlation rebuild: "
         + " ".join([f"{k}={v}" for k, v in res.items() if k in ("dry_run","source","window_days","min_events","ueis_seen","eligible_ueis","correlations_created","correlations_updated","correlations_deleted","links_created")])
     )
+
+@correlate_app.command("rebuild-keywords")
+def correlate_rebuild_keywords(
+    window_days: int = typer.Option(30, "--window-days", help="Lookback window (days)"),
+    source: str = typer.Option("USAspending", "--source", help="Event source (blank for all)"),
+    min_events: int = typer.Option(3, "--min-events", help="Minimum events per keyword"),
+    max_events: int = typer.Option(200, "--max-events", help="Skip keywords that match more than this many events"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute only; do not write to DB"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+):
+    from backend.correlate import correlate
+    res = correlate.rebuild_keyword_correlations(
+        window_days=window_days,
+        source=source if source else None,
+        min_events=min_events,
+        max_events=max_events,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+    typer.echo(
+        "Keyword correlation rebuild: "
+        + " ".join([f"{k}={v}" for k, v in res.items() if k in ("dry_run","source","window_days","min_events","max_events","keywords_seen","eligible_keywords","correlations_created","correlations_updated","correlations_deleted","links_created")])
+    )
 app.add_typer(correlate_app, name="correlate")
 
 @export_app.command("correlations")

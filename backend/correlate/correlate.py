@@ -312,3 +312,163 @@ def rebuild_uei_correlations(
         }
     finally:
         db.close()
+def rebuild_keyword_correlations(
+    *,
+    window_days: int = 30,
+    source: Optional[str] = "USAspending",
+    min_events: int = 3,
+    max_events: int = 200,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Idempotent rebuild (same-keyword lane) using correlation_key:
+      key format: same_keyword|<source>|<window_days>|kw:<keyword>
+
+    Uses Event.keywords (list of "pack:rule") populated by ontology apply.
+    """
+    window_days = int(window_days)
+    min_events = int(min_events)
+    max_events = int(max_events)
+
+    if window_days <= 0:
+        raise ValueError("window_days must be > 0")
+    if min_events < 2:
+        raise ValueError("min_events must be >= 2")
+    if max_events < min_events:
+        raise ValueError("max_events must be >= min_events")
+
+    lane = "same_keyword"
+    src_key = source if source else "*"
+    key_prefix = f"{lane}|{src_key}|{window_days}|kw:"
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=window_days)
+
+    SessionFactory = get_session_factory(database_url)
+    db: Session = SessionFactory()
+
+    ts = func.coalesce(Event.occurred_at, Event.created_at)
+
+    try:
+        q = db.query(Event).filter(ts >= since)
+        if source:
+            q = q.filter(Event.source == source)
+        rows = q.order_by(Event.id.asc()).all()
+
+        # Build keyword -> event_ids index
+        kw_to_ids: dict[str, list[int]] = {}
+        for ev in rows:
+            kws = ev.keywords if isinstance(ev.keywords, list) else []
+            for kw in kws:
+                if not isinstance(kw, str):
+                    continue
+                kw_norm = kw.strip()
+                if not kw_norm:
+                    continue
+                # normalize to stabilize keys
+                kw_key = kw_norm.replace("|", "/").lower()
+                kw_to_ids.setdefault(kw_key, []).append(int(ev.id))
+
+        eligible: dict[str, list[int]] = {}
+        for kw, ids in kw_to_ids.items():
+            uniq = sorted(set(ids))
+            if len(uniq) >= min_events and len(uniq) <= max_events:
+                eligible[kw] = uniq
+
+        eligible_keys = set(f"{key_prefix}{kw}" for kw in eligible.keys())
+
+        existing = (
+            db.query(Correlation)
+            .filter(Correlation.correlation_key.like(f"{key_prefix}%"))
+            .all()
+        )
+        existing_by_key = {c.correlation_key: c for c in existing if c.correlation_key}
+
+        correlations_created = 0
+        correlations_updated = 0
+        correlations_deleted = 0
+        links_created = 0
+        links_deleted = 0
+
+        for kw, event_ids in eligible.items():
+            key = f"{key_prefix}{kw}"
+            cnt = len(event_ids)
+
+            lanes_hit = {
+                "lane": lane,
+                "keyword": kw,
+                "event_count": cnt,
+                "since": since.isoformat(),
+                "until": now.isoformat(),
+            }
+
+            if dry_run:
+                continue
+
+            c = existing_by_key.get(key)
+            if c is None:
+                c = Correlation(
+                    correlation_key=key,
+                    score=str(cnt),
+                    window_days=window_days,
+                    radius_km=0.0,
+                    lanes_hit=lanes_hit,
+                    summary=f"{cnt} events share keyword {kw}",
+                    rationale=f"Grouped events sharing keyword '{kw}' within last {window_days} days (min_events={min_events}, max_events={max_events}).",
+                    created_at=now,
+                )
+                db.add(c)
+                db.flush()
+                correlations_created += 1
+            else:
+                c.score = str(cnt)
+                c.window_days = window_days
+                c.radius_km = 0.0
+                c.lanes_hit = lanes_hit
+                c.summary = f"{cnt} events share keyword {kw}"
+                c.rationale = f"Grouped events sharing keyword '{kw}' within last {window_days} days (min_events={min_events}, max_events={max_events})."
+                c.created_at = now
+                correlations_updated += 1
+
+            # rebuild links
+            links_deleted += (
+                db.query(CorrelationLink)
+                .filter(CorrelationLink.correlation_id == int(c.id))
+                .delete(synchronize_session=False)
+            )
+            for ev_id in event_ids:
+                db.add(CorrelationLink(correlation_id=int(c.id), event_id=int(ev_id)))
+            links_created += len(event_ids)
+
+        # delete stale correlations for this lane/source/window
+        if not dry_run:
+            stale_keys = [k for k in existing_by_key.keys() if k not in eligible_keys]
+            if stale_keys:
+                correlations_deleted = (
+                    db.query(Correlation)
+                    .filter(Correlation.correlation_key.in_(stale_keys))
+                    .delete(synchronize_session=False)
+                )
+
+        if not dry_run:
+            db.commit()
+
+        return {
+            "status": "ok",
+            "dry_run": dry_run,
+            "source": source,
+            "window_days": window_days,
+            "min_events": min_events,
+            "max_events": max_events,
+            "since": since.isoformat(),
+            "keywords_seen": len(kw_to_ids),
+            "eligible_keywords": len(eligible),
+            "correlations_created": correlations_created,
+            "correlations_updated": correlations_updated,
+            "correlations_deleted": correlations_deleted,
+            "links_created": links_created,
+            "links_deleted": links_deleted,
+        }
+    finally:
+        db.close()
