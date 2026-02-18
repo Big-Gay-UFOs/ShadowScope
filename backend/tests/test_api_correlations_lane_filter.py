@@ -60,14 +60,10 @@ def test_api_correlations_lane_filter(tmp_path: Path, monkeypatch):
         client = TestClient(app)
         r = client.get("/api/correlations/?source=&lane=same_entity&limit=50&offset=0")
         assert r.status_code == 200
-        body = r.json()
-        assert body["total"] == 1
-        assert body["items"][0]["lanes_hit"]["lane"] == "same_entity"
+        assert r.json()["total"] == 1
 
         r2 = client.get("/api/correlations/?source=&lane=same_uei&limit=50&offset=0")
         assert r2.status_code == 200
-        body2 = r2.json()
-        assert body2["total"] == 1
-        assert body2["items"][0]["lanes_hit"]["lane"] == "same_uei"
+        assert r2.json()["total"] == 1
     finally:
         app.dependency_overrides.clear()

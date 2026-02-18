@@ -24,7 +24,6 @@ def list_correlations(
 ) -> Dict[str, Any]:
     q = db.query(Correlation)
 
-    # Lane filter uses correlation_key prefix (cross-DB safe, no JSON ops)
     if lane:
         q = q.filter(Correlation.correlation_key.like(f"{lane}|%"))
 
@@ -34,7 +33,6 @@ def list_correlations(
     if min_score is not None:
         q = q.filter(cast(Correlation.score, Integer) >= int(min_score))
 
-    # Postgres-safe source filter: filter by correlation IDs (avoid DISTINCT on json lanes_hit)
     if source:
         corr_ids = (
             db.query(CorrelationLink.correlation_id)
@@ -95,11 +93,7 @@ def get_correlation(correlation_id: int, db: Session = Depends(get_db_session)) 
                 "place_text": ev.place_text,
                 "entity": None
                 if ent is None
-                else {
-                    "id": ent.id,
-                    "name": ent.name,
-                    "uei": ent.uei,
-                },
+                else {"id": ent.id, "name": ent.name, "uei": ent.uei},
             }
         )
 
