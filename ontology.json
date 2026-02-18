@@ -1,52 +1,204 @@
 {
-  "version": "0.1",
-  "updated_at": "2026-02-15",
-  "description": "Default ontology packs for investigative tagging/scoring. Used to populate events.keywords later.",
-  "defaults": {
-    "case_insensitive": true,
-    "fields": ["snippet", "place_text", "doc_id"]
-  },
-  "packs": [
-    {
-      "id": "radiological_nuclear",
-      "name": "Radiological / Nuclear",
-      "enabled": true,
-      "default_weight": 8,
-      "rules": [
-        {"id": "radiation", "type": "phrase", "pattern": "radiation", "weight": 6},
-        {"id": "health_physics", "type": "phrase", "pattern": "health physics", "weight": 10},
-        {"id": "radiological", "type": "phrase", "pattern": "radiological", "weight": 9},
-        {"id": "hot_cell", "type": "regex", "pattern": "\\bhot\\s*cell(s)?\\b", "weight": 12},
-        {"id": "glovebox", "type": "regex", "pattern": "\\bglove\\s*box(es)?\\b", "weight": 10},
-        {"id": "dosimetry", "type": "phrase", "pattern": "dosimetry", "weight": 8}
-      ]
-    },
-    {
-      "id": "space_launch_ops",
-      "name": "Space / Launch / Range Ops",
-      "enabled": true,
-      "default_weight": 6,
-      "rules": [
-        {"id": "launch_vehicle", "type": "phrase", "pattern": "launch vehicle", "weight": 7},
-        {"id": "range_safety", "type": "phrase", "pattern": "range safety", "weight": 7},
-        {"id": "mission_ops", "type": "phrase", "pattern": "mission operations", "weight": 6},
-        {"id": "flight_termination", "type": "phrase", "pattern": "flight termination", "weight": 8},
-        {"id": "orbital", "type": "phrase", "pattern": "orbital", "weight": 4}
-      ]
-    },
-    {
-      "id": "propulsion_materials",
-      "name": "Propulsion / Materials",
-      "enabled": true,
-      "default_weight": 5,
-      "rules": [
-        {"id": "hypersonic", "type": "phrase", "pattern": "hypersonic", "weight": 8},
-        {"id": "scramjet", "type": "phrase", "pattern": "scramjet", "weight": 9},
-        {"id": "ramjet", "type": "phrase", "pattern": "ramjet", "weight": 7},
-        {"id": "thermal_protection", "type": "phrase", "pattern": "thermal protection", "weight": 7},
-        {"id": "ablative", "type": "phrase", "pattern": "ablative", "weight": 6},
-        {"id": "carbon_carbon", "type": "regex", "pattern": "\\bcarbon\\s*-?\\s*carbon\\b", "weight": 7}
-      ]
-    }
-  ]
+    "version":  "0.1",
+    "updated_at":  "2026-02-15",
+    "description":  "Default ontology packs for investigative tagging/scoring. Used to populate events.keywords later.",
+    "defaults":  {
+                     "case_insensitive":  true,
+                     "fields":  [
+                                    "snippet",
+                                    "place_text",
+                                    "doc_id"
+                                ]
+                 },
+    "packs":  [
+                  {
+                      "id":  "radiological_nuclear",
+                      "name":  "Radiological / Nuclear",
+                      "enabled":  true,
+                      "default_weight":  8,
+                      "rules":  [
+                                    {
+                                        "id":  "radiation",
+                                        "type":  "phrase",
+                                        "pattern":  "radiation",
+                                        "weight":  6
+                                    },
+                                    {
+                                        "id":  "health_physics",
+                                        "type":  "phrase",
+                                        "pattern":  "health physics",
+                                        "weight":  10
+                                    },
+                                    {
+                                        "id":  "radiological",
+                                        "type":  "phrase",
+                                        "pattern":  "radiological",
+                                        "weight":  9
+                                    },
+                                    {
+                                        "id":  "hot_cell",
+                                        "type":  "regex",
+                                        "pattern":  "\\bhot\\s*cell(s)?\\b",
+                                        "weight":  12
+                                    },
+                                    {
+                                        "id":  "glovebox",
+                                        "type":  "regex",
+                                        "pattern":  "\\bglove\\s*box(es)?\\b",
+                                        "weight":  10
+                                    },
+                                    {
+                                        "id":  "dosimetry",
+                                        "type":  "phrase",
+                                        "pattern":  "dosimetry",
+                                        "weight":  8
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "space_launch_ops",
+                      "name":  "Space / Launch / Range Ops",
+                      "enabled":  true,
+                      "default_weight":  6,
+                      "rules":  [
+                                    {
+                                        "id":  "launch_vehicle",
+                                        "type":  "phrase",
+                                        "pattern":  "launch vehicle",
+                                        "weight":  7
+                                    },
+                                    {
+                                        "id":  "range_safety",
+                                        "type":  "phrase",
+                                        "pattern":  "range safety",
+                                        "weight":  7
+                                    },
+                                    {
+                                        "id":  "mission_ops",
+                                        "type":  "phrase",
+                                        "pattern":  "mission operations",
+                                        "weight":  6
+                                    },
+                                    {
+                                        "id":  "flight_termination",
+                                        "type":  "phrase",
+                                        "pattern":  "flight termination",
+                                        "weight":  8
+                                    },
+                                    {
+                                        "id":  "orbital",
+                                        "type":  "phrase",
+                                        "pattern":  "orbital",
+                                        "weight":  4
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "propulsion_materials",
+                      "name":  "Propulsion / Materials",
+                      "enabled":  true,
+                      "default_weight":  5,
+                      "rules":  [
+                                    {
+                                        "id":  "hypersonic",
+                                        "type":  "phrase",
+                                        "pattern":  "hypersonic",
+                                        "weight":  8
+                                    },
+                                    {
+                                        "id":  "scramjet",
+                                        "type":  "phrase",
+                                        "pattern":  "scramjet",
+                                        "weight":  9
+                                    },
+                                    {
+                                        "id":  "ramjet",
+                                        "type":  "phrase",
+                                        "pattern":  "ramjet",
+                                        "weight":  7
+                                    },
+                                    {
+                                        "id":  "thermal_protection",
+                                        "type":  "phrase",
+                                        "pattern":  "thermal protection",
+                                        "weight":  7
+                                    },
+                                    {
+                                        "id":  "ablative",
+                                        "type":  "phrase",
+                                        "pattern":  "ablative",
+                                        "weight":  6
+                                    },
+                                    {
+                                        "id":  "carbon_carbon",
+                                        "type":  "regex",
+                                        "pattern":  "\\bcarbon\\s*-?\\s*carbon\\b",
+                                        "weight":  7
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "space_nasa",
+                      "name":  "Space / NASA",
+                      "enabled":  true,
+                      "default_weight":  6,
+                      "rules":  [
+                                    {
+                                        "id":  "nasa",
+                                        "type":  "phrase",
+                                        "pattern":  "NASA",
+                                        "weight":  6,
+                                        "fields":  [
+                                                       "snippet",
+                                                       "place_text",
+                                                       "doc_id"
+                                                   ]
+                                    },
+                                    {
+                                        "id":  "jpl",
+                                        "type":  "phrase",
+                                        "pattern":  "JPL",
+                                        "weight":  6,
+                                        "fields":  [
+                                                       "snippet",
+                                                       "place_text",
+                                                       "doc_id"
+                                                   ]
+                                    },
+                                    {
+                                        "id":  "jet_propulsion_laboratory",
+                                        "type":  "regex",
+                                        "pattern":  "Jet Propulsion Laboratory",
+                                        "weight":  10,
+                                        "fields":  [
+                                                       "snippet",
+                                                       "place_text",
+                                                       "doc_id"
+                                                   ]
+                                    },
+                                    {
+                                        "id":  "deep_space_network",
+                                        "type":  "regex",
+                                        "pattern":  "Deep Space Network",
+                                        "weight":  10,
+                                        "fields":  [
+                                                       "snippet",
+                                                       "place_text",
+                                                       "doc_id"
+                                                   ]
+                                    },
+                                    {
+                                        "id":  "spacecraft",
+                                        "type":  "phrase",
+                                        "pattern":  "spacecraft",
+                                        "weight":  4,
+                                        "fields":  [
+                                                       "snippet",
+                                                       "place_text",
+                                                       "doc_id"
+                                                   ]
+                                    }
+                                ]
+                  }
+              ]
 }

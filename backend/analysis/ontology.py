@@ -13,7 +13,7 @@ _ALLOWED_FIELDS = {"snippet", "place_text", "doc_id", "source_url", "raw_json"}
 
 def load_ontology(path: Path) -> Dict[str, Any]:
     p = Path(path)
-    data = json.loads(p.read_text(encoding="utf-8"))
+    data = json.loads(p.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
         raise ValueError("Ontology root must be a JSON object.")
     return data
