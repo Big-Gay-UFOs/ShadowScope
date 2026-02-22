@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, timedelta, datetime, timezone
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -42,7 +42,7 @@ def ingest_usaspending(
     page_size: int = usaspending.MAX_LIMIT,
     max_records: Optional[int] = None,
     start_page: int = 1,
-    database_url: Optional[str] = None,
+    recipient_search_text: Optional[List[str]] = None, keywords: Optional[List[str]] = None, database_url: Optional[str] = None,
 ) -> Dict[str, object]:
     """Ingest USAspending awards into the events table.
 
@@ -91,7 +91,7 @@ def ingest_usaspending(
             page_limit = min(page_size, remaining)
 
             filters = usaspending.AwardFilter(since=since, limit=page_limit, page=page)
-            data = usaspending.fetch_awards_page(session, filters)
+            data = usaspending.fetch_awards_page(session, filters, recipient_search_text=recipient_search_text, keywords=keywords)
 
             raw_path = snapshot_dir / f"page_{page}.json"
             raw_path.write_text(json.dumps(data, indent=2), encoding="utf-8")

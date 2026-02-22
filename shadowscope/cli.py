@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import typer
 from dotenv import load_dotenv
@@ -85,6 +85,8 @@ def ingest_usaspending_cli(
     page_size: int = typer.Option(100, "--page-size", help="Records per API page (max 100)"),
     max_records: Optional[int] = typer.Option(None, "--max-records", "--limit", help="Total cap across all pages"),
     start_page: int = typer.Option(1, "--start-page", help="Start page (resume/chunking)"),
+    recipient_search_text: Optional[List[str]] = typer.Option(None, "--recipient", help="Recipient search text (repeat --recipient)."),
+    keywords: Optional[List[str]] = typer.Option(None, "--keyword", help="Keyword filters (repeat --keyword)."),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
     result = ingest_usaspending(
@@ -92,8 +94,7 @@ def ingest_usaspending_cli(
         pages=pages,
         page_size=page_size,
         max_records=max_records,
-        start_page=start_page,
-        database_url=database_url,
+        start_page=start_page, database_url=database_url, recipient_search_text=recipient_search_text, keywords=keywords,
     )
     run_id = result.get("run_id")
     typer.echo(f"Run ID: {run_id}")
@@ -326,6 +327,51 @@ def correlate_rebuild_keywords(
         "Keyword correlation rebuild: "
         + " ".join([f"{k}={v}" for k, v in res.items() if k in ("dry_run","source","window_days","min_events","max_events","keywords_seen","eligible_keywords","correlations_created","correlations_updated","correlations_deleted","links_created")])
     )
+@correlate_app.command("rebuild-keyword-pairs")
+def correlate_rebuild_keyword_pairs(
+    window_days: int = typer.Option(30, "--window-days", help="Lookback window (days)"),
+    source: str = typer.Option("USAspending", "--source", help="Event source (blank for all)"),
+    min_events: int = typer.Option(3, "--min-events", help="Minimum events per keyword-pair"),
+    max_events: int = typer.Option(200, "--max-events", help="Skip pairs that match more than this many events"),
+    max_keywords_per_event: int = typer.Option(10, "--max-keywords-per-event", help="Skip events with too many keywords (pair explosion guard)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute only; do not write to DB"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+):
+    from backend.correlate import correlate
+    res = correlate.rebuild_keyword_pair_correlations(
+        window_days=window_days,
+        source=source if source else None,
+        min_events=min_events,
+        max_events=max_events,
+        max_keywords_per_event=max_keywords_per_event,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+    typer.echo(
+        "Keyword-pair correlation rebuild: "
+        + " ".join(
+            [
+                f"{k}={v}"
+                for k, v in res.items()
+                if k
+                in (
+                    "dry_run",
+                    "source",
+                    "window_days",
+                    "min_events",
+                    "max_events",
+                    "max_keywords_per_event",
+                    "pairs_seen",
+                    "eligible_pairs",
+                    "correlations_created",
+                    "correlations_updated",
+                    "correlations_deleted",
+                    "links_created",
+                )
+            ]
+        )
+    )
+
 app.add_typer(correlate_app, name="correlate")
 
 @export_app.command("correlations")
