@@ -1,0 +1,4003 @@
+{
+  "version": "0.1",
+  "description": "ShadowScope ontology packs for keyword/regex tagging. Keep weights 4-12. Prefer specificity; down-weight high-noise terms.",
+  "defaults": {
+    "fields": [
+      "snippet",
+      "place_text",
+      "doc_id"
+    ]
+  },
+  "packs": [
+    {
+      "id": "radiological_nuclear",
+      "name": "Radiological/Nuclear",
+      "enabled": true,
+      "default_weight": 10,
+      "rules": [
+        {
+          "id": "hot_cell_regex",
+          "type": "regex",
+          "pattern": "\\bhot\\s*cell(s)?\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "spent_fuel_regex",
+          "type": "regex",
+          "pattern": "\\bspent\\s*fuel\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "reprocessing_regex",
+          "type": "regex",
+          "pattern": "\\breprocessing\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "space_launch_ops",
+      "name": "Space launch operations",
+      "enabled": true,
+      "default_weight": 9,
+      "rules": [
+        {
+          "id": "srms_phrase",
+          "type": "phrase",
+          "pattern": "SRMS",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "solid_rocket_motor_phrase",
+          "type": "phrase",
+          "pattern": "solid rocket motor",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "rs25_phrase",
+          "type": "phrase",
+          "pattern": "RS-25",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "propulsion_materials",
+      "name": "Propulsion / advanced materials",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "uhtc_phrase",
+          "type": "phrase",
+          "pattern": "ultra high temperature ceramic",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "silicon_carbide_phrase",
+          "type": "phrase",
+          "pattern": "silicon carbide",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "rcs_phrase",
+          "type": "phrase",
+          "pattern": "reaction control system",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "ion_propulsion_phrase",
+          "type": "phrase",
+          "pattern": "ion propulsion",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "space_nasa",
+      "name": "NASA / space centers",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "jsc_phrase",
+          "type": "phrase",
+          "pattern": "Johnson Space Center",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "msfc_phrase",
+          "type": "phrase",
+          "pattern": "Marshall Space Flight Center",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "gsfc_phrase",
+          "type": "phrase",
+          "pattern": "Goddard Space Flight Center",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nasa_phrase",
+          "type": "phrase",
+          "pattern": "NASA",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "afosi_pj_program_protection",
+      "name": "AFOSI / PJ program protection, insider threat, and FBI integration",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "terry_phillips_phrase",
+          "type": "phrase",
+          "pattern": "Terry Phillips",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "afosipj_phrase",
+          "type": "phrase",
+          "pattern": "AFOSIPJ",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "guardian_angel_program_phrase",
+          "type": "phrase",
+          "pattern": "Guardian Angel program",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "lee_m_russ_phrase",
+          "type": "phrase",
+          "pattern": "Lee M. Russ",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "air_force_office_special_investigations_phrase",
+          "type": "phrase",
+          "pattern": "Air Force Office of Special Investigations",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "osi_region_7_sap_management_phrase",
+          "type": "phrase",
+          "pattern": "AFOSI region 7",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "air_force_sap_security_director_phrase",
+          "type": "phrase",
+          "pattern": "Air Force SAP security director",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "office_of_special_projects_pj_regex",
+          "type": "regex",
+          "pattern": "\\bOffice\\s+of\\s+Special\\s+Projects\\b|\\bSpecial\\s+Projects\\b(?=.{0,40}\\bAFOSI\\b)|\\bPJ\\b(?=.{0,40}\\bAFOSI\\b)",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "afosi_osi_regex",
+          "type": "regex",
+          "pattern": "\\bAFOSI\\b|\\bAir\\s+Force\\s+OSI\\b|\\bOSI\\b(?=.{0,40}\\bAir\\s+Force\\b)",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "crystal_city_phrase",
+          "type": "phrase",
+          "pattern": "Crystal City",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "air_force_acquisition_rco",
+      "name": "Air Force acquisition, special programs, and Rapid Capabilities Office",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "daf_rapid_capabilities_office_phrase",
+          "type": "phrase",
+          "pattern": "Department of the Air Force Rapid Capabilities Office",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "randall_g_walden_phrase",
+          "type": "phrase",
+          "pattern": "Randall G. Walden",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "rco_contextual_regex",
+          "type": "regex",
+          "pattern": "\\b(?:DAF|DAFF|Department\\s+of\\s+the\\s+Air\\s+Force|Air\\s+Force)\\s+(?:Acquisition\\s+)?Rapid\\s+Capabilities\\s+Office\\b|\\bRCO\\b(?=.{0,40}\\b(?:Rapid\\s+Capabilities|DAF|DAFF|Air\\s+Force|SAF\\s*/?\\s*AQ)\\b)",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "saf_aql_phrase",
+          "type": "phrase",
+          "pattern": "SAF AQL",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "saf_aqr_phrase",
+          "type": "phrase",
+          "pattern": "SAF AQR",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "donna_d_shipton_phrase",
+          "type": "phrase",
+          "pattern": "Donna D. Shipton",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "saf_aq_regex",
+          "type": "regex",
+          "pattern": "\\bSAF\\s*/?\\s*AQ\\b|\\bSAF\\s*AQ\\b|\\bSAFAQ\\b|\\bAir\\s+Force\\s+Acquisition\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "saf_aqx_phrase",
+          "type": "phrase",
+          "pattern": "SAF AQX",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "assistant_secretary_atl_phrase",
+          "type": "phrase",
+          "pattern": "Assistant Secretary of the Air Force for Acquisition, Technology and Logistics",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "air_force_life_cycle_management_center_phrase",
+          "type": "phrase",
+          "pattern": "Air Force Life Cycle Management Center",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "codewords_legal_classification_cases",
+      "name": "Codewords, oversight statutes/directives, and high-discrimination identifiers",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "dod_oig_project_number_d2021_phrase",
+          "type": "phrase",
+          "pattern": "D2021-devsn-116.0000",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "10_usc_119_regex",
+          "type": "regex",
+          "pattern": "\\b10\\s*U\\.?S\\.?\\s*(?:Code\\s*)?(?:section\\s*)?119\\b|\\b10\\s*US\\s*code\\s*section\\s*119\\b|\\b10\\s*U\\.S\\.C\\.\\s*\\xA7119\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "transclassified_foreign_nuclear_information_phrase",
+          "type": "phrase",
+          "pattern": "transclassified foreign nuclear information",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "non_contract_foreign_intelligence_information_phrase",
+          "type": "phrase",
+          "pattern": "non-contract foreign intelligence information",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "yankee_black_phrase",
+          "type": "phrase",
+          "pattern": "Yankee Black",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "yankee_blue_phrase",
+          "type": "phrase",
+          "pattern": "Yankee Blue",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "office_of_global_access_phrase",
+          "type": "phrase",
+          "pattern": "Office of Global Access",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "project_forum_phrase",
+          "type": "phrase",
+          "pattern": "Project Forum",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "waived_bigoted_unacknowledged_sap_phrase",
+          "type": "phrase",
+          "pattern": "waived and bigoted unagnowledged sap",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "immaculate_constellation_phrase",
+          "type": "phrase",
+          "pattern": "immaculate constellation",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "cia_dst_regex",
+          "type": "regex",
+          "pattern": "\\bDirectorate\\s+of\\s+Science\\s+and\\s+Technology\\b|\\bDS\\s*&\\s*T\\b|\\bDS&T\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "dod_ig_uap_evaluation_phrase",
+          "type": "phrase",
+          "pattern": "DoD Inspector General's evaluation",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "special_nuclear_material_phrase",
+          "type": "phrase",
+          "pattern": "special nuclear materials",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "contractors_ffrdc_uarc_and_acquisition",
+      "name": "Contractors, FFRDC/UARC intermediaries, and acquisition signals",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "woods_hole_oceanographic_institution_whoi",
+          "type": "regex",
+          "pattern": "Woods\\s+Hole\\s+Oceanographic\\s+(?:Institution|Institute)|\\bWHOI\\b|\\bWHI\\b|Woodshole",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "johns_hopkins_apl_university_of_washington_apl",
+          "type": "regex",
+          "pattern": "Applied\\s+Physics\\s+Laborator(?:y|ies)\\s+at\\s+John\\s+Hopkins\\s+University|John\\s+Hopkins\\s+Applied\\s+Physics\\s+Laboratory|University\\s+of\\s+Washington\\s+.*Applied\\s+Physics\\s+Laboratory",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "cna_corporation_center_for_naval_analyses",
+          "type": "regex",
+          "pattern": "Center\\s+for\\s+Naval\\s+Analyses|\\bCNA\\b\\s+Corporation|CNA\\s+Corporation",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "ffrdc_uarc_intermediary_terms",
+          "type": "regex",
+          "pattern": "Federally\\s+Funded\\s+Research\\s+and\\s+Development\\s+Center|\\bFFRDC\\b|University\\s+Affiliated\\s+Research\\s+Center|\\bUARC\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "bdm_international_northrop_grumman",
+          "type": "regex",
+          "pattern": "BDM\\s+International|North(?:r|)up\\s+Grumman|Northrop\\s+Grumman",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "wackenhut_industrial_security",
+          "type": "regex",
+          "pattern": "Wackenhut|Wacken\\s*Hut",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "ocean_minerals_company_lockheed_missiles_and_space_company",
+          "type": "regex",
+          "pattern": "Ocean\\s+Minerals\\s+Company|Lock(?:h|he)eed\\s+Missiles\\s+and\\s+Space\\s+Company",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sole_source_contracts_and_idiq",
+          "type": "regex",
+          "pattern": "sole\\s+source|indefinite\\s+delivery\\s+indefinite\\s+quantity|\\bIDIQ\\b|indefinite\\s+delivery\\s+contracts",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "contractors_ffrdcs_and_management_entities",
+      "name": "Contractors, FFRDCs, and management/operations entities",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "mitre_corporation_phrase",
+          "type": "phrase",
+          "pattern": "MITER Corporation",
+          "weight": 12,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "rand_corporation_phrase",
+          "type": "phrase",
+          "pattern": "Rand Corporation",
+          "weight": 12,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "lockheed_martin_regex",
+          "type": "regex",
+          "pattern": "(?i)\\bLockheed\\s+Martin\\b|\\bLoheed\\s+Martin\\b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "eg_and_g_regex",
+          "type": "regex",
+          "pattern": "\\bEG\\s*&\\s*G\\b|\\bEG&G\\b|\\bEdgerton\\s+Gurmanhausen\\s+and\\s+Greer\\b|\\bEdgerton\\s+Germeshausen\\s+and\\s+Grier\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "bechtel_nevada_regex",
+          "type": "regex",
+          "pattern": "\\bBechtel\\s+Nevada\\b|\\bBecttel\\s+Nevada\\b|\\bBecktel\\s+Nevada\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "aerospace_corporation_phrase",
+          "type": "phrase",
+          "pattern": "Aerospace Corporation",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "martin_marietta_phrase",
+          "type": "phrase",
+          "pattern": "Martin Marietta",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "mit_lincoln_laboratory_regex",
+          "type": "regex",
+          "pattern": "\\bMIT\\s+Lincoln\\s+Labs?\\b|\\bLincoln\\s+Labs?\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "m2_design_more_to_design_flatau_and_moore_regex",
+          "type": "regex",
+          "pattern": "\\bMore\\s+to\\s+Design\\b|\\bM2\\s*Design\\b|\\bFlatau\\s+and\\s+Moore\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "honeywell_international_regex",
+          "type": "regex",
+          "pattern": "\\bHoneywell\\b|\\bHoneywell\\s+International\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "bechtel_saic_regex",
+          "type": "regex",
+          "pattern": "\\bBechtel\\s+SAIC\\b|\\bBecktel\\s+SIC\\b|\\bBecktel\\s+SAIC\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "saic_science_applications_international_regex",
+          "type": "regex",
+          "pattern": "\\bScience\\s+Applications\\s+International\\s+Corporation\\b|\\bSAIC\\b",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "at_t_western_electric_regex",
+          "type": "regex",
+          "pattern": "\\bAmerican\\s+Telephone\\s+and\\s+Telegraph\\b|\\bAT&T\\b|\\bWestern\\s+Electric\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "bell_labs_phrase",
+          "type": "phrase",
+          "pattern": "Bell Labs",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "wackenhut_services_inc_regex",
+          "type": "regex",
+          "pattern": "\\bWackenhut\\b|\\bWacken\\s+Hut\\b|\\bWackenhut\\s+Services,\\s*Inc\\.?\\b|\\bWSI\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sperry_rand_and_sperry_flight_systems_regex",
+          "type": "regex",
+          "pattern": "\\bSperry\\s+Rand\\b|\\bSperry\\s+Flight\\s+Systems\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "contractors_ffrdcs_labs_plants",
+      "name": "FFRDCs, national labs, primes, and special industrial facilities",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "jason_advisory_panel_phrase",
+          "type": "phrase",
+          "pattern": "Jason Advisory Panel",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "boeing_phantom_works_phrase",
+          "type": "phrase",
+          "pattern": "Boeing Phantom Works",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "battelle_memorial_institute_phrase",
+          "type": "phrase",
+          "pattern": "Battel Memorial Institute",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "oak_ridge_national_labs_phrase",
+          "type": "phrase",
+          "pattern": "Oakidge National Labs",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "northrop_advanced_technology_development_center_regex",
+          "type": "regex",
+          "pattern": "\\bNorthrop\\s+Grumman\\b(?=.{0,80}\\bAdvanced\\s+Technology\\s+Development\\s+Center\\b)|\\bNorthrup\\s+Grumman\\b(?=.{0,80}\\badvanced\\s+technology\\s+development\\s+center\\b)",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "lockheed_skunk_works_regex",
+          "type": "regex",
+          "pattern": "\\bLockheed\\s+Skunk\\s+Works\\b|\\bSkunk\\s*Works\\b|\\bLoheed\\s+skunk\\s*works\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "doe_nnsa_classification_and_response_units",
+      "name": "DOE/NNSA offices, classification terms, and response/transport units",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "atomic_energy_act_1954_phrase",
+          "type": "phrase",
+          "pattern": "Atomic Energy Act of 1954",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "doe_oici_office_of_intelligence_and_counterintelligence_regex",
+          "type": "regex",
+          "pattern": "\\bOffice\\s+of\\s+Intelligence\\s+and\\s+Counter\\s*Intelligence\\b|\\bOICI\\b|\\bDOE\\s*(?:INT|in\\s+INT)\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nnsa_national_nuclear_security_administration_regex",
+          "type": "regex",
+          "pattern": "\\bNational\\s+Nuclear\\s+Security\\s+Administration\\b|\\bNNSA\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "doe_order_153_1a_regex",
+          "type": "regex",
+          "pattern": "\\bDOE\\s+order\\s+153\\.1A\\b|\\b153\\.1A\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "office_of_secure_transportation_ost_regex",
+          "type": "regex",
+          "pattern": "\\bOffice\\s+of\\s+Secure\\s+Transportation\\b|\\bNNSA\\s*OST\\b|\\bOST\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "safeguards_transporter_sgt_regex",
+          "type": "regex",
+          "pattern": "\\bSafeguards\\s+Transporter\\b|\\bSGT\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "mobile_guardian_transporter_mgt_regex",
+          "type": "regex",
+          "pattern": "\\bMobile\\s+Guardian\\b|\\bMobile\\s+Guardian\\s+(?:Unit|Transporter)\\b|\\bMGT\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "restricted_data_and_formerly_restricted_data_regex",
+          "type": "regex",
+          "pattern": "\\bRestricted\\s+Data\\b|\\bFormerly\\s+Restricted\\s+Data\\b|\\bFRD\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "special_nuclear_material_snm_regex",
+          "type": "regex",
+          "pattern": "\\bSpecial\\s+Nuclear\\s+Material\\b|\\bSNM\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "executive_order_12656_regex",
+          "type": "regex",
+          "pattern": "\\bExecutive\\s+Order\\s+12656\\b|\\bEO\\s*12656\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "foreign_intelligence_information_fii_non_contract_regex",
+          "type": "regex",
+          "pattern": "\\bForeign\\s+Intelligence\\s+Information\\b|\\bFII\\b|\\bnon-?contract\\b\\s*(?:FII)?",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "q_clearance_and_q_plus_sei_regex",
+          "type": "regex",
+          "pattern": "\\bQ\\s+clearance\\b|\\bQ\\s*\\+\\s*SEI\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nuclear_emergency_support_team_nest_regex",
+          "type": "regex",
+          "pattern": "\\bNuclear\\s+Emergency\\s+Support\\s+Team\\b|\\bNEST\\b",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "doe_special_response_team_srt_regex",
+          "type": "regex",
+          "pattern": "\\bSpecial\\s+Response\\s+Team\\b|\\bDOE\\s*SRT\\b|\\bSRT\\b",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "historical_orgs_and_program_lineage",
+      "name": "Historical organizations, AEC lineage, and defense nuclear agency evolution",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "defense_threat_reduction_agency_dtra_regex",
+          "type": "regex",
+          "pattern": "\\bDefense\\s+Threat\\s+Reduction\\s+Agency\\b|\\bDTRA\\b|\\bDitra\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "atomic_energy_commission_aec_phrase",
+          "type": "phrase",
+          "pattern": "Atomic Energy Commission",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "armed_forces_special_weapons_project_afswp_regex",
+          "type": "regex",
+          "pattern": "\\bArmed\\s+Forces\\s+Special\\s+Weapons\\s+Project\\b|\\bAFSWP\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "defense_nuclear_lineage_dswa_dna_dasa_regex",
+          "type": "regex",
+          "pattern": "\\bDefense\\s+Special\\s+Weapons\\s+Agency\\b|\\bDefense\\s+Nuclear\\s+Agency\\b|\\bDefense\\s+Atomic\\s+Support\\s+Agency\\b|\\bDSWA\\b|\\bDNA\\b|\\bDASA\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "project_blue_book_phrase",
+          "type": "phrase",
+          "pattern": "Project Blue Book",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "intel_offices_and_control_structures",
+      "name": "Intel offices, special program control structures, and interagency nodes",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "national_underwater_reconnaissance_office_nuro",
+          "type": "regex",
+          "pattern": "National\\s+Underwater\\s+Reconnaissance\\s+Office|\\bNURO\\b|\\bNuro\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "navy_special_program_office_nsp",
+          "type": "regex",
+          "pattern": "Navy\\s+Special\\s+Program(?:\\s+Central\\s+Office|\\s+Office)?|\\bNSP\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "office_of_naval_research_onr",
+          "type": "phrase",
+          "pattern": "Office of Naval Research",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "office_of_naval_intelligence_oni",
+          "type": "phrase",
+          "pattern": "Office of Naval Intelligence",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "cia_directorate_science_and_technology_dst",
+          "type": "regex",
+          "pattern": "Directorate\\s+of\\s+Science\\s+and\\s+Technology|\\bDS\\s*&\\s*T\\b|\\bDS\\&T\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "joint_special_operations_command_jsoc_jock",
+          "type": "regex",
+          "pattern": "Joint\\s+Special\\s+Operations\\s+Command|\\bJSOC\\b|\\bJOCK\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "united_states_special_operations_command_socom",
+          "type": "regex",
+          "pattern": "United\\s+States\\s+Special\\s+Operations\\s+Command|\\bSOCOM\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "national_reconnaissance_office_nro",
+          "type": "regex",
+          "pattern": "National\\s+Reconnaissance\\s+Office|\\bNRO\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "national_geospatial_intelligence_agency_nga",
+          "type": "regex",
+          "pattern": "National\\s+Geospatial-?\\s*Intelligence\\s+Agency|\\bNGA\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "cia_directorate_of_operations_maritime_branch",
+          "type": "regex",
+          "pattern": "Directorate\\s+of\\s+Operations.*maritime\\s+branch|CIA'?s?\\s+Directorate\\s+of\\s+Operations.*maritime",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "odni_office_of_the_director_of_national_intelligence",
+          "type": "regex",
+          "pattern": "Office\\s+of\\s+the\\s+Director\\s+of\\s+National\\s+Intelligence|\\bODNI\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kona_blue_aawsap_aaatip_contract_ids",
+      "name": "Kona Blue / AAWSAP-AATIP / Contract & Solicitation Identifiers",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "hhn4208r211_solicitation_phrase",
+          "type": "phrase",
+          "pattern": "HHM4208R211",
+          "weight": 12,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "hhm42_08_c_000072_contract_phrase",
+          "type": "phrase",
+          "pattern": "HHM42-08-C-000072",
+          "weight": 12,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "kona_blue_phrase",
+          "type": "phrase",
+          "pattern": "Kona Blue",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "bigelow_aerospace_advanced_space_studies_regex",
+          "type": "regex",
+          "pattern": "\\bBigelow\\s+Aerospace\\s+Advanced\\s+Space\\s+Studies\\b|\\bBAASS\\b|\\bBASS\\b(?=.*\\b(?:vault|report|contract|DIA|OAP|OSAP)\\b)",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "dopsr_prepublication_regex",
+          "type": "regex",
+          "pattern": "\\bDOPSR\\b|\\bDOPSER\\b|\\bdopser\\b|Defense\\s+Office\\s+of\\s+Pre\\-?publication\\s+and\\s+Security\\s+Review",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "aawsap_osap_oap_regex",
+          "type": "regex",
+          "pattern": "\\bAAWSAP\\b|\\bAATIP\\b|\\bATIP\\b|\\bO\\s*SAP\\b|\\bOAP\\b|Advanced\\s+Aerospace\\s+(?:Weapon\\s*Systems\\s+Applications|Threat\\s+Identification)\\s+Program",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "cia_ds_t_directorate_phrase",
+          "type": "phrase",
+          "pattern": "Directorate of Science and Technology",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nids_earthtech_phrase",
+          "type": "phrase",
+          "pattern": "Earth Tech",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "labs_facilities_and_locations",
+      "name": "Labs, facilities, stations, test ranges, and locations used as anchors",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "nawc_china_lake",
+          "type": "phrase",
+          "pattern": "NAWC China Lake",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nswc_crane",
+          "type": "regex",
+          "pattern": "NSWC\\s+Crane|Naval\\s+Surface\\s+Warfare\\s+Center\\s*,?\\s*Crane",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nswc_crane_weapons_systems_division_jxn",
+          "type": "regex",
+          "pattern": "Weapons\\s+Systems\\s+Division\\s+JXN|\\bJXN\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "naval_undersea_warfare_center_nuwc",
+          "type": "regex",
+          "pattern": "Naval\\s+Undersea\\s+Warfare\\s+Center|\\bNUWC\\b|naval\\s+undersea\\s+warfare\\s+center\\s+installations",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "autec_andros_island",
+          "type": "regex",
+          "pattern": "Atlantic\\s+Undersea\\s+Test\\s+and\\s+Evaluation\\s+Center|\\bAUTEC\\b|Andros\\s+Island\\s+Bahamas",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "pacific_missile_range_facility_pacific_mrf",
+          "type": "regex",
+          "pattern": "Pacific\\s+Missile\\s+Range\\s+Facility|\\bPMRF\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "naval_support_facility_diego_garcia",
+          "type": "regex",
+          "pattern": "Naval\\s+Support\\s+Facility\\s+Diego\\s+Garcia|\\bDiego\\s+Garcia\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "naval_research_laboratory_nrl",
+          "type": "regex",
+          "pattern": "Naval\\s+Research\\s+Laboratory|\\bNRL\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "great_lakes_naval_base_naval_station",
+          "type": "regex",
+          "pattern": "Great\\s+Lakes\\s+Naval\\s+Base|Great\\s+Lakes\\s+Naval\\s+Station",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "pensacola_naval_air_station_emp_empress",
+          "type": "regex",
+          "pattern": "Pensacola\\s+Naval\\s+Air\\s+Station|Naval\\s+Air\\s+Station\\s+Pensacola|\\bEmpress\\b\\s*(?:2|II)?",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "labs_ffrdcs_contractors_and_corporate_moves",
+      "name": "Labs / FFRDCs / Contractors / Corporate Transactions",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "ntess_sandia_phrase",
+          "type": "phrase",
+          "pattern": "National Technology and Engineering Solutions of Sandia",
+          "weight": 12,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "oak_ridge_national_laboratory_regex",
+          "type": "regex",
+          "pattern": "\\bOak\\s*Ridge\\b.*\\bNational\\s+Lab\\b|\\bOak\\s*Ridge\\s+National\\s+Laboratory\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "battelle_memorial_institute_regex",
+          "type": "regex",
+          "pattern": "\\bBattel+e?\\b\\s+Memorial\\s+Institute",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "enterprise_integration_group_eig_phrase",
+          "type": "phrase",
+          "pattern": "Enterprise Integration Group",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "lawrence_livermore_and_los_alamos_regex",
+          "type": "regex",
+          "pattern": "\\bLawrence\\s+Livermore\\b|\\bLos\\s+Alamos\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "mitre_ffrdc_regex",
+          "type": "regex",
+          "pattern": "\\bMITRE\\b|\\bMITER\\b\\s+Corporation",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lockheed_skunkworks_facilities",
+      "name": "Lockheed / Skunk Works / Key Facilities",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "palmdale_1011_lockheed_way_phrase",
+          "type": "phrase",
+          "pattern": "1011 Lockheed Way",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "air_force_plant_42_regex",
+          "type": "regex",
+          "pattern": "\\bAir\\s*Force\\s*Plant\\s*42\\b|\\bAF\\s*Plant\\s*42\\b|\\bPlant\\s*42\\b(?=\\s*(?:Palmdale|California|Skunk|Lockheed|Boeing|Northrop))",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "helendale_rcs_facility_regex",
+          "type": "regex",
+          "pattern": "\\bHelen?dale\\b.*\\b(radar\\s*cross\\-?section|RCS)\\b|\\bRCS\\s*(?:range|facility)\\b(?=.*\\bHelen?dale\\b)",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "lockheed_burbank_plant_phrase",
+          "type": "phrase",
+          "pattern": "Lockheed Corporation's Burbank plant",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "skunkworks_spacing_regex",
+          "type": "regex",
+          "pattern": "\\bSkunk\\s*Works\\b|\\bSkunkworks\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "advanced_development_programs_phrase",
+          "type": "phrase",
+          "pattern": "Advanced Development Programs",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "lockheed_advanced_technology_center_phrase",
+          "type": "phrase",
+          "pattern": "Advanced Technology Center",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nevada_test_site_and_range_infrastructure",
+      "name": "Nevada Test Site / NNSS / NTTR locations, areas, and air assets",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "nevada_test_site_nnss_regex",
+          "type": "regex",
+          "pattern": "\\bNevada\\s+(?:Test\\s+Site|Test\\s+and\\s+Training\\s+Range|Proving\\s+Ground)\\b|\\bNTS\\b|\\bNevada\\s+National\\s+Security\\s+Site\\b|\\bNNSS\\b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "edwards_412th_test_wing_regex",
+          "type": "regex",
+          "pattern": "\\b412(?:th)?\\s+Test\\s+Wing\\b|\\bEdwards\\s+412(?:th)?\\s+Test\\s+Wing\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "janet_airlines_phrase",
+          "type": "phrase",
+          "pattern": "Janet Airlines",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "n2s2_nevada_national_security_sites_regex",
+          "type": "regex",
+          "pattern": "\\bN2S2\\b|\\bNevada\\s+National\\s+Security\\s+Sites\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nevada_test_and_training_range_nttr_regex",
+          "type": "regex",
+          "pattern": "\\bNevada\\s+Test\\s+and\\s+Training\\s+Range\\b|\\bNTTR\\b|\\bNTR\\b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "area_6_aerial_operations_facility_regex",
+          "type": "regex",
+          "pattern": "\\bArea\\s*6\\b(?:[^\\n]{0,80})\\b(?:Aerial\\s+Operations\\s+Facility|AOF|runway|airstrip|UAV|sensor)\\b|\\bAerial\\s+Operations\\s+Facility\\b|\\bAOF\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "yucca_flat_regex",
+          "type": "regex",
+          "pattern": "\\bYucca\\s+Flat\\b|\\bYuckah\\s+Flat\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "creech_air_force_base_indian_springs_regex",
+          "type": "regex",
+          "pattern": "\\bIndian\\s+Springs\\s+Air\\s+Force\\s+Base\\b|\\bCreech\\s+Air\\s+Force\\s+Base\\b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "tonopah_site_4_regex",
+          "type": "regex",
+          "pattern": "\\bTonopah\\b.*\\bSite\\s*4\\b|\\bTonapa\\b.*\\bSite\\s*4\\b|\\bTonipa\\b.*\\bSite\\s*4\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "dugway_proving_ground_regex",
+          "type": "regex",
+          "pattern": "\\bDugway\\s+Proving\\s+Ground(?:s)?\\b|\\bDouggeway\\s+Proving\\s+Grounds\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nvh1_airfield_phrase",
+          "type": "phrase",
+          "pattern": "NVH1",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nevada_field_office_nfo_regex",
+          "type": "regex",
+          "pattern": "\\bNevada\\s+field\\s+office\\b|\\bNFO\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "area_51_groom_lake_regex",
+          "type": "regex",
+          "pattern": "\\bArea\\s*51\\b|\\bGroom\\s+Lake\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "mrtfb_major_range_and_test_facility_base_regex",
+          "type": "regex",
+          "pattern": "\\bMajor\\s+Range\\s+and\\s+Test\\s+Facility\\s+Base(?:s)?\\b|\\bMRTFB(?:s)?\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "china_lake_nawcwd_regex",
+          "type": "regex",
+          "pattern": "(?i)\\bNAWCWD\\b|\\bNaval\\s+Air\\s+Warfare\\s+Center\\s+Weapons\\s+Division\\b|\\bChina\\s+Lake\\b(?=.{0,40}\\b(?:NAWCWD|Weapons\\s+Division|Naval\\s+Air\\s+Warfare\\s+Center)\\b)",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "s4_area_51_regex",
+          "type": "regex",
+          "pattern": "\\bS\\s*4\\b|\\bArea\\s*51\\s*S\\s*4\\b",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "area_19_regex",
+          "type": "regex",
+          "pattern": "\\bArea\\s*19\\b",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nro_programs_platforms_and_analytics",
+      "name": "NRO programs, platforms, and analytics (procurement pivots)",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "kh11_keyhole_11_regex",
+          "type": "regex",
+          "pattern": "\\bKH[-\\s]?11\\b|\\bKH11\\b|Keyhole\\s*[- ]?11|Kennen|Kenon",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "national_reconnaissance_office_phrase",
+          "type": "phrase",
+          "pattern": "National Reconnaissance Office",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "recent_sentient_highlights_phrase",
+          "type": "phrase",
+          "pattern": "recent sentient highlights",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "national_reconnaissance_program_nrp_phrase",
+          "type": "phrase",
+          "pattern": "National Reconnaissance Program",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "pine_gap_phrase",
+          "type": "phrase",
+          "pattern": "Pine Gap",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sentient_program_regex",
+          "type": "regex",
+          "pattern": "(?:NRO\\s+Sentient|NRO\\s+project\\s+sentient|Project\\s+Sentient|\\bSENTIENT\\b\\s*(?:\\+|Plus)?)",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nrol_launch_designators_regex",
+          "type": "regex",
+          "pattern": "\\bNROL[-\\s]?\\d{1,4}\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nro_program_b_phrase",
+          "type": "phrase",
+          "pattern": "NRO program B",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "proliferated_architecture_phrase",
+          "type": "phrase",
+          "pattern": "proliferated architecture",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "tcped_cycle_phrase",
+          "type": "phrase",
+          "pattern": "TCPED cycle",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "corona_program_phrase",
+          "type": "phrase",
+          "pattern": "Corona program",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "poppy_recon_satellites_phrase",
+          "type": "phrase",
+          "pattern": "Poppy Reconnaissance Satellites",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nro_abbrev_or_fullname_regex",
+          "type": "regex",
+          "pattern": "\\bNRO\\b|National\\s+Reconnaissance\\s+Office",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "opir_and_jopc_regex",
+          "type": "regex",
+          "pattern": "\\bOPIR\\b|overhead\\s+persistent\\s+infrared|\\bJOPC\\b|Joint\\s+Overhead\\s+Persistent\\s+Infrared\\s+Center",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "orgs_contractors_ffrdc_uarc_and_offices",
+      "name": "Organizations, contractors, FFRDCs/UARCs, and offices",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "sandia_national_laboratories",
+          "type": "regex",
+          "pattern": "(?i)\\bSandia\\s+National\\s+Laborator(?:y|ies)\\b|\\bSandia\\s+National\\s+Labs?\\b|\\bSNL\\b(?=.{0,40}\\bSandia\\b)",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "los_alamos_national_laboratory",
+          "type": "regex",
+          "pattern": "Los Alamos National Labs|Los Alamos National Laboratory|\\bLANL\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "us_army_corps_of_engineers_usace",
+          "type": "regex",
+          "pattern": "US Army Corps of Engineers|\\bUSACE\\b|core of engineers|corps of engineers",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "lawrence_livermore_national_laboratory",
+          "type": "regex",
+          "pattern": "Lawrence Livermore labs|Lawrence Livermore National Laboratory|\\bLLNL\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "navfac_naval_facilities_engineering_command",
+          "type": "regex",
+          "pattern": "Naval facilities engineering command|\\bNAVFAC\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "air_force_research_laboratory_afrl_aerospace_systems_directorate",
+          "type": "regex",
+          "pattern": "Air Force research lab|\\bAFRL\\b|Aerospace Systems directorate",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "unitech_hamilton_standard_life_support_cb_mitigation",
+          "type": "regex",
+          "pattern": "unitech Technologies|Hamilton standard|chemical biological agent mitigation",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "rand_corporation_project_rand",
+          "type": "regex",
+          "pattern": "Rand Corporation|Project Rand|Army Air Force project Rand",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "battelle_memorial_institute",
+          "type": "regex",
+          "pattern": "battel\\w+ Memorial Institute|Battelle Memorial Institute",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "army_test_and_evaluation_command_atec",
+          "type": "regex",
+          "pattern": "Army test and evaluation command|\\bATEC\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "bechtel_tunneling_excavation_final_report_1974",
+          "type": "regex",
+          "pattern": "becto\\w+ corporation|Bechtel.*tunneling|underground excavation final report",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "bdm_deep_basing_communication_study",
+          "type": "regex",
+          "pattern": "\\bBDM\\b|deep basing communication study|Intercontinental ballistic missile deep basing",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "trw_tube_vehicle_system",
+          "type": "regex",
+          "pattern": "\\bTRW\\b|state-of-the-art tube vehicle system",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "platforms_vessels_and_subs",
+      "name": "Platforms, vessels, submarines, and specialized recovery systems",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "mystic_dsrv_1",
+          "type": "regex",
+          "pattern": "\\bMystic\\b\\s*(?:DSRV\\s*1|DSRV1|DSRV-?1)|\\bDSRV\\s*1\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "avalon_dsrv_2",
+          "type": "regex",
+          "pattern": "\\bAvalon\\b\\s*(?:DSRV\\s*2|DSRV2|DSRV-?2)|\\bDSRV\\s*2\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "hughes_glomar_explorer_glowar_variant",
+          "type": "regex",
+          "pattern": "Hughes\\s+G(?:l|lo)omar\\s+Explorer|\\bG(?:l|lo)omar\\s+Explorer\\b|\\bG(?:l|lo)owar\\s+Explorer\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nr1_nuclear_powered_submarine",
+          "type": "regex",
+          "pattern": "\\bNR\\s*1\\b|\\bNR1\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "deep_submergence_rescue_vehicle_dsrv",
+          "type": "regex",
+          "pattern": "Deep\\s+Submergence\\s+Rescue\\s+Vehicle|\\bDSRV\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "uss_parche_pars_variant",
+          "type": "regex",
+          "pattern": "\\bUSS\\s+Parche\\b|\\bUSS\\s+Pars\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "uss_jimmy_carter",
+          "type": "phrase",
+          "pattern": "USS Jimmy Carter",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "deep_submergence_search_vehicle_dssv",
+          "type": "regex",
+          "pattern": "Deep\\s+Submergence\\s+Search\\s+Vehicle|\\bDSSV\\b|\\bDSSVs\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "uss_safeguard_pod_recovery",
+          "type": "regex",
+          "pattern": "\\bUSS\\s+Safeguard\\b|\\bSafeguard\\b.*\\bpod\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "uss_halibut",
+          "type": "phrase",
+          "pattern": "USS Halibet",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "c5_galaxy_dsrv_transport",
+          "type": "regex",
+          "pattern": "\\bC-?5\\s+Galaxy\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "programs_codewords_and_policies",
+      "name": "Programs, codewords, policies, directives, and named operations",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "project_sand_dollar_seafloor_recovery",
+          "type": "phrase",
+          "pattern": "Project Sand Dollar",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "deep_submergence_systems_project_dssp",
+          "type": "regex",
+          "pattern": "Deep\\s+Submergence\\s+Systems\\s+Project|\\bDSSP\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "bluegill_triple_prime",
+          "type": "phrase",
+          "pattern": "Bluegill Triple Prime",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "opnav_3820_maritime_ufo_reporting_restriction",
+          "type": "regex",
+          "pattern": "\\bOPNAV\\s*3820\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "project_jennifer_project_azorian",
+          "type": "regex",
+          "pattern": "Project\\s+Jennifer|Project\\s+Azorian|\\bAzorian\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "national_security_decision_memorandum_40_nsdm_40",
+          "type": "regex",
+          "pattern": "National\\s+Security\\s+Decision\\s+Memorandum\\s*40|\\bNSDM\\s*40\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "operation_fishbowl",
+          "type": "phrase",
+          "pattern": "Operation Fishbowl",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "project_palladium",
+          "type": "phrase",
+          "pattern": "Project Palladium",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "project_sentient_nro_uap_tracking",
+          "type": "regex",
+          "pattern": "Project\\s+Sentient|\\bSentient\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "ivy_bells_declasen_program",
+          "type": "regex",
+          "pattern": "IV\\s*Bells|Ivy\\s+Bells|declansen\\s+program",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "special_navy_control_program",
+          "type": "phrase",
+          "pattern": "special navy control program",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nro_program_b_national_reconnaissance_program",
+          "type": "regex",
+          "pattern": "program\\s+B\\s+in\\s+the\\s+national\\s+reconnaissance\\s+program|\\bNRO\\s+program\\s+B\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "project_sundance_whoi_onr",
+          "type": "phrase",
+          "pattern": "Project Sundance",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "desktop_ocean_floor_mapping_program",
+          "type": "regex",
+          "pattern": "program\\s+named\\s+desktop|\\bDESKTOP\\b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ranges_bases_and_legacy_locations",
+      "name": "Ranges, bases, and alleged legacy locations",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "yuma_proving_ground_material_unknown_origin",
+          "type": "regex",
+          "pattern": "Yuma Proving Ground|Yuma test center|\\bYPG\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "china_lake_naval_air_weapons_station",
+          "type": "regex",
+          "pattern": "(?i)\\bNaval\\s+Air\\s+Weapons\\s+Station\\b(?:\\s*\\(NAWS\\))?\\s+China\\s+Lake\\b|\\bNAWS\\b(?=.{0,40}\\bChina\\s+Lake\\b)",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "edwards_air_force_base_412th_test_group",
+          "type": "regex",
+          "pattern": "Edwards Air Force Base|\\b412th\\b (?:test group|test wing)|\\b412\\b test",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "kirtland_air_force_base",
+          "type": "regex",
+          "pattern": "Kirtland Air Force Base|\\bKAFB\\b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "groom_lake_area_51",
+          "type": "regex",
+          "pattern": "Groom Lake|Area 51|\\bA-?51\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "northrop_tehachapi_rcs_ant_hill",
+          "type": "regex",
+          "pattern": "Tahachapi|Tehachapi|tahon|anthill|Ant Hill",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "white_sands_missile_range",
+          "type": "regex",
+          "pattern": "White Sand'?s Missile Range|\\bWSMR\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "wright_patterson_air_force_base_biologics_storage_claims",
+          "type": "regex",
+          "pattern": "Wright Patterson Air Force Base|Wright-?Patterson|\\bWPAFB\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "helendale_rcs_facility_lockheed",
+          "type": "regex",
+          "pattern": "Helendale|nor(?:th)? locked Helendale|Lockheed Helendale",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "tonopah_test_range",
+          "type": "regex",
+          "pattern": "(?i)\\bTonopah\\s+Test\\s+Range\\b|\\bTTR\\b(?=.{0,40}\\b(?:Tonopah|Test\\s+Range|Nevada|Sandia)\\b)",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "fort_hood_gray_army_airfield",
+          "type": "regex",
+          "pattern": "Fort Hood|gray army airfield|Gray Army Airfield",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sandia_sites_and_technical_areas",
+      "name": "Sandia sites, facilities, and technical areas",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "tonopah_test_range_regex",
+          "type": "regex",
+          "pattern": "\\bTonopah\\s+Test\\s+Range\\b|\\bTonapa\\s+Test\\s+Range\\b|\\bTonipa\\s+Test\\s+Range\\b|\\bTTR\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "intense_gamma_irradiation_facility_phrase",
+          "type": "phrase",
+          "pattern": "intense gamma irradiation facility",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "hot_cell_facility_regex",
+          "type": "regex",
+          "pattern": "\\bhot\\s+cell\\s+(?:facility|factory)\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sandia_corporation_phrase",
+          "type": "phrase",
+          "pattern": "Sandia Corporation",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "coyote_test_field_phrase",
+          "type": "phrase",
+          "pattern": "Coyote test field",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sandia_base_phrase",
+          "type": "phrase",
+          "pattern": "Sandia Base",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "albuquerque_army_airfield_phrase",
+          "type": "phrase",
+          "pattern": "Albuquerque Army Airfield",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sandia_technical_area_4_ta4_pulse_power_regex",
+          "type": "regex",
+          "pattern": "\\bTA\\s*4\\b|\\bTechnical\\s+Area\\s*4\\b|\\bpulse\\s+power\\b|\\binertial\\s+confinement\\s+fusion\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "manzano_base_site_able_regex",
+          "type": "regex",
+          "pattern": "\\bManzano\\b|\\bMonzano\\b|\\bSite\\s+(?:Able|Ael|A)\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "los_alamos_z_division_regex",
+          "type": "regex",
+          "pattern": "\\bZ\\s*division\\b|\\bLos\\s+Alamos\\b.*\\bZ\\s*division\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "livermore_sandia_site_regex",
+          "type": "regex",
+          "pattern": "\\bLivermore\\b|\\bLiverour\\b|\\bLiverore\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sandia_technical_area_1_ta1_regex",
+          "type": "regex",
+          "pattern": "\\bTA\\s*1\\b|\\bTechnical\\s+Area\\s*1\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sandia_technical_area_2_ta2_regex",
+          "type": "regex",
+          "pattern": "\\bTA\\s*2\\b|\\bTechnical\\s+Area\\s*2\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sandia_technical_area_3_ta3_regex",
+          "type": "regex",
+          "pattern": "\\bTA\\s*3\\b|\\bTechnical\\s+Area\\s*3\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sandia_technical_area_5_ta5_regex",
+          "type": "regex",
+          "pattern": "\\bTA\\s*5\\b|\\bTechnical\\s+Area\\s*5\\b",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sap_governance_audits_and_controls",
+      "name": "SAP Governance / Audits / Security Controls",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "gao_need_for_dod_inspections_phrase",
+          "type": "phrase",
+          "pattern": "Need for DoD inspections of special access contracts",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "controls_over_classified_documents_lockheed_phrase",
+          "type": "phrase",
+          "pattern": "controls over classified documents for a special access program at Lockheed Corporation",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "gao_due_process_denied_phrase",
+          "type": "phrase",
+          "pattern": "DoD special access programs administrative due process not provided when access is denied or revoked",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "dod_5200_2_r_regex",
+          "type": "regex",
+          "pattern": "\\b5200\\.2\\-?R\\b|\\b62000\\.2\\-?R\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sapoc_phrase",
+          "type": "phrase",
+          "pattern": "Special Access Program Oversight Committee",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "senior_review_group_srg_regex",
+          "type": "regex",
+          "pattern": "\\bSenior\\s+Review\\s+Group\\b|\\bSRG\\b(?=.*\\bSAP\\b)",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "carveout_special_access_contract_phrase",
+          "type": "phrase",
+          "pattern": "carveout contracts",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "defense_investigative_service_regex",
+          "type": "regex",
+          "pattern": "Defense\\s+Investigative\\s+Service|Defense\\s+Security\\s+Service",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sensitive_activities_oversight_npms",
+      "name": "Sensitive activities, special programs oversight, and access arbitration",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "dodi_s_5210_36_regex",
+          "type": "regex",
+          "pattern": "\\bDODI\\s*S-?5210\\.36\\b|\\bDoDI\\s*S-?5210\\.36\\b|\\b5210\\.36\\b(?=.{0,60}\\bsensitive\\s+support\\b)",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "npms_regex",
+          "type": "regex",
+          "pattern": "\\bNPMS\\b|\\bNational\\s+Program\\s+Special\\s+Management\\s+Staff\\b|\\bNational\\s+Programs?\\s+Special\\s+Management\\s+Staff\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "russell_e_wiler_phrase",
+          "type": "phrase",
+          "pattern": "Russell E. Wiler",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "william_e_mcclure_phrase",
+          "type": "phrase",
+          "pattern": "William E. Mccclure",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "office_of_competitive_activities_phrase",
+          "type": "phrase",
+          "pattern": "Office of Competitive Activities",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "saf_ocx_director_plans_effects_phrase",
+          "type": "phrase",
+          "pattern": "SAF OCX",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "saf_aah_sensitive_activities_regex",
+          "type": "regex",
+          "pattern": "\\bSAF\\s*AHA\\b|\\bSAF\\s*/?\\s*AAH\\b|\\bSAF\\s+AAH\\b|\\bsensitive\\s+activities\\b(?=.{0,60}\\bSAF\\b)",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "saf_aaz_info_protection_regex",
+          "type": "regex",
+          "pattern": "\\bSAF\\s*AAZ\\b|\\bSAF\\s*/?\\s*AAZ\\b|\\bsecurity\\s*/\\s*special\\s+programs\\s+oversight\\b|\\binformation\\s+protection\\b(?=.{0,60}\\bSAF\\b)",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sapco_phrase",
+          "type": "phrase",
+          "pattern": "SAPCO",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "special_programs_review_group_phrase",
+          "type": "phrase",
+          "pattern": "Special Programs Review Group",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "technical_collection_and_recovery_terms",
+      "name": "Technical collection, sensing, and recovery methods (contract-description friendly)",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "unmanned_undersea_vehicles_uuv",
+          "type": "regex",
+          "pattern": "unmanned\\s+undersea\\s+vehicles|\\bUUV\\b|autonomous\\s+(?:underwater|exploration)\\s+vehicle|\\bAUV\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "dry_submersible_lockheed",
+          "type": "regex",
+          "pattern": "dry\\s+submersible",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "masint_sigint_imint_terms",
+          "type": "regex",
+          "pattern": "measurement\\s+and\\s+signature\\s+intelligence|\\bMASINT\\b|signals\\s+intelligence|\\bSIGINT\\b|imagery\\s+intelligence|\\bIMINT\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "side_scan_sonar",
+          "type": "regex",
+          "pattern": "side\\s+scan",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "acoustic_navigation_and_comms",
+          "type": "regex",
+          "pattern": "acoustic\\s+navigation|acoustic\\s+nav(?:igation)?|comm\\s+systems|communications\\s+systems",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "ocean_battlespace_sensors",
+          "type": "regex",
+          "pattern": "ocean\\s+battle\\s*space\\s+sensors|ocean\\s+battlespace\\s+sensors",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "special_access_program_terms_sap_usap",
+          "type": "regex",
+          "pattern": "special\\s+access\\s+programs?|\\bSAPs?\\b|unacknowledged\\s+special\\s+access\\s+programs?|\\bUSAPs?\\b|controlled\\s+access\\s+programs?",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "industrial_security_need_to_know",
+          "type": "regex",
+          "pattern": "industrial\\s+security|need\\s+to\\s+know",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "technical_terms_funding_and_methods",
+      "name": "Technical / Funding / Measurement & Test Terms",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "electrogravitic_electrogravidic_regex",
+          "type": "regex",
+          "pattern": "\\belectrogravi(?:tic|dic)\\b|\\belectro\\-?gravi(?:tic|dic)\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "irad_independent_research_and_development_regex",
+          "type": "regex",
+          "pattern": "\\bIRAD\\b|Independent\\s+Research\\s+and\\s+Development",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "radar_cross_section_rcs_regex",
+          "type": "regex",
+          "pattern": "\\bradar\\s+cross\\-?section\\b|\\bRCS\\b(?=\\s*(?:range|facility|test))",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "telemetry_radio_telemetry_phrase",
+          "type": "phrase",
+          "pattern": "radio telemetry",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "major_range_test_facility_base_mrtfb_regex",
+          "type": "regex",
+          "pattern": "\\bMRTFB\\b|major\\s+range\\s+and\\s+test\\s+facility\\s+base",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "carbon_nanotubes_conductive_structure_phrase",
+          "type": "phrase",
+          "pattern": "carbon nano tubes",
+          "weight": 8,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "anti_gravity_propulsion_phrase",
+          "type": "phrase",
+          "pattern": "anti-gravity propulsion systems",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "metamaterials_phrase",
+          "type": "phrase",
+          "pattern": "metamaterials",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "test_evaluation_western_ranges_foreign_material",
+      "name": "Test & evaluation, foreign material, and Western ranges infrastructure",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "dod_directive_3200_11_regex",
+          "type": "regex",
+          "pattern": "\\b(?:DoD|Department\\s+of\\s+Defense)\\s+(?:directive|Directive)\\s+3?2000?\\.11\\b|\\b3200\\.11\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "edwards_412_test_wing_phrase",
+          "type": "phrase",
+          "pattern": "Edwards 412th Test Wing",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "dugway_proving_ground_phrase",
+          "type": "phrase",
+          "pattern": "Dougway Proving Ground",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "west_desert_test_center_phrase",
+          "type": "phrase",
+          "pattern": "West Desert Test Center",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "afttez_special_programs_division_phrase",
+          "type": "phrase",
+          "pattern": "AFTTEZ",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "r2508_phrase",
+          "type": "phrase",
+          "pattern": "R2508",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "utah_test_and_training_range_regex",
+          "type": "regex",
+          "pattern": "\\bUtah\\s+Test\\s+and\\s+Training\\s+Range\\b|\\bUTTR\\b|\\bUTR\\b(?=.{0,30}\\b(?:Utah|Hill\\s+Air\\s+Force\\s+Base|Dugway|Dougway)\\b)",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "avery_area_phrase",
+          "type": "phrase",
+          "pattern": "Avery area",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "aftte_contextual_regex",
+          "type": "regex",
+          "pattern": "\\bAFTTE\\b|\\bAir\\s+Force\\s+Test\\s+and\\s+Evaluation\\b|\\bDirector\\s+of\\s+Air\\s+Force\\s+Test\\s+and\\s+Evaluation\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "foreign_material_program_lifecycle_phrase",
+          "type": "phrase",
+          "pattern": "foreign material program execution",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "mrtfb_regex",
+          "type": "regex",
+          "pattern": "\\bMRTFBs?\\b|\\bMajor\\s+Range\\s+and\\s+Test\\s+Facility\\s+Bases?\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "air_force_test_center_regex",
+          "type": "regex",
+          "pattern": "\\bAir\\s+Force\\s+Test\\s+Center\\b|\\bAFTC\\b|\\bAFTTC\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "air_force_test_pilot_school_phrase",
+          "type": "phrase",
+          "pattern": "Air Force Test Pilot School",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "afotec_apho_tech_regex",
+          "type": "regex",
+          "pattern": "\\bAFOTEC\\b|\\bAir\\s+Force\\s+Operational\\s+Test\\s+and\\s+Evaluation\\s+Center\\b|\\bApho(?:t|th)ech\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "test_ranges_mrtfbs_and_transport",
+      "name": "Test Ranges / MRTFBs / Transport & Airspace",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "r_2508_restricted_airspace_regex",
+          "type": "regex",
+          "pattern": "\\bR\\-?2508\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "tonopah_electronic_warfare_range_regex",
+          "type": "regex",
+          "pattern": "\\bTEWR\\b|\\bTonopah\\s+Electronic\\s+(?:Warfare|Combat)\\s+Range\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "area_52_tonopah_phrase",
+          "type": "phrase",
+          "pattern": "Area 52",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "groom_lake_papoose_lake_s4_regex",
+          "type": "regex",
+          "pattern": "\\bGroom\\s+Lake\\b|\\bPapoose\\s+Lake\\b|\\bArea\\s*51\\b|\\bS4\\b(?=.*\\b(?:Lake|site|Area)\\b)",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tunneling_maglev_power_and_detection",
+      "name": "Tunneling, underground transit (maglev/tube), power, and detection methods (plus key report titles)",
+      "enabled": false,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "literature_survey_underground_construction_hardened_facilities",
+          "type": "phrase",
+          "pattern": "literature survey of underground construction methods for application to hardened facilities",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "design_of_underground_installations_in_rock_training_manual",
+          "type": "phrase",
+          "pattern": "design of underground installations in rock",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "subsurface_deployment_of_naval_facilities",
+          "type": "phrase",
+          "pattern": "subsurface deployment of Naval facilities",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "utilization_of_nuclear_power_plants_in_underground_installation",
+          "type": "phrase",
+          "pattern": "utilization of nuclear power plants in underground installation",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "development_of_inspection_and_detection_techniques_for_hidden_cavities",
+          "type": "regex",
+          "pattern": "development of inspection and detection techniques for hidden cavities|hidden cavities",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "national_committee_on_tunneling_technology_nctt",
+          "type": "regex",
+          "pattern": "National Committee on tunneling technology|\\bNCTT\\b|US National Committee on tunneling technology",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "pulse_microwave_emp_directed_energy_disable_vehicles",
+          "type": "regex",
+          "pattern": "pulse microwave|microwave weapons|EMP type weapons|electronic warfare system designed to disable",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "deep_shaft_structures_incline_shaft_vertical_elevator_shaft",
+          "type": "regex",
+          "pattern": "deep shaft structures|incline shaft|vertical Elevator Shaft|vertical shaft",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "tunnel_boring_machine_tbm",
+          "type": "regex",
+          "pattern": "tunnel boring machine|\\bTBM\\b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "iron_chlorine_fuel_cells_deep_icbm_bases",
+          "type": "regex",
+          "pattern": "iron\\s*chlorine fuel cells|fuel cells|deep ICBM bases",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "nuclear_subterrene_subterrane_patents",
+          "type": "regex",
+          "pattern": "nuclear subter\\w+|subter\\s*tunnel machine|vitrif\\w+",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "systems_and_cost_analysis_nuclear_subter_tunnel_machine_1973",
+          "type": "phrase",
+          "pattern": "systems and cost analysis for a nuclear subter tunnel machine",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "maglev_train_system_partial_vacuum_pneumatic_tube",
+          "type": "regex",
+          "pattern": "maglev|mag\\s*lev|partial vacuum tube|pneumatic system|evacuated tunnel",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "very_high_speed_transit_system_vhst_rand",
+          "type": "regex",
+          "pattern": "very high-speed transit system|\\bVHST\\b",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "high_speed_ground_transportation_rd_1967",
+          "type": "phrase",
+          "pattern": "R&D for high-speed ground transportation",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "international_society_for_terrain_vehicle_systems_istvs",
+          "type": "regex",
+          "pattern": "international Society for terrain vehicle systems|\\bISTVS\\b",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "uap_legacy_program_claims_and_technical_terms",
+      "name": "UAP-legacy claims, program labels, and technical hooks (high specificity, varying credibility)",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "baass_bigelow_aass_regex",
+          "type": "regex",
+          "pattern": "\\bBAASS\\b|\\bBigelow\\s+Aerospace\\s+Advanced\\s+Space\\s+Studies\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "project_twinkle_phrase",
+          "type": "phrase",
+          "pattern": "Project Twinkle",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sage_semi_automatic_ground_environment_regex",
+          "type": "regex",
+          "pattern": "\\bSAGE\\b|\\bsemi-?automatic\\s+ground\\s+environment\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "permissive_action_link_pal_regex",
+          "type": "regex",
+          "pattern": "\\bpermissive\\s+action\\s+link\\b|\\bPAL\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "tr3b_regex",
+          "type": "regex",
+          "pattern": "\\bTR\\s*-?\\s*3B\\b|\\bTR3B\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "darpa_security_and_intelligence_directorate_sid_regex",
+          "type": "regex",
+          "pattern": "\\bDARPA\\b(?:[^\\n]{0,60})\\b(?:Security\\s+and\\s+Intelligence\\s+Directorate|SID)\\b|\\bDARPA\\s+SID\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "defense_support_program_dsp_satellites_regex",
+          "type": "regex",
+          "pattern": "\\bDefense\\s+Support\\s+Program\\b|\\bDSP\\s+satellites\\b|\\bDSP\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "magnetic_field_disruptor_mfd_regex",
+          "type": "regex",
+          "pattern": "\\bmagnetic\\s+field\\s+disruptor\\b|\\bMFD\\b",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "plasma_field_accelerator_ring_phrase",
+          "type": "phrase",
+          "pattern": "circular plasma field accelerator ring",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "advanced_group_6_phrase",
+          "type": "phrase",
+          "pattern": "Advanced Group 6",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "alien_reproduction_vehicle_arv_regex",
+          "type": "regex",
+          "pattern": "\\balien\\s+reproduction\\s+vehicle\\b|\\bARV\\b",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "defense_advanced_research_center_dar_phrase",
+          "type": "phrase",
+          "pattern": "Defense Advanced Research Center",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "green_fireballs_phrase",
+          "type": "phrase",
+          "pattern": "green fireballs",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "uap_legacy_program_terms_and_codewords",
+      "name": "UAP legacy program terms, codewords, and operational phrases",
+      "enabled": false,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "off_world_technologies_division_nswc_crane",
+          "type": "regex",
+          "pattern": "off-?world Technologies division|Naval\\s+surface\\s+Warfare\\s+Center\\s+crane|\\bNSWC\\b\\s+Crane",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "xf_131_super_sentinel",
+          "type": "regex",
+          "pattern": "XF\\s*-?\\s*131\\s+super\\s+sentinel|super\\s+sentinel",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "tr3b_variant",
+          "type": "regex",
+          "pattern": "\\bTR[-\\s]?3B\\b|tr3b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "project_red_light",
+          "type": "regex",
+          "pattern": "Project Red Light|project red\\s*light",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "aawsap_lockheed_transfer_2008",
+          "type": "regex",
+          "pattern": "\\bAAWSAP\\b|assap program|material transfer in 2008",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "technologies_of_unknown_origin_tuo",
+          "type": "regex",
+          "pattern": "Technolog(?:y|ies) of Unknown Origin|\\bTUO\\b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "alien_reproduction_vehicle_arv",
+          "type": "regex",
+          "pattern": "alien reproduction vehicle(?:s)?|\\bARV\\b",
+          "weight": 5,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "project_star_talk",
+          "type": "regex",
+          "pattern": "Project Star Talk|Star\\s*Talk",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "ufo_legacy_programs_phrase",
+          "type": "phrase",
+          "pattern": "UFO Legacy programs",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "s4_site_area_51",
+          "type": "regex",
+          "pattern": "\\bS\\s*-?\\s*4\\b|site\\s*4",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "blue_boys_rapid_reaction_unit",
+          "type": "regex",
+          "pattern": "blue boys|Blue\\s*Boys",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "kingman_crash_1953",
+          "type": "regex",
+          "pattern": "Kingman crash|1953 Kingman",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "dulce_base",
+          "type": "regex",
+          "pattern": "doui\\w* base|Dulce",
+          "weight": 4,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "underground_facilities_command_centers",
+      "name": "Underground facilities, continuity sites, and command centers",
+      "enabled": true,
+      "default_weight": 8,
+      "rules": [
+        {
+          "id": "manzano_storage_area_kirtland",
+          "type": "regex",
+          "pattern": "Manzano storage area|Manzano Mountain",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "cheyenne_mountain_complex_norad",
+          "type": "phrase",
+          "pattern": "Cheyenne Mountain Complex",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "raven_rock_site_r",
+          "type": "phrase",
+          "pattern": "Raven Rock complex",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "deep_underground_command_center_duc",
+          "type": "regex",
+          "pattern": "\\bDUC\\b|deep underground Command Center|National Underground Command Center",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "cia_directorate_of_science_and_technology_ds_t",
+          "type": "regex",
+          "pattern": "CIA directorate of Science and Technology|\\bDS&T\\b",
+          "weight": 10,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "national_military_command_center_nmcc",
+          "type": "regex",
+          "pattern": "National military command center|\\bNMCC\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "warrenton_us_army_training_center_federal_relocation_center",
+          "type": "regex",
+          "pattern": "Warrington|Warrenton US army training center|federal reloc\\w+ Center",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "sugar_grove_navy_nsa_underground_facility",
+          "type": "phrase",
+          "pattern": "Sugar Grove",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "fort_detrick_raven_rock_reference",
+          "type": "phrase",
+          "pattern": "Fort Dietrich",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "continuity_of_government_cog",
+          "type": "regex",
+          "pattern": "continuity of government|\\bCOG\\b",
+          "weight": 9,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        },
+        {
+          "id": "camp_david_camp_perry_underground_installations",
+          "type": "regex",
+          "pattern": "Camp David|Camp Peri|Camp Perry",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id"
+          ]
+        }
+      ]
+    }
+  ]
+}
