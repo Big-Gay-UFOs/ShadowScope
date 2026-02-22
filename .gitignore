@@ -35,3 +35,8 @@ backups/
 
 docker-compose.override.yml
 
+
+# local backups/patch scripts
+*.bak*
+tools/patch_*.py
+
