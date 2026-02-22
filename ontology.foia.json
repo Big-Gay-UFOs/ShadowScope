@@ -1407,7 +1407,7 @@
           "id": "nswc_crane",
           "type": "regex",
           "pattern": "NSWC\\s+Crane|Naval\\s+Surface\\s+Warfare\\s+Center\\s*,?\\s*Crane",
-          "weight": 11,
+          "weight": 4,
           "fields": [
             "snippet",
             "place_text",
@@ -1548,17 +1548,6 @@
           "type": "phrase",
           "pattern": "Enterprise Integration Group",
           "weight": 10,
-          "fields": [
-            "snippet",
-            "place_text",
-            "doc_id"
-          ]
-        },
-        {
-          "id": "lawrence_livermore_and_los_alamos_regex",
-          "type": "regex",
-          "pattern": "\\bLawrence\\s+Livermore\\b|\\bLos\\s+Alamos\\b",
-          "weight": 9,
           "fields": [
             "snippet",
             "place_text",
@@ -2040,8 +2029,8 @@
         {
           "id": "los_alamos_national_laboratory",
           "type": "regex",
-          "pattern": "Los Alamos National Labs|Los Alamos National Laboratory|\\bLANL\\b",
-          "weight": 11,
+          "pattern": "(?i)\\bLos\\s+Alamos\\s+National\\s+Laborator(?:y|ies)\\b|\\bLos\\s+Alamos\\s+National\\s+Lab\\b|\\bLANL\\b",
+          "weight": 5,
           "fields": [
             "snippet",
             "place_text",
@@ -2062,8 +2051,8 @@
         {
           "id": "lawrence_livermore_national_laboratory",
           "type": "regex",
-          "pattern": "Lawrence Livermore labs|Lawrence Livermore National Laboratory|\\bLLNL\\b",
-          "weight": 11,
+          "pattern": "(?i)\\bLawrence\\s+Livermore\\s+National\\s+Laborator(?:y|ies)\\b|\\bLawrence\\s+Livermore\\s+National\\s+Lab\\b|\\bLLNL\\b",
+          "weight": 5,
           "fields": [
             "snippet",
             "place_text",
@@ -2505,7 +2494,7 @@
           "id": "kirtland_air_force_base",
           "type": "regex",
           "pattern": "Kirtland Air Force Base|\\bKAFB\\b",
-          "weight": 5,
+          "weight": 4,
           "fields": [
             "snippet",
             "place_text",
@@ -2710,8 +2699,8 @@
         {
           "id": "livermore_sandia_site_regex",
           "type": "regex",
-          "pattern": "\\bLivermore\\b|\\bLiverour\\b|\\bLiverore\\b",
-          "weight": 9,
+          "pattern": "(?i)\\bLivermore\\s+Sandia\\s+Site\\b|\\bSandia\\b(?=.{0,60}\\bLivermore\\b)",
+          "weight": 4,
           "fields": [
             "snippet",
             "place_text",
