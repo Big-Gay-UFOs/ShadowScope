@@ -36,7 +36,7 @@ def compute_leads(
     min_score: int = 1,
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
-    scoring_version: str = "v1",
+    scoring_version: str = "v2",
     pair_bonus_multiplier: int = 6,
     pair_bonus_cap: int = 12,
     noise_pair_bonus_cap: int = 2,
@@ -125,7 +125,7 @@ def create_lead_snapshot(
     min_score: int = 1,
     limit: int = 200,
     scan_limit: int = 5000,
-    scoring_version: str = "v1",
+    scoring_version: str = "v2",
     notes: Optional[str] = None,
     database_url: Optional[str] = None,
 ) -> Dict[str, Any]:

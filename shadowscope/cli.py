@@ -180,7 +180,7 @@ def leads_snapshot(
     min_score: int = typer.Option(1, "--min-score", help="Minimum score to include"),
     limit: int = typer.Option(200, "--limit", help="Max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="How many recent events to scan before ranking"),
-    scoring_version: str = typer.Option("v1", "--scoring-version", help="Scoring version label"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Scoring version label"),
     notes: Optional[str] = typer.Option(None, "--notes", help="Optional snapshot notes"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
