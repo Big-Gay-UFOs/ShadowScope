@@ -40,3 +40,10 @@ docker-compose.override.yml
 *.bak*
 tools/patch_*.py
 
+
+# local demo outputs
+demo/
+demo_*.csv
+demo_*.txt
+demo_report*.html
+
