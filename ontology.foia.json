@@ -3560,7 +3560,7 @@
     {
       "id": "uap_legacy_program_claims_and_technical_terms",
       "name": "UAP-legacy claims, program labels, and technical hooks (high specificity, varying credibility)",
-      "enabled": true,
+      "enabled": false,
       "default_weight": 8,
       "rules": [
         {
@@ -3984,6 +3984,173 @@
             "snippet",
             "place_text",
             "doc_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "doe_weapons_complex_sites",
+      "name": "DOE/NNSA weapons complex sites and operators",
+      "enabled": true,
+      "default_weight": 6,
+      "rules": [
+        {
+          "id": "savannah_river_site",
+          "type": "regex",
+          "pattern": "(?i)\\bSavannah\\s+River\\s+Site\\b|\\bSRS\\b(?=.{0,40}\\bSavannah\\s+River\\b)",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        },
+        {
+          "id": "y12_national_security_complex",
+          "type": "regex",
+          "pattern": "(?i)\\bY-12\\s+National\\s+Security\\s+Complex\\b|\\bY[-\\s]?12\\b(?=.{0,60}\\b(?:National\\s+Security\\s+Complex|Oak\\s+Ridge|Tennessee)\\b)",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        },
+        {
+          "id": "pantex_plant",
+          "type": "regex",
+          "pattern": "(?i)\\bPantex\\s+Plant\\b|\\bPantex\\b(?=.{0,60}\\b(?:Plant|Amarillo|Texas|NNSA|Production\\s+Office)\\b)",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        },
+        {
+          "id": "kansas_city_national_security_campus",
+          "type": "regex",
+          "pattern": "(?i)\\bKansas\\s+City\\s+National\\s+Security\\s+Campus\\b|\\bKCNSC\\b|\\bKansas\\s+City\\s+Plant\\b(?=.{0,60}\\b(?:National\\s+Security\\s+Campus|NNSA|DOE)\\b)",
+          "weight": 7,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        },
+        {
+          "id": "consolidated_nuclear_security",
+          "type": "regex",
+          "pattern": "(?i)\\bConsolidated\\s+Nuclear\\s+Security\\b|\\bCNS\\b(?=.{0,60}\\b(?:Pantex|Y[-\\s]?12|National\\s+Security\\s+Complex|Pantex\\s+Plant)\\b)",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        },
+        {
+          "id": "savannah_river_nuclear_solutions",
+          "type": "regex",
+          "pattern": "(?i)\\bSavannah\\s+River\\s+Nuclear\\s+Solutions\\b|\\bSRNS\\b",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        },
+        {
+          "id": "nnsa_production_office_amarillo",
+          "type": "regex",
+          "pattern": "(?i)\\bNNSA\\s+Production\\s+Office\\b(?=.{0,80}\\b(?:Amarillo|Pantex)\\b)",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        },
+        {
+          "id": "mixed_oxide_fuel_fabrication_facility_mox",
+          "type": "regex",
+          "pattern": "(?i)\\bMixed\\s+Oxide\\s+Fuel\\s+Fabrication\\s+Facility\\b|\\bMOX\\b(?=.{0,60}\\b(?:Fuel|Fabrication|Savannah\\s+River|SRS)\\b)",
+          "weight": 6,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "procurement_high_signal_pivots",
+      "name": "Procurement high-signal pivots",
+      "enabled": true,
+      "default_weight": 7,
+      "rules": [
+        {
+          "id": "doe_mo_contract_language",
+          "type": "regex",
+          "pattern": "(?i)\\bManagement\\s+and\\s+Operation\\b|\\bManagement\\s+and\\s+Operating\\b|\\bM\\s*&\\s*O\\b|\\bM/O\\b|\\bPBMC\\b|performance[-\\s]?based\\s+management\\s+contract|\\bDE-(?:AC|NA)\\d{2}\\w{2}\\d+\\b",
+          "weight": 11,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "operational_noise_terms",
+      "name": "Operational noise terms (down-weight)",
+      "enabled": true,
+      "default_weight": 2,
+      "rules": [
+        {
+          "id": "drug_alcohol_testing_hrp_dacts",
+          "type": "regex",
+          "pattern": "(?i)\\bdrug\\s+and\\s+alcohol\\b|\\bDACTS\\b|\\bDACTS-?HRP\\b|\\bHuman\\s+Reliability\\s+Program\\b|\\bHRP\\b(?=.{0,40}\\b(?:drug|alcohol|testing|collection)\\b)",
+          "weight": 1,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
+          ]
+        },
+        {
+          "id": "nasa_sponsoring_agreement_noise",
+          "type": "regex",
+          "pattern": "(?i)\\bsponsoring\\s+agreement\\b(?=.{0,120}\\bNASA\\b)|\\bNASA\\b(?=.{0,120}\\bsponsoring\\s+agreement\\b)",
+          "weight": 1,
+          "fields": [
+            "snippet",
+            "place_text",
+            "doc_id",
+            "source_url",
+            "raw_json"
           ]
         }
       ]
