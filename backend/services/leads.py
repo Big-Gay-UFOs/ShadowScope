@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func, select
@@ -36,25 +37,39 @@ def compute_leads(
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
     scoring_version: str = "v1",
-    pair_bonus_multiplier: int = 3,
+    # v2: pair bonus uses inverse-frequency weighting; multiplier maps strength->points
+    pair_bonus_multiplier: int = 6,
     pair_bonus_cap: int = 12,
 ) -> Tuple[List[Tuple[int, Event, Dict[str, Any]]], int]:
     rows = db.execute(select(Event).order_by(Event.id.desc()).limit(int(scan_limit))).scalars().all()
     scanned = len(rows)
 
+    # v2: compute per-event kw_pair evidence:
+    # - pair_count: how many kw_pair correlations the event participates in
+    # - pair_strength: sum(1/sqrt(pair_event_count)) across its kw_pair correlations
     pair_counts: Dict[int, int] = {}
+    pair_strength: Dict[int, float] = {}
+
     if str(scoring_version).lower().startswith("v2"):
         ids = [int(e.id) for e in rows]
         if ids:
             like_pat = f"kw_pair|{source}|%|pair:%" if source else "kw_pair|%|%|pair:%"
             q = (
-                db.query(CorrelationLink.event_id, func.count().label("n"))
+                db.query(CorrelationLink.event_id, Correlation.score)
                 .join(Correlation, Correlation.id == CorrelationLink.correlation_id)
                 .filter(Correlation.correlation_key.like(like_pat))
                 .filter(CorrelationLink.event_id.in_(ids))
-                .group_by(CorrelationLink.event_id)
             )
-            pair_counts = {int(event_id): int(n) for event_id, n in q.all()}
+            for event_id, cscore in q.all():
+                eid = int(event_id)
+                try:
+                    n = int(cscore or 0)
+                except Exception:
+                    n = 0
+                if n <= 0:
+                    continue
+                pair_counts[eid] = pair_counts.get(eid, 0) + 1
+                pair_strength[eid] = pair_strength.get(eid, 0.0) + (1.0 / math.sqrt(float(n)))
 
     scored: List[Tuple[int, Event, Dict[str, Any]]] = []
     for e in rows:
@@ -65,7 +80,13 @@ def compute_leads(
 
         if str(scoring_version).lower().startswith("v2"):
             pair_n = pair_counts.get(int(e.id), 0)
-            pair_bonus = min(int(pair_bonus_cap), int(pair_bonus_multiplier) * int(pair_n))
+            strength = pair_strength.get(int(e.id), 0.0)
+
+            # Weighted bonus: rare pairs contribute more, common pairs contribute less
+            pair_bonus = int(round(float(pair_bonus_multiplier) * float(strength)))
+            if pair_bonus > int(pair_bonus_cap):
+                pair_bonus = int(pair_bonus_cap)
+
             score, details = score_from_keywords_clauses_v2(
                 e.keywords,
                 e.clauses,
@@ -73,6 +94,7 @@ def compute_leads(
                 pair_bonus=pair_bonus,
             )
             details["pair_count"] = int(pair_n)
+            details["pair_strength"] = round(float(strength), 4)
         else:
             score, details = score_from_keywords_clauses(
                 e.keywords,
@@ -98,6 +120,8 @@ def create_lead_snapshot(
     scoring_version: str = "v1",
     notes: Optional[str] = None,
     database_url: Optional[str] = None,
+    pair_bonus_multiplier: int = 6,
+    pair_bonus_cap: int = 12,
 ) -> Dict[str, Any]:
     SessionFactory = get_session_factory(database_url)
     db: Session = SessionFactory()
@@ -121,6 +145,8 @@ def create_lead_snapshot(
             source=source,
             exclude_source=exclude_source,
             scoring_version=scoring_version,
+            pair_bonus_multiplier=pair_bonus_multiplier,
+            pair_bonus_cap=pair_bonus_cap,
         )
 
         snap = LeadSnapshot(
