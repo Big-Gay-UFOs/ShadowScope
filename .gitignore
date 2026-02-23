@@ -47,3 +47,7 @@ demo_*.csv
 demo_*.txt
 demo_report*.html
 
+
+# local helper script
+tools/make_demo_report.py
+

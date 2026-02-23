@@ -37,16 +37,14 @@ def compute_leads(
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
     scoring_version: str = "v1",
-    # v2: pair bonus uses inverse-frequency weighting; multiplier maps strength->points
     pair_bonus_multiplier: int = 6,
     pair_bonus_cap: int = 12,
+    noise_pair_bonus_cap: int = 2,
+    noise_penalty: int = 8,
 ) -> Tuple[List[Tuple[int, Event, Dict[str, Any]]], int]:
     rows = db.execute(select(Event).order_by(Event.id.desc()).limit(int(scan_limit))).scalars().all()
     scanned = len(rows)
 
-    # v2: compute per-event kw_pair evidence:
-    # - pair_count: how many kw_pair correlations the event participates in
-    # - pair_strength: sum(1/sqrt(pair_event_count)) across its kw_pair correlations
     pair_counts: Dict[int, int] = {}
     pair_strength: Dict[int, float] = {}
 
@@ -78,23 +76,33 @@ def compute_leads(
         if exclude_source and e.source == exclude_source:
             continue
 
+        kw_list = _norm_list(e.keywords)
+        has_noise = any(isinstance(k, str) and k.startswith("operational_noise_terms:") or k == "operational_noise_terms:nasa_sponsoring_agreement_noise" for k in kw_list)
+
         if str(scoring_version).lower().startswith("v2"):
             pair_n = pair_counts.get(int(e.id), 0)
             strength = pair_strength.get(int(e.id), 0.0)
 
-            # Weighted bonus: rare pairs contribute more, common pairs contribute less
             pair_bonus = int(round(float(pair_bonus_multiplier) * float(strength)))
             if pair_bonus > int(pair_bonus_cap):
                 pair_bonus = int(pair_bonus_cap)
+
+            if has_noise:
+                pair_bonus = min(int(pair_bonus), int(noise_pair_bonus_cap))
 
             score, details = score_from_keywords_clauses_v2(
                 e.keywords,
                 e.clauses,
                 has_entity=bool(e.entity_id),
-                pair_bonus=pair_bonus,
+                pair_bonus=int(pair_bonus),
             )
             details["pair_count"] = int(pair_n)
             details["pair_strength"] = round(float(strength), 4)
+            details["has_noise"] = bool(has_noise)
+            if has_noise:
+                score = int(score) - int(noise_penalty)
+                details["noise_penalty"] = int(noise_penalty)
+                details["pair_bonus_cap_due_to_noise"] = int(noise_pair_bonus_cap)
         else:
             score, details = score_from_keywords_clauses(
                 e.keywords,
@@ -120,8 +128,6 @@ def create_lead_snapshot(
     scoring_version: str = "v1",
     notes: Optional[str] = None,
     database_url: Optional[str] = None,
-    pair_bonus_multiplier: int = 6,
-    pair_bonus_cap: int = 12,
 ) -> Dict[str, Any]:
     SessionFactory = get_session_factory(database_url)
     db: Session = SessionFactory()
@@ -145,8 +151,6 @@ def create_lead_snapshot(
             source=source,
             exclude_source=exclude_source,
             scoring_version=scoring_version,
-            pair_bonus_multiplier=pair_bonus_multiplier,
-            pair_bonus_cap=pair_bonus_cap,
         )
 
         snap = LeadSnapshot(
