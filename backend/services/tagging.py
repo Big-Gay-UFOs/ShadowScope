@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -104,6 +105,7 @@ def apply_ontology_to_events(
                     "place_text": ev.place_text,
                     "doc_id": ev.doc_id,
                     "source_url": ev.source_url,
+                    "raw_json": (json.dumps(ev.raw_json, ensure_ascii=False, sort_keys=True, separators=(",", ":"))[:65536] if ev.raw_json is not None else ""),
                 }
 
                 res = tag_fields(meta, rules, fields)
