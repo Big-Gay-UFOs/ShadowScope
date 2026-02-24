@@ -32,3 +32,21 @@ Windows execution policy (one-time):
 - `ontology.foia.json` (FOIA ontology)
 - `tools/runbook.ps1` (repeatable run)
 
+
+
+<!-- BEGIN SHADOWSCOPE-AUDIT-2026-02-24 -->
+## Audit Notes & Implementation Checklist (2026-02-24)
+
+This repo now has an audit-derived implementation plan + checklist so we don’t lose detail as we execute M4.2 → M5.
+
+**Top priorities (P0/P1)**
+- **Event schema enrichment**: promote high-value USAspending fields (agency/PSC/NAICS/award-id/UEI/etc.) to first-class columns so we can build richer correlation lanes and better investigator filters.
+- **Ontology: enable `raw_json` tagging** by safely stringifying `raw_json` and passing it into the tagger (so ontology rules targeting `raw_json` actually fire).
+- **Scoring alignment**: make **v2** scoring the default everywhere (API + snapshots) while keeping v1 available explicitly.
+- **kw_pair signal upgrade**: promote kw_pair from “count” to “signal” (PMI/log-odds/Fisher/Bayesian shrinkage path) + add explainability exports.
+- **API filtering improvements**: add investigator-friendly query params to events/leads/correlations.
+
+Full details + checklists live here:
+- `docs/AUDIT_BACKLOG_2026-02-24.md`
+
+<!-- END SHADOWSCOPE-AUDIT-2026-02-24 -->
