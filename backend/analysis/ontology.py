@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import json
@@ -40,7 +40,6 @@ def validate_ontology(obj: Dict[str, Any]) -> List[str]:
     if not isinstance(default_fields, list) or not all(isinstance(x, str) for x in default_fields):
         errors.append("defaults.fields must be a list of strings")
         default_fields = ["snippet", "place_text", "doc_id"]
-
     for f in default_fields:
         if f not in _ALLOWED_FIELDS:
             errors.append(f"defaults.fields contains unknown field: {f}")
