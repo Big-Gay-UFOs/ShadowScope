@@ -1,4 +1,4 @@
-﻿from backend.analysis.ontology import validate_ontology
+from backend.analysis.ontology import validate_ontology
 
 
 def test_validate_ontology_allows_raw_json_in_defaults_fields():
