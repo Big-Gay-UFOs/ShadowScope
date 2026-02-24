@@ -1,6 +1,6 @@
 # ShadowScope
 
-ShadowScope is a **batch investigative OSINT pipeline** for surfacing â€œsupport footprintsâ€ of sensitive programs inside **public procurement data** (starting with USAspending; SAM.gov planned).
+ShadowScope is a **batch investigative OSINT pipeline** for surfacing “support footprints” of sensitive programs inside **public procurement data** (starting with USAspending; SAM.gov planned).
 
 It is designed for repeatable investigator runs:
 
