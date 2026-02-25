@@ -1,7 +1,7 @@
 from typing import Any, Optional
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, or_
+from sqlalchemy import func, select, or_, cast, String
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db_session
@@ -75,18 +75,16 @@ def list_events(
         since = datetime.now(timezone.utc) - timedelta(days=max(int(days), 1))
         q = q.where(or_(Event.created_at >= since, Event.occurred_at >= since))
 
-    scan = int(limit)
     if keyword:
-        scan = min(5000, max(int(limit) * 20, 200))
 
-    rows = db.execute(q.order_by(Event.id.desc()).limit(scan)).scalars().all()
-
-    if keyword:
         kw = str(keyword).strip()
-        rows = [e for e in rows if kw in _norm_list(e.keywords)]
 
-    rows = rows[: int(limit)]
+        if kw:
 
+            q = q.where(cast(Event.keywords, String).like(f'%"{kw}"%'))
+
+
+    rows = db.execute(q.order_by(Event.id.desc()).limit(int(limit))).scalars().all()
     return [
         {
             "id": e.id,

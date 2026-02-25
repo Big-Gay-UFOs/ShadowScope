@@ -129,7 +129,7 @@ def test_api_events_filters(tmp_path):
         assert r.status_code == 200
         assert all(e["entity_id"] is not None for e in r.json())
 
-        r = c.get("/api/events?limit=200&days=1")
+        r = c.get("/api/events?limit=1000&days=1")
         assert r.status_code == 200
         hashes = {e["hash"] for e in r.json()}
         assert "ev_old" not in hashes
