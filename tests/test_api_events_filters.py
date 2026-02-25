@@ -26,6 +26,7 @@ def test_api_events_filters(tmp_path):
 
         now = datetime.now(timezone.utc)
 
+        # Old event with a UNIQUE keyword that should still be findable
         e_old = Event(
             category="award",
             source="USAspending",
@@ -35,10 +36,28 @@ def test_api_events_filters(tmp_path):
             doc_id="d_old",
             source_url="http://example.com/old",
             raw_json={},
-            keywords=["alpha"],
+            keywords=["needle"],
             clauses=[],
             created_at=now - timedelta(days=10),
         )
+        db.add(e_old)
+        db.commit()
+
+        # Add >200 newer non-matching rows so the old implementation would miss e_old for limit=1 (scan=200)
+        fillers = []
+        for i in range(250):
+            fillers.append(Event(
+                category="award",
+                source="USAspending",
+                hash=f"ev_fill_{i}",
+                snippet="fill",
+                place_text="",
+                doc_id=f"d_fill_{i}",
+                source_url=f"http://example.com/fill/{i}",
+                raw_json={},
+                keywords=["noise"],
+                clauses=[],
+            ))
 
         e1 = Event(
             category="award",
@@ -80,7 +99,7 @@ def test_api_events_filters(tmp_path):
             clauses=[],
         )
 
-        db.add_all([e_old, e1, e2, e3])
+        db.add_all(fillers + [e1, e2, e3])
         db.commit()
     finally:
         db.close()
@@ -88,6 +107,12 @@ def test_api_events_filters(tmp_path):
     os.environ["DATABASE_URL"] = db_url
 
     with TestClient(app) as c:
+        # Critical: must find the OLD needle event even with many newer non-matching events
+        r = c.get("/api/events?limit=1&keyword=needle")
+        assert r.status_code == 200
+        j = r.json()
+        assert j and j[0]["hash"] == "ev_old"
+
         r = c.get("/api/events?limit=100&source=USAspending")
         assert r.status_code == 200
         assert all(e["source"] == "USAspending" for e in r.json())
@@ -104,7 +129,7 @@ def test_api_events_filters(tmp_path):
         assert r.status_code == 200
         assert all(e["entity_id"] is not None for e in r.json())
 
-        r = c.get("/api/events?limit=100&days=1")
+        r = c.get("/api/events?limit=200&days=1")
         assert r.status_code == 200
         hashes = {e["hash"] for e in r.json()}
         assert "ev_old" not in hashes
