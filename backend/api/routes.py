@@ -1,7 +1,7 @@
 from typing import Any, Optional
-
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db_session
@@ -48,8 +48,45 @@ def list_entities(db: Session = Depends(get_db_session)):
 
 
 @router.get("/events")
-def list_events(limit: int = 50, db: Session = Depends(get_db_session)):
-    rows = db.execute(select(Event).order_by(Event.id.desc()).limit(limit)).scalars().all()
+def list_events(
+    limit: int = 50,
+    source: str | None = None,
+    exclude_source: str | None = None,
+    days: int | None = None,
+    entity_id: int | None = None,
+    keyword: str | None = None,
+    has_entity: bool | None = None,
+    db: Session = Depends(get_db_session),
+):
+    q = select(Event)
+
+    if source:
+        q = q.where(Event.source == source)
+    if exclude_source:
+        q = q.where(Event.source != exclude_source)
+    if entity_id is not None:
+        q = q.where(Event.entity_id == int(entity_id))
+    if has_entity is True:
+        q = q.where(Event.entity_id != None)  # noqa: E711
+    elif has_entity is False:
+        q = q.where(Event.entity_id == None)  # noqa: E711
+
+    if days is not None:
+        since = datetime.now(timezone.utc) - timedelta(days=max(int(days), 1))
+        q = q.where(or_(Event.created_at >= since, Event.occurred_at >= since))
+
+    scan = int(limit)
+    if keyword:
+        scan = min(5000, max(int(limit) * 20, 200))
+
+    rows = db.execute(q.order_by(Event.id.desc()).limit(scan)).scalars().all()
+
+    if keyword:
+        kw = str(keyword).strip()
+        rows = [e for e in rows if kw in _norm_list(e.keywords)]
+
+    rows = rows[: int(limit)]
+
     return [
         {
             "id": e.id,
@@ -71,7 +108,6 @@ def list_events(limit: int = 50, db: Session = Depends(get_db_session)):
         }
         for e in rows
     ]
-
 
 @router.get("/analysis-runs")
 def list_analysis_runs(
