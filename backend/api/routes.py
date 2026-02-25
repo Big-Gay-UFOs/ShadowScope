@@ -81,7 +81,8 @@ def list_events(
 
         if kw:
 
-            q = q.where(cast(Event.keywords, String).like(f'%"{kw}"%'))
+            kw_esc = kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            q = q.where(cast(Event.keywords, String).like(f'%"{kw_esc}"%', escape="\\"))
 
 
     rows = db.execute(q.order_by(Event.id.desc()).limit(int(limit))).scalars().all()
