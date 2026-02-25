@@ -6,13 +6,16 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
 from backend.db.models import (
-    Event, Correlation, CorrelationLink,
-    ensure_schema, get_session_factory,
+    Event,
+    Correlation,
+    CorrelationLink,
+    ensure_schema,
+    get_session_factory,
 )
 from backend.app import app
 
 
-def test_api_correlations_min_event_count_respects_source(tmp_path):
+def test_api_correlations_min_event_count_respects_source_and_zero(tmp_path):
     db_path = tmp_path / "api_corr.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
 
@@ -30,16 +33,18 @@ def test_api_correlations_min_event_count_respects_source(tmp_path):
 
         c1 = Correlation(correlation_key="kw_pair|a|b", score="3", window_days=30, radius_km=0.0, lanes_hit={"kw_pair": {"event_count": 3}})
         c2 = Correlation(correlation_key="kw_pair|c|d", score="1", window_days=30, radius_km=0.0, lanes_hit={"kw_pair": {"event_count": 1}})
-        db.add_all([c1, c2])
+        c0 = Correlation(correlation_key="kw_pair|z|z", score="0", window_days=30, radius_km=0.0, lanes_hit={"kw_pair": {"event_count": 0}})  # no links
+        db.add_all([c1, c2, c0])
         db.commit()
-        db.refresh(c1); db.refresh(c2)
+        db.refresh(c1); db.refresh(c2); db.refresh(c0)
 
         # c1 links: 2 USAspending + 1 Other (total 3)
+        # c2 links: 1 USAspending
+        # c0 links: 0
         db.add_all([
             CorrelationLink(correlation_id=c1.id, event_id=ev1.id),
             CorrelationLink(correlation_id=c1.id, event_id=ev2.id),
             CorrelationLink(correlation_id=c1.id, event_id=ev3.id),
-            # c2 links: 1 USAspending
             CorrelationLink(correlation_id=c2.id, event_id=ev1.id),
         ])
         db.commit()
@@ -49,6 +54,12 @@ def test_api_correlations_min_event_count_respects_source(tmp_path):
     os.environ["DATABASE_URL"] = db_url
 
     with TestClient(app) as c:
+        # Source blank + min_event_count=0 must include correlations with 0 links (c0)
+        r0 = c.get("/api/correlations/?source=&min_event_count=0&limit=50")
+        assert r0.status_code == 200
+        keys0 = [it["correlation_key"] for it in r0.json()["items"]]
+        assert "kw_pair|z|z" in keys0
+
         # Within USAspending, c1 has only 2 links -> should NOT match mec=3
         r = c.get("/api/correlations/?source=USAspending&min_event_count=3&limit=50")
         assert r.status_code == 200
@@ -66,3 +77,4 @@ def test_api_correlations_min_event_count_respects_source(tmp_path):
         assert r.status_code == 200
         keys = [it["correlation_key"] for it in r.json()["items"]]
         assert "kw_pair|a|b" in keys
+        assert "kw_pair|z|z" not in keys
