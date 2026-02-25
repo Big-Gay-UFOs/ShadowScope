@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db_session
 from backend.api.correlations import router as correlations_router
-from backend.analysis.scoring import score_from_keywords_clauses
+from backend.services.leads import compute_leads
 from backend.db.models import AnalysisRun, Entity, Event, LeadSnapshot, LeadSnapshotItem
 from backend.search.opensearch import opensearch_search
 from backend.services.deltas import lead_deltas
@@ -108,26 +108,24 @@ def list_analysis_runs(
 def list_leads(
     limit: int = 50,
     min_score: int = 1,
+    scan_limit: int = 5000,
+    scoring_version: str = "v2",
     source: str | None = None,
     exclude_source: str | None = None,
     include_details: bool = True,
     db: Session = Depends(get_db_session),
 ):
-    rows = db.execute(select(Event).order_by(Event.id.desc()).limit(5000)).scalars().all()
-    scored = []
-    for e in rows:
-        if source and e.source != source:
-            continue
-        if exclude_source and e.source == exclude_source:
-            continue
-        sc, details = score_from_keywords_clauses(e.keywords, e.clauses, has_entity=bool(e.entity_id))
-        if sc >= min_score:
-            scored.append((sc, e, details))
-    scored.sort(key=lambda t: (t[0], t[1].id), reverse=True)
-    top = scored[:limit]
-
+    ranked, _scanned = compute_leads(
+        db,
+        scan_limit=scan_limit,
+        limit=limit,
+        min_score=min_score,
+        source=source,
+        exclude_source=exclude_source,
+        scoring_version=scoring_version,
+    )
     out = []
-    for sc, e, details in top:
+    for sc, e, details in ranked:
         item = {
             "score": sc,
             "id": e.id,
@@ -146,7 +144,6 @@ def list_leads(
             item["score_details"] = details
         out.append(item)
     return out
-
 
 @router.get("/lead-snapshots")
 def list_lead_snapshots(
