@@ -15,6 +15,7 @@ from backend.db.ops import reset_schema, stamp_head, sync_database
 from backend.logging_config import configure_logging
 from backend.runtime import ensure_runtime_directories
 from backend.services.export import export_events
+from backend.services.export_leads import export_lead_snapshot
 from backend.services.ingest import ingest_sam_opportunities, ingest_usaspending
 
 app = typer.Typer(help="ShadowScope control plane")
@@ -123,6 +124,18 @@ def export_events_cli(
     typer.echo(f"Events JSONL: {results['jsonl'].resolve()}")
     typer.echo(f"Rows exported: {results['count']}")
 
+
+@export_app.command("lead-snapshot")
+def export_lead_snapshot_cli(
+    snapshot_id: int = typer.Option(..., "--snapshot-id", help="Lead snapshot ID to export"),
+    out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    export_path = Path(out).expanduser() if out else None
+    results = export_lead_snapshot(snapshot_id=int(snapshot_id), database_url=database_url, output=export_path)
+    typer.echo(f"Lead snapshot CSV: {results['csv'].resolve()}")
+    typer.echo(f"Lead snapshot JSON: {results['json'].resolve()}")
+    typer.echo(f"Rows exported: {results['count']}")
 
 @ontology_app.command("validate")
 def ontology_validate(path: Path = typer.Option(Path("ontology.json"), "--path", "-p", help="Path to ontology.json")):
