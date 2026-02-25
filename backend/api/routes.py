@@ -151,6 +151,32 @@ def list_leads(
     include_details: bool = True,
     db: Session = Depends(get_db_session),
 ):
+    # Defensive bounds to prevent request-driven full table scans
+    try:
+        limit_i = int(limit)
+        scan_i = int(scan_limit)
+        min_i = int(min_score)
+    except Exception:
+        raise HTTPException(status_code=400, detail='limit, scan_limit, and min_score must be integers')
+
+    if limit_i < 1 or limit_i > 200:
+        raise HTTPException(status_code=400, detail='limit must be between 1 and 200')
+    if scan_i < 1 or scan_i > 5000:
+        raise HTTPException(status_code=400, detail='scan_limit must be between 1 and 5000')
+    if scan_i < limit_i:
+        scan_i = limit_i
+    if min_i < 0:
+        min_i = 0
+
+    sv = str(scoring_version).lower()
+    if sv not in ('v1', 'v2'):
+        raise HTTPException(status_code=400, detail='scoring_version must be v1 or v2')
+
+    limit = limit_i
+    scan_limit = scan_i
+    min_score = min_i
+    scoring_version = sv
+
     ranked, _scanned = compute_leads(
         db,
         scan_limit=scan_limit,
