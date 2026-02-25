@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Integer, cast
+from sqlalchemy import Integer, cast, func
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db_session
@@ -18,6 +18,7 @@ def list_correlations(
     lane: Optional[str] = Query(None, description="Filter by correlation lane (e.g., same_entity, same_uei)"),
     window_days: Optional[int] = Query(None, ge=1, description="Filter by window_days"),
     min_score: Optional[int] = Query(None, ge=0, description="Minimum numeric score (best-effort; score stored as text)"),
+    min_event_count: Optional[int] = Query(None, ge=0, description="Minimum linked events (correlation_links; respects source filter)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db_session),
@@ -33,7 +34,24 @@ def list_correlations(
     if min_score is not None:
         q = q.filter(cast(Correlation.score, Integer) >= int(min_score))
 
-    if source:
+    if min_event_count is not None:
+        mec = int(min_event_count)
+        if source:
+            corr_ids = (
+                db.query(CorrelationLink.correlation_id)
+                .join(Event, Event.id == CorrelationLink.event_id)
+                .filter(Event.source == source)
+                .group_by(CorrelationLink.correlation_id)
+                .having(func.count(CorrelationLink.id) >= mec)
+            )
+        else:
+            corr_ids = (
+                db.query(CorrelationLink.correlation_id)
+                .group_by(CorrelationLink.correlation_id)
+                .having(func.count(CorrelationLink.id) >= mec)
+            )
+        q = q.filter(Correlation.id.in_(corr_ids))
+    elif source:
         corr_ids = (
             db.query(CorrelationLink.correlation_id)
             .join(Event, Event.id == CorrelationLink.event_id)
@@ -41,7 +59,6 @@ def list_correlations(
             .distinct()
         )
         q = q.filter(Correlation.id.in_(corr_ids))
-
     total = q.count()
     rows = q.order_by(Correlation.id.desc()).offset(int(offset)).limit(int(limit)).all()
 
