@@ -34,7 +34,7 @@ def list_correlations(
     if min_score is not None:
         q = q.filter(cast(Correlation.score, Integer) >= int(min_score))
 
-    if min_event_count is not None:
+    if min_event_count is not None and int(min_event_count) > 0:
         mec = int(min_event_count)
         if source:
             corr_ids = (
