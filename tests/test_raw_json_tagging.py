@@ -21,7 +21,7 @@ def test_raw_json_field_is_tagged(tmp_path):
             place_text="",
             doc_id="doc1",
             source_url="http://example.com",
-            raw_json={"note": "ultra_secret_widget"},
+            raw_json={"note": ("x" * 70000) + "ultra_secret_widget"},
             keywords=[],
             clauses=[],
         )
