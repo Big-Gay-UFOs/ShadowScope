@@ -18,21 +18,51 @@ def _clean_id(value: str) -> str:
 
 
 def _extract_usaspending_identity(raw_json: Any) -> Dict[str, Optional[str]]:
+    """
+    Extract recipient identity fields from a USAspending normalized raw_json payload.
+    """
     if not isinstance(raw_json, dict):
-        return {"name": None, "uei": None, "duns": None, "recipient_id": None}
+        return {"name": None, "uei": None, "duns": None, "cage": None, "recipient_id": None}
 
-    name = raw_json.get("Recipient Name") or raw_json.get("recipient_name") or raw_json.get("recipient")
-    uei = raw_json.get("Recipient UEI") or raw_json.get("recipient_uei") or raw_json.get("uei")
-    duns = raw_json.get("Recipient DUNS Number") or raw_json.get("recipient_duns") or raw_json.get("duns")
+    name = (
+        raw_json.get("Recipient Name")
+        or raw_json.get("recipient_name")
+        or raw_json.get("recipient")
+    )
+
+    uei = (
+        raw_json.get("Recipient UEI")
+        or raw_json.get("recipient_uei")
+        or raw_json.get("uei")
+    )
+
+    duns = (
+        raw_json.get("Recipient DUNS Number")
+        or raw_json.get("recipient_duns")
+        or raw_json.get("duns")
+    )
+
+    cage = (
+        raw_json.get("Recipient CAGE Code")
+        or raw_json.get("Recipient CAGE")
+        or raw_json.get("recipient_cage")
+        or raw_json.get("cage_code")
+        or raw_json.get("cage")
+        or raw_json.get("CAGE")
+    )
+
     recipient_id = raw_json.get("recipient_id") or raw_json.get("prime_award_recipient_id")
 
-    out: Dict[str, Optional[str]] = {"name": None, "uei": None, "duns": None, "recipient_id": None}
+    out: Dict[str, Optional[str]] = {"name": None, "uei": None, "duns": None, "cage": None, "recipient_id": None}
+
     if isinstance(name, str) and name.strip():
         out["name"] = _clean_text(name)
     if isinstance(uei, str) and uei.strip():
         out["uei"] = _clean_id(uei)
     if isinstance(duns, str) and duns.strip():
         out["duns"] = _clean_id(duns)
+    if isinstance(cage, str) and cage.strip():
+        out["cage"] = _clean_id(cage)
     if isinstance(recipient_id, str) and recipient_id.strip():
         out["recipient_id"] = _clean_text(recipient_id)
 
@@ -44,6 +74,7 @@ def _get_or_create_entity(
     *,
     name: str,
     uei: Optional[str] = None,
+    cage: Optional[str] = None,
     meta: Optional[Dict[str, str]] = None,
 ) -> Tuple[Entity, bool]:
     ent: Optional[Entity] = None
@@ -52,6 +83,10 @@ def _get_or_create_entity(
     if uei:
         ent = db.query(Entity).filter(Entity.uei == uei).order_by(Entity.id.asc()).first()
 
+    # Then CAGE match (strong stable identifier)
+    if ent is None and cage:
+        ent = db.query(Entity).filter(Entity.cage == cage).order_by(Entity.id.asc()).first()
+
     # Fall back to case-insensitive name match
     if ent is None:
         key = name.lower()
@@ -59,21 +94,21 @@ def _get_or_create_entity(
 
     if ent is not None:
         changed = False
-
         if uei and not ent.uei:
             ent.uei = uei
+            changed = True
+        if cage and not ent.cage:
+            ent.cage = cage
             changed = True
 
         if meta:
             cur_sites = ent.sites_json if isinstance(ent.sites_json, dict) else {}
             merged_sites = dict(cur_sites)
             sites_changed = False
-
             for k, v in meta.items():
                 if v and not merged_sites.get(k):
                     merged_sites[k] = v
                     sites_changed = True
-
             if sites_changed:
                 # IMPORTANT: reassign so SQLAlchemy reliably persists JSON updates
                 ent.sites_json = merged_sites
@@ -81,10 +116,9 @@ def _get_or_create_entity(
 
         if changed:
             db.flush()
-
         return ent, False
 
-    ent = Entity(name=name, uei=uei)
+    ent = Entity(name=name, uei=uei, cage=cage)
     if meta:
         ent.sites_json = dict(meta)
     db.add(ent)
@@ -104,7 +138,7 @@ def link_entities_from_events(
     Link events -> entities for a given source.
 
     - only processes events where entity_id is NULL
-    - USAspending identity priority: UEI > DUNS > recipient_id > normalized name
+    - USAspending identity priority: UEI > CAGE > DUNS > recipient_id > normalized name
     - idempotent: running again should do 0 updates once linked
     """
     since = datetime.now(timezone.utc) - timedelta(days=max(int(days), 1))
@@ -113,7 +147,7 @@ def link_entities_from_events(
 
     scanned = 0
     linked = 0
-    skipped_no_name = 0  # keep key name stable for CLI output
+    skipped_no_name = 0
     entities_created = 0
     last_id = 0
 
@@ -143,6 +177,8 @@ def link_entities_from_events(
                 if not display_name:
                     if ident["uei"]:
                         display_name = f"UEI:{ident['uei']}"
+                    elif ident["cage"]:
+                        display_name = f"CAGE:{ident['cage']}"
                     elif ident["duns"]:
                         display_name = f"DUNS:{ident['duns']}"
                     elif ident["recipient_id"]:
@@ -152,12 +188,20 @@ def link_entities_from_events(
                         continue
 
                 meta: Dict[str, str] = {}
+                if ident["cage"]:
+                    meta["cage"] = ident["cage"]
                 if ident["duns"]:
                     meta["duns"] = ident["duns"]
                 if ident["recipient_id"]:
                     meta["recipient_id"] = ident["recipient_id"]
 
-                ent, created = _get_or_create_entity(db, name=display_name, uei=ident["uei"], meta=meta or None)
+                ent, created = _get_or_create_entity(
+                    db,
+                    name=display_name,
+                    uei=ident["uei"],
+                    cage=ident["cage"],
+                    meta=meta or None,
+                )
                 if created:
                     entities_created += 1
 
