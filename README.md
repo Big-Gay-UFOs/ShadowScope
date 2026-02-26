@@ -26,6 +26,14 @@ Typical workflow:
 
 More detail: see `docs/RUNBOOK.md`.
 
+
+
+## Status
+
+- Current focus: **USAspending iteration (MVP closeout)** ? stable ingest ? tag ? correlate ? rank ? export.
+- Roadmap/checklist: see `ROADMAP.md` (this is the authoritative tracker).
+- Future: **SAM.gov** support is planned, but intentionally deferred until USAspending is solid end-to-end.
+
 ### Notes
 - PowerShell: do not paste placeholders like `<ID>`; use numeric values directly.
 - Correlations: use `--window-days` for rebuild commands (not `--days`).
