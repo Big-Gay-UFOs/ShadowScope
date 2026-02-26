@@ -1,0 +1,15 @@
+# Normalize line endings (repo-enforced)
+* text=auto
+
+# Keep common config/docs consistently LF across platforms
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+*.py   text eol=lf
+*.sh   text eol=lf
+
+# Windows command scripts should remain CRLF
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
