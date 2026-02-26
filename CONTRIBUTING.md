@@ -6,7 +6,7 @@ Never push directly to `main`. Always:
 
 1. `git checkout main`
 2. `git pull --ff-only`
-3. `git checkout -b sprint/usaspending-<topic>`
+3. `git checkout -b sprint/usaspending-your-topic`  (edit branch name as needed)
 4. Make changes locally
 5. Run checks:
    - `ruff check .`

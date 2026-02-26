@@ -26,6 +26,7 @@ export_app = typer.Typer(help="Data export routines")
 ontology_app = typer.Typer(help="Ontology utilities")
 leads_app = typer.Typer(help="Lead utilities")
 entities_app = typer.Typer(help="Entity utilities")
+doctor_app = typer.Typer(help="Operator diagnosis utilities")
 
 app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
@@ -33,6 +34,7 @@ app.add_typer(export_app, name="export")
 app.add_typer(ontology_app, name="ontology")
 app.add_typer(leads_app, name="leads")
 app.add_typer(entities_app, name="entities")
+app.add_typer(doctor_app, name="doctor")
 
 
 @app.callback()
@@ -292,6 +294,100 @@ def entities_link(
         f"scanned={res['scanned']} linked={res['linked']} skipped_no_name={res['skipped_no_name']} "
         f"entities_created={res['entities_created']}"
     )
+
+@doctor_app.command("status")
+def doctor_status_cli(
+    days: int = typer.Option(30, "--days", help="Lookback window for status checks"),
+    source: str = typer.Option("USAspending", "--source", help="Event source filter (blank for all)"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="Max recent events to scan for keyword stats"),
+    max_keywords_per_event: int = typer.Option(10, "--max-keywords-per-event", help="Heuristic threshold for pair explosion guard"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload"),
+):
+    from backend.services.doctor import doctor_status
+
+    try:
+        res = doctor_status(
+            days=days,
+            source=source if source else None,
+            scan_limit=scan_limit,
+            max_keywords_per_event=max_keywords_per_event,
+            database_url=database_url,
+        )
+    except Exception as e:
+        typer.echo(f"Doctor status failed: {e}")
+        raise typer.Exit(code=2)
+
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False))
+        return
+
+    db = res.get("db", {})
+    window = res.get("window", {})
+    counts = res.get("counts", {})
+    kw = res.get("keywords", {})
+    corr = res.get("correlations", {})
+    last = res.get("last_runs", {})
+    hints = res.get("hints", [])
+
+    typer.echo("ShadowScope Doctor Status")
+    typer.echo(f"DB: {db.get('status')} url={db.get('url')}")
+    typer.echo(f"Window: days={window.get('days')} source={window.get('source')} since={window.get('since')}")
+
+    typer.echo(
+        "Counts: "
+        f"events_total={counts.get('events_total')} events_window={counts.get('events_window')} "
+        f"events_with_entity_window={counts.get('events_with_entity_window')} entities_total={counts.get('entities_total')} "
+        f"correlations_total={counts.get('correlations_total')} lead_snapshots_total={counts.get('lead_snapshots_total')}"
+    )
+
+    lane = corr.get("by_lane") or {}
+    if lane:
+        typer.echo("Correlations by lane: " + " ".join([f"{k}={v}" for k, v in lane.items()]))
+
+    typer.echo(
+        "Keywords (sample): "
+        f"scanned={kw.get('scanned_events')} with_keywords={kw.get('events_with_keywords')} "
+        f"coverage_pct={kw.get('coverage_pct')} unique={kw.get('unique_keywords')} "
+        f"gt_{kw.get('max_keywords_per_event')}={kw.get('events_keywords_gt_max')}"
+    )
+
+    top = kw.get("top_keywords") or []
+    if top:
+        typer.echo("Top keywords (sample):")
+        for item in top[:10]:
+            typer.echo(f"- {item.get('keyword')}: {item.get('count')}")
+
+    if last.get("ingest"):
+        i = last["ingest"]
+        typer.echo(
+            "Last ingest: "
+            f"id={i.get('id')} source={i.get('source')} status={i.get('status')} "
+            f"started_at={i.get('started_at')} ended_at={i.get('ended_at')} "
+            f"fetched={i.get('fetched')} inserted={i.get('inserted')} normalized={i.get('normalized')}"
+        )
+
+    if last.get("ontology_apply"):
+        a = last["ontology_apply"]
+        typer.echo(
+            "Last ontology_apply: "
+            f"id={a.get('id')} status={a.get('status')} source={a.get('source')} days={a.get('days')} "
+            f"scanned={a.get('scanned')} updated={a.get('updated')} unchanged={a.get('unchanged')} "
+            f"ended_at={a.get('ended_at')}"
+        )
+
+    if last.get("lead_snapshot"):
+        s = last["lead_snapshot"]
+        typer.echo(
+            "Last lead snapshot: "
+            f"id={s.get('id')} source={s.get('source')} created_at={s.get('created_at')} items={s.get('items')}"
+        )
+
+    if hints:
+        typer.echo("Hints:")
+        for h in hints:
+            typer.echo(f"- {h}")
+
 
 def run() -> None:
     app()

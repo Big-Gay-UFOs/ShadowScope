@@ -37,3 +37,12 @@ Press <kbd>Ctrl</kbd> + <kbd>C</kbd> to stop the API when you are done reviewing
 - Visit `http://127.0.0.1:8000/docs` for the FastAPI interactive documentation.
 
 If the script fails, check the [troubleshooting table in README.md](../README.md#troubleshooting-quick-start).
+## Doctor / Status
+
+If something seems off (empty outputs, no correlations, no leads), run:
+
+- `ss doctor status --source USAspending --days 30`
+
+For a full payload:
+
+- `ss doctor status --source USAspending --days 30 --json`
