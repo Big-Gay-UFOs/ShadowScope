@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, cast, String
 from sqlalchemy.orm import Session
 
 from backend.db.models import Entity, Event, get_session_factory
@@ -74,6 +74,7 @@ def _get_or_create_entity(
     *,
     name: str,
     uei: Optional[str] = None,
+    duns: Optional[str] = None,
     cage: Optional[str] = None,
     meta: Optional[Dict[str, str]] = None,
 ) -> Tuple[Entity, bool]:
@@ -82,6 +83,15 @@ def _get_or_create_entity(
     # Prefer UEI match (strongest id)
     if uei:
         ent = db.query(Entity).filter(Entity.uei == uei).order_by(Entity.id.asc()).first()
+
+# Then DUNS match (common identifier in mixed payloads)
+    if ent is None and duns:
+        ent = (
+            db.query(Entity)
+            .filter(cast(Entity.sites_json, String).like(f'%"duns": "{duns}"%'))
+            .order_by(Entity.id.asc())
+            .first()
+        )
 
     # Then CAGE match (strong stable identifier)
     if ent is None and cage:
@@ -199,6 +209,7 @@ def link_entities_from_events(
                     db,
                     name=display_name,
                     uei=ident["uei"],
+                    duns=ident["duns"],
                     cage=ident["cage"],
                     meta=meta or None,
                 )
