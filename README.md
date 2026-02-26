@@ -26,6 +26,12 @@ Typical workflow:
 
 More detail: see `docs/RUNBOOK.md`.
 
+### Notes
+- PowerShell: do not paste placeholders like `<ID>`; use numeric values directly.
+- Correlations: use `--window-days` for rebuild commands (not `--days`).
+- Raw ingest snapshots: `data/raw/usaspending/YYYYMMDD/page_*.json`.
+
+
 
 ShadowScope is a **batch investigative OSINT pipeline** for surfacing “support footprints” of sensitive programs inside **public procurement data** (starting with USAspending; SAM.gov planned).
 
