@@ -90,8 +90,8 @@ Checks:
 
 ## Dev workflow
 - Do not push directly to `origin/main`.
-- Always use: feature branch ? PR ? squash merge.
-- This repo uses a local pre-push guard to block `git push origin main`.
+- Always use: feature branch -> PR -> squash merge.
+- Optional: install a local pre-push hook to reduce accidental pushes to `origin/main` (not enforced by the repo).
 
 ## PowerShell notes
 - Do not paste placeholders like `<ID>` or `<SNAPSHOT_ID>` into PowerShell; `<` and `>` are treated as operators.
@@ -101,4 +101,10 @@ Checks:
   - `ss correlate rebuild-keyword-pairs --window-days 30 ...`
 - USAspending raw snapshots are written as:
   - `data/raw/usaspending/YYYYMMDD/page_*.json` (not `.jsonl`).
+
+### Optional local pre-push hook
+Git hooks are not versioned by default. If you want a local guardrail on your machine:
+
+- Create `.git/hooks/pre-push` that rejects pushes to `origin/main`.
+- Keep it local (do not commit it).
 
