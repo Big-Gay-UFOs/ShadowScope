@@ -117,3 +117,111 @@ def export_correlations(
         return {"status": "ok", "out_path": out_path, "count": len(items)}
     finally:
         db.close()
+def export_kw_pairs(
+    *,
+    database_url: str | None = None,
+    output: Path | None = None,
+    limit: int = 200,
+    min_event_count: int = 2,
+) -> dict:
+    """
+    Export kw_pair correlations to CSV + JSON.
+
+    event_count is taken from lanes_hit["kw_pair"]["event_count"] when present,
+    otherwise falls back to int(score) when score is numeric.
+    """
+    from datetime import datetime, timezone
+    import csv
+    import json
+    from sqlalchemy import select
+
+    from backend.db.models import Correlation, get_session_factory
+    from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
+
+    ensure_runtime_directories()
+    SessionFactory = get_session_factory(database_url)
+
+    with SessionFactory() as db:
+        rows = db.execute(select(Correlation).order_by(Correlation.id.desc())).scalars().all()
+
+    items: list[dict] = []
+    for c in rows:
+        lh = c.lanes_hit or {}
+        kw = lh.get("kw_pair")
+        if not isinstance(kw, dict):
+            continue
+
+        k1 = kw.get("keyword_1") or kw.get("k1")
+        k2 = kw.get("keyword_2") or kw.get("k2")
+        if not k1 or not k2:
+            ck = c.correlation_key or ""
+            parts = ck.split("|")
+            if len(parts) >= 3 and parts[0] == "kw_pair":
+                k1, k2 = parts[1], parts[2]
+
+        ec = kw.get("event_count")
+        if ec is None:
+            try:
+                ec = int(c.score) if c.score is not None else 0
+            except Exception:
+                ec = 0
+
+        try:
+            ec_i = int(ec)
+        except Exception:
+            ec_i = 0
+
+        if ec_i < int(min_event_count):
+            continue
+
+        items.append(
+            {
+                "correlation_id": int(c.id),
+                "correlation_key": c.correlation_key,
+                "keyword_1": k1,
+                "keyword_2": k2,
+                "event_count": ec_i,
+                "window_days": c.window_days,
+                "score": c.score,
+            }
+        )
+
+    items.sort(key=lambda x: (x["event_count"], x["correlation_id"]), reverse=True)
+    items = items[: int(limit)]
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    base = "kw_pairs_" + ts
+    export_dir = EXPORTS_DIR
+
+    if output:
+        output = output.expanduser()
+        if output.suffix:
+            export_dir = output.parent if output.parent else Path(".")
+            export_dir.mkdir(parents=True, exist_ok=True)
+            base = output.stem or base
+        else:
+            export_dir = output
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = export_dir / (base + ".csv")
+    json_path = export_dir / (base + ".json")
+
+    if items:
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(items[0].keys()))
+            w.writeheader()
+            w.writerows(items)
+    else:
+        csv_path.write_text("", encoding="utf-8")
+
+    payload = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "limit": int(limit),
+        "min_event_count": int(min_event_count),
+        "count": len(items),
+        "items": items,
+    }
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {"csv": csv_path, "json": json_path, "count": len(items)}
+

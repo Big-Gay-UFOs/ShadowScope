@@ -15,6 +15,7 @@ from backend.db.ops import reset_schema, stamp_head, sync_database
 from backend.logging_config import configure_logging
 from backend.runtime import ensure_runtime_directories
 from backend.services.export import export_events
+from backend.services.export_correlations import export_kw_pairs
 from backend.services.export_leads import export_lead_snapshot, export_lead_deltas
 from backend.services.ingest import ingest_sam_opportunities, ingest_usaspending
 
@@ -149,6 +150,19 @@ def export_lead_deltas_cli(
     typer.echo(f"Lead deltas CSV: {results['csv'].resolve()}")
     typer.echo(f"Lead deltas JSON: {results['json'].resolve()}")
     typer.echo(f"Rows exported: {results['count']}")
+
+@export_app.command("kw-pairs")
+def export_kw_pairs_cli(
+    out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
+    limit: int = typer.Option(200, "--limit", help="Max pairs to export"),
+    min_event_count: int = typer.Option(2, "--min-event-count", help="Minimum event_count for a pair"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    export_path = Path(out).expanduser() if out else None
+    res = export_kw_pairs(database_url=database_url, output=export_path, limit=int(limit), min_event_count=int(min_event_count))
+    typer.echo(f"KW pairs CSV: {res['csv'].resolve()}")
+    typer.echo(f"KW pairs JSON: {res['json'].resolve()}")
+    typer.echo(f"Rows exported: {res['count']}")
 
 @ontology_app.command("validate")
 def ontology_validate(path: Path = typer.Option(Path("ontology.json"), "--path", "-p", help="Path to ontology.json")):
