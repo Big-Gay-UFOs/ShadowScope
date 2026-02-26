@@ -13,8 +13,20 @@ def test_export_kw_pairs_writes_files(tmp_path):
 
     with SessionFactory() as db:
         db.add_all([
-            Correlation(correlation_key="kw_pair|a|b", score="3", window_days=30, radius_km=0.0, lanes_hit={"kw_pair": {"keyword_1": "a", "keyword_2": "b", "event_count": 3}}),
-            Correlation(correlation_key="kw_pair|c|d", score="1", window_days=30, radius_km=0.0, lanes_hit={"kw_pair": {"keyword_1": "c", "keyword_2": "d", "event_count": 1}}),
+            Correlation(
+                correlation_key="kw_pair|*|30|pair:aaaaaaaaaaaaaaaa",
+                score="3",
+                window_days=30,
+                radius_km=0.0,
+                lanes_hit={"lane": "kw_pair", "keyword_1": "a", "keyword_2": "b", "event_count": 3},
+            ),
+            Correlation(
+                correlation_key="kw_pair|*|30|pair:bbbbbbbbbbbbbbbb",
+                score="1",
+                window_days=30,
+                radius_km=0.0,
+                lanes_hit={"lane": "kw_pair", "keyword_1": "c", "keyword_2": "d", "event_count": 1},
+            ),
         ])
         db.commit()
 
