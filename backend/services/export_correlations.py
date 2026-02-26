@@ -147,7 +147,16 @@ def export_kw_pairs(
     items: list[dict] = []
     for c in rows:
         lh = c.lanes_hit or {}
-        kw = lh.get("kw_pair")
+        kw = None
+        if isinstance(lh, dict):
+            # Current schema: lanes_hit is a flat dict with lane == 'kw_pair'
+            if lh.get('lane') == 'kw_pair':
+                kw = lh
+            else:
+                # Back-compat: some legacy shapes may nest by lane name
+                maybe = lh.get('kw_pair')
+                if isinstance(maybe, dict):
+                    kw = maybe
         if not isinstance(kw, dict):
             continue
 
