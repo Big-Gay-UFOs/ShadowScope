@@ -87,3 +87,18 @@ Symptoms:
 Checks:
 - inspect `events.raw_json` for `Recipient Name`, `Recipient UEI`, `Recipient DUNS Number`, `Recipient CAGE Code`
 - confirm ingest is using the USAspending connector fields list
+
+## Dev workflow
+- Do not push directly to `origin/main`.
+- Always use: feature branch ? PR ? squash merge.
+- This repo uses a local pre-push guard to block `git push origin main`.
+
+## PowerShell notes
+- Do not paste placeholders like `<ID>` or `<SNAPSHOT_ID>` into PowerShell; `<` and `>` are treated as operators.
+  - Use the numeric value directly (example: `--snapshot-id 2`).
+- Correlation commands use `--window-days` (not `--days`):
+  - `ss correlate rebuild --window-days 30 ...`
+  - `ss correlate rebuild-keyword-pairs --window-days 30 ...`
+- USAspending raw snapshots are written as:
+  - `data/raw/usaspending/YYYYMMDD/page_*.json` (not `.jsonl`).
+
