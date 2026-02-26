@@ -1,4 +1,4 @@
-"""Export utilities for lead snapshots and deltas."""
+"""Export utilities for lead snapshots and lead deltas."""
 from __future__ import annotations
 
 import csv
@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from backend.db.models import Event, LeadSnapshot, LeadSnapshotItem, get_session_factory
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
+from backend.services.deltas import compute_lead_deltas
 
 
 def export_lead_snapshot(
@@ -103,17 +104,21 @@ def export_lead_snapshot(
 
     _write_csv(csv_path, rows_out)
 
+    max_items = getattr(snap, "max_items", None)
+    if max_items is None:
+        max_items = getattr(snap, "limit", 0)
+
     payload = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "snapshot": {
             "id": int(snapshot_id),
-            "created_at": snap.created_at.isoformat() if snap.created_at else None,  # type: ignore[union-attr]
-            "analysis_run_id": getattr(snap, "analysis_run_id", None),  # type: ignore[union-attr]
-            "source": getattr(snap, "source", None),  # type: ignore[union-attr]
-            "min_score": int(getattr(snap, "min_score", 0)),  # type: ignore[union-attr]
-            "max_items": int(getattr(snap, "limit", 0)),  # type: ignore[union-attr]
-            "scoring_version": getattr(snap, "scoring_version", None),  # type: ignore[union-attr]
-            "notes": getattr(snap, "notes", None),  # type: ignore[union-attr]
+            "created_at": snap.created_at.isoformat() if snap.created_at else None,
+            "analysis_run_id": getattr(snap, "analysis_run_id", None),
+            "source": getattr(snap, "source", None),
+            "min_score": int(getattr(snap, "min_score", 0)),
+            "max_items": int(max_items or 0),
+            "scoring_version": getattr(snap, "scoring_version", None),
+            "notes": getattr(snap, "notes", None),
         },
         "count": len(rows_out),
         "items": rows_out,
@@ -121,6 +126,139 @@ def export_lead_snapshot(
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return {"csv": csv_path, "json": json_path, "count": len(rows_out), "snapshot_id": int(snapshot_id)}
+
+
+def export_lead_deltas(
+    *,
+    from_snapshot_id: int,
+    to_snapshot_id: int,
+    database_url: Optional[str] = None,
+    output: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """
+    Export lead deltas between two snapshots to CSV + JSON.
+
+    CSV: one row per change/new/removed with flattened columns for easy analysis.
+    JSON: full structured payload from compute_lead_deltas plus exported_at and file metadata.
+    """
+    ensure_runtime_directories()
+    deltas = compute_lead_deltas(
+        from_snapshot_id=int(from_snapshot_id),
+        to_snapshot_id=int(to_snapshot_id),
+        database_url=database_url,
+    )
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    base_name = f"lead_deltas_{int(from_snapshot_id)}_{int(to_snapshot_id)}_{ts}"
+    export_dir = EXPORTS_DIR
+
+    if output:
+        output = output.expanduser()
+        if output.suffix:
+            export_dir = output.parent if output.parent else Path(".")
+            export_dir.mkdir(parents=True, exist_ok=True)
+            base_name = output.stem or base_name
+        else:
+            export_dir = output
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = export_dir / f"{base_name}.csv"
+    json_path = export_dir / f"{base_name}.json"
+
+    def _event_cols(ev: Optional[dict]) -> dict:
+        if not ev:
+            return {
+                "source": None,
+                "doc_id": None,
+                "source_url": None,
+                "occurred_at": None,
+                "created_at": None,
+                "snippet": None,
+                "place_text": None,
+            }
+        return {
+            "source": ev.get("source"),
+            "doc_id": ev.get("doc_id"),
+            "source_url": ev.get("source_url"),
+            "occurred_at": ev.get("occurred_at"),
+            "created_at": ev.get("created_at"),
+            "snippet": ev.get("snippet"),
+            "place_text": ev.get("place_text"),
+        }
+
+    rows = []
+
+    for it in deltas.get("new", []):
+        ev = it.get("event")
+        rows.append(
+            {
+                "change_type": "new",
+                "event_hash": it.get("event_hash"),
+                "event_id": it.get("event_id"),
+                "from_rank": None,
+                "from_score": None,
+                "to_rank": it.get("rank"),
+                "to_score": it.get("score"),
+                "delta_rank": None,
+                "delta_score": None,
+                "from_score_details_json": None,
+                "to_score_details_json": json.dumps(it.get("score_details") or {}, ensure_ascii=False),
+                **_event_cols(ev),
+            }
+        )
+
+    for it in deltas.get("removed", []):
+        ev = it.get("event")
+        rows.append(
+            {
+                "change_type": "removed",
+                "event_hash": it.get("event_hash"),
+                "event_id": it.get("event_id"),
+                "from_rank": it.get("rank"),
+                "from_score": it.get("score"),
+                "to_rank": None,
+                "to_score": None,
+                "delta_rank": None,
+                "delta_score": None,
+                "from_score_details_json": json.dumps(it.get("score_details") or {}, ensure_ascii=False),
+                "to_score_details_json": None,
+                **_event_cols(ev),
+            }
+        )
+
+    for it in deltas.get("changed", []):
+        ev = it.get("event")
+        frm = it.get("from") or {}
+        to = it.get("to") or {}
+        d = it.get("delta") or {}
+        rows.append(
+            {
+                "change_type": "changed",
+                "event_hash": it.get("event_hash"),
+                "event_id": it.get("event_id"),
+                "from_rank": (frm.get("rank")),
+                "from_score": (frm.get("score")),
+                "to_rank": (to.get("rank")),
+                "to_score": (to.get("score")),
+                "delta_rank": d.get("rank"),
+                "delta_score": d.get("score"),
+                "from_score_details_json": json.dumps(frm.get("score_details") or {}, ensure_ascii=False),
+                "to_score_details_json": json.dumps(to.get("score_details") or {}, ensure_ascii=False),
+                **_event_cols(ev),
+            }
+        )
+
+    _write_csv(csv_path, rows)
+
+    payload = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "from_snapshot_id": int(from_snapshot_id),
+        "to_snapshot_id": int(to_snapshot_id),
+        **deltas,
+    }
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {"csv": csv_path, "json": json_path, "count": len(rows), "from_snapshot_id": int(from_snapshot_id), "to_snapshot_id": int(to_snapshot_id)}
 
 
 def _write_csv(path: Path, rows):
@@ -134,4 +272,4 @@ def _write_csv(path: Path, rows):
         w.writerows(rows)
 
 
-__all__ = ["export_lead_snapshot"]
+__all__ = ["export_lead_snapshot", "export_lead_deltas"]

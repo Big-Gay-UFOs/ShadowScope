@@ -15,7 +15,7 @@ from backend.db.ops import reset_schema, stamp_head, sync_database
 from backend.logging_config import configure_logging
 from backend.runtime import ensure_runtime_directories
 from backend.services.export import export_events
-from backend.services.export_leads import export_lead_snapshot
+from backend.services.export_leads import export_lead_snapshot, export_lead_deltas
 from backend.services.ingest import ingest_sam_opportunities, ingest_usaspending
 
 app = typer.Typer(help="ShadowScope control plane")
@@ -135,6 +135,19 @@ def export_lead_snapshot_cli(
     results = export_lead_snapshot(snapshot_id=int(snapshot_id), database_url=database_url, output=export_path)
     typer.echo(f"Lead snapshot CSV: {results['csv'].resolve()}")
     typer.echo(f"Lead snapshot JSON: {results['json'].resolve()}")
+    typer.echo(f"Rows exported: {results['count']}")
+
+@export_app.command("lead-deltas")
+def export_lead_deltas_cli(
+    from_snapshot_id: int = typer.Option(..., "--from", "--from-snapshot-id", help="From lead snapshot ID"),
+    to_snapshot_id: int = typer.Option(..., "--to", "--to-snapshot-id", help="To lead snapshot ID"),
+    out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    export_path = Path(out).expanduser() if out else None
+    results = export_lead_deltas(from_snapshot_id=int(from_snapshot_id), to_snapshot_id=int(to_snapshot_id), database_url=database_url, output=export_path)
+    typer.echo(f"Lead deltas CSV: {results['csv'].resolve()}")
+    typer.echo(f"Lead deltas JSON: {results['json'].resolve()}")
     typer.echo(f"Rows exported: {results['count']}")
 
 @ontology_app.command("validate")
