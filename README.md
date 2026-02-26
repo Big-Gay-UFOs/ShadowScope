@@ -1,5 +1,32 @@
 # ShadowScope
 
+
+## Quickstart
+
+Typical workflow:
+
+1) Ingest a bounded slice of USAspending data
+- `ss ingest usaspending --days 30 --pages 2 --page-size 100 --keyword "DOE" --keyword "NNSA"`
+
+2) Apply ontology tagging
+- `ss ontology apply --path .\ontology.foia.json --days 30 --source USAspending`
+
+3) Rebuild correlations (including keyword pairs)
+- `ss correlate rebuild --window-days 30 --source USAspending --min-events 2`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 500 --max-keywords-per-event 50`
+
+4) Link entities
+- `ss entities link --source USAspending --days 30`
+
+5) Create a lead snapshot and export artifacts
+- `ss leads snapshot --source USAspending --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "snapshot"`
+- `ss export lead-snapshot --snapshot-id <ID> --out .\data\exports\`
+- `ss export lead-deltas --from <ID1> --to <ID2> --out .\data\exports\`
+- `ss export kw-pairs --min-event-count 2 --limit 200 --out .\data\exports\`
+
+More detail: see `docs/RUNBOOK.md`.
+
+
 ShadowScope is a **batch investigative OSINT pipeline** for surfacing “support footprints” of sensitive programs inside **public procurement data** (starting with USAspending; SAM.gov planned).
 
 It is designed for repeatable investigator runs:
