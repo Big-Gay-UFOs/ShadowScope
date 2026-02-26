@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.analysis.scoring import score_from_keywords_clauses, score_from_keywords_clauses_v2

@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.db.models import Correlation, CorrelationLink, Entity, Event, get_session_factory
+from typing import List
 
 
 def not_implemented() -> None:

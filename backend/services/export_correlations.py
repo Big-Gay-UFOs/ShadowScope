@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from backend.db.models import Correlation, CorrelationLink, Entity, Event, get_session_factory
+from pathlib import Path
 
 
 def export_correlations(
