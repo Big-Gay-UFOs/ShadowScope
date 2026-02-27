@@ -107,4 +107,20 @@ Git hooks are not versioned by default. If you want a local guardrail on your ma
 
 - Create `.git/hooks/pre-push` that rejects pushes to `origin/main`.
 - Keep it local (do not commit it).
+## Doctor / Status
 
+Use this when the pipeline "looks empty" (no events, no keywords, no kw-pairs, no entities, etc.) or when you want a fast sanity check.
+
+Examples:
+
+- `ss doctor status --source USAspending --days 30`
+- `ss doctor status --source USAspending --days 30 --json`
+
+What it reports:
+
+- DB connectivity (safe URL)
+- Counts: events, entities, correlations, lead snapshots
+- Correlations by lane (kw_pair, same_keyword, same_uei, same_entity)
+- Keyword coverage on a recent sample window + top keywords
+- Last ingest / ontology apply / lead snapshot metadata (when present)
+- Actionable hints (common failure causes + next commands to run)
