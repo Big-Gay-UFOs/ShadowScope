@@ -1,0 +1,296 @@
+﻿"""SAM.gov Get Opportunities Public API connector for ShadowScope."""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import random
+import time
+from datetime import date, datetime
+from typing import Any, Dict, Iterable, List, Optional
+
+import requests
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+BASE_URL = "https://api.sam.gov/opportunities/v2/search"
+MAX_LIMIT = 1000
+SOURCE_NAME = "SAM.gov"
+
+
+class SamGovError(RuntimeError):
+    """Base error for SAM.gov connector failures."""
+
+
+class SamGovAuthError(SamGovError):
+    """Raised when the API key is missing/invalid/unauthorized."""
+
+
+class OpportunityFilter(BaseModel):
+    """Input parameters for the SAM.gov Get Opportunities v2 search endpoint."""
+
+    posted_from: date
+    posted_to: date
+    limit: int = Field(default=100, ge=1, le=MAX_LIMIT)
+    offset: int = Field(default=0, ge=0)
+    title: Optional[str] = None
+
+
+def _format_mmddyyyy(d: date) -> str:
+    return d.strftime("%m/%d/%Y")
+
+
+def _clean_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return str(value)
+    v = value.strip()
+    if not v or v.lower() == "null":
+        return None
+    return v
+
+
+def _get_with_retries(
+    session: requests.Session,
+    url: str,
+    params: Dict[str, Any],
+    timeout: int = 60,
+    max_retries: int = 8,
+    backoff_base: float = 0.75,
+) -> requests.Response:
+    for attempt in range(max_retries + 1):
+        try:
+            resp = session.get(url, params=params, timeout=timeout)
+
+            # Retry on common transient statuses
+            if resp.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(f"HTTP {resp.status_code}", response=resp)
+
+            return resp
+
+        except requests.RequestException as exc:
+            if attempt >= max_retries:
+                raise
+            sleep_s = min(60.0, backoff_base * (2**attempt)) + random.random()
+            logger.warning(
+                "SAM.gov request failed (%s). Retry %d/%d in %.1fs",
+                type(exc).__name__,
+                attempt + 1,
+                max_retries,
+                sleep_s,
+            )
+            time.sleep(sleep_s)
+
+    raise SamGovError("Unexpected retry loop termination")
+
+
+def fetch_opportunities_page(
+    session: requests.Session,
+    filters: OpportunityFilter,
+    api_key: str,
+    timeout: int = 60,
+) -> Dict[str, Any]:
+    """Fetch a single page of opportunities."""
+
+    params: Dict[str, Any] = {
+        "api_key": api_key,
+        "postedFrom": _format_mmddyyyy(filters.posted_from),
+        "postedTo": _format_mmddyyyy(filters.posted_to),
+        "limit": int(filters.limit),
+        "offset": int(filters.offset),
+    }
+    if filters.title:
+        params["title"] = filters.title
+
+    resp = _get_with_retries(session, BASE_URL, params=params, timeout=timeout)
+    text = resp.text or ""
+
+    # SAM docs describe 404 as "No Data found"
+    if resp.status_code == 404:
+        return {
+            "totalRecords": 0,
+            "limit": int(filters.limit),
+            "offset": int(filters.offset),
+            "opportunitiesData": [],
+        }
+
+    lower = text.lower()
+    if resp.status_code in (401, 403) or ("invalid api_key" in lower) or ("no api_key" in lower):
+        raise SamGovAuthError("SAM.gov API key is missing/invalid/unauthorized (check SAM_API_KEY).")
+
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError:
+        logger.error("SAM.gov error %s: %s", resp.status_code, text[:2000])
+        raise
+
+    try:
+        payload = resp.json()
+    except ValueError as exc:
+        logger.error("SAM.gov response was not JSON: %s", text[:2000])
+        raise SamGovError("SAM.gov returned a non-JSON response") from exc
+
+    # Sometimes upstreams return an error blob even with 200s
+    if isinstance(payload, dict) and payload.get("error"):
+        msg = str(payload.get("error"))
+        if "invalid api_key" in msg.lower() or "no api_key" in msg.lower():
+            raise SamGovAuthError("SAM.gov API key is missing/invalid/unauthorized (check SAM_API_KEY).")
+        raise SamGovError(msg)
+
+    return payload
+
+
+def _parse_posted_date(value: Optional[str]) -> Optional[datetime]:
+    v = _clean_str(value)
+    if not v:
+        return None
+
+    # Common formats seen in docs + real-world responses
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
+        try:
+            return datetime.strptime(v, fmt)
+        except ValueError:
+            continue
+
+    # ISO-ish fallback (handle Z)
+    try:
+        return datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except ValueError:
+        logger.debug("Unable to parse SAM.gov postedDate: %s", v)
+        return None
+
+
+def _render_location(obj: Any) -> Optional[str]:
+    if not isinstance(obj, dict) or not obj:
+        return None
+
+    street1 = _clean_str(obj.get("streetAddress"))
+    street2 = _clean_str(obj.get("streetAddress2"))
+    city = obj.get("city")
+    city_name = _clean_str(city.get("name")) if isinstance(city, dict) else _clean_str(city)
+
+    state = obj.get("state")
+    state_code = None
+    if isinstance(state, dict):
+        state_code = _clean_str(state.get("code") or state.get("name"))
+    else:
+        state_code = _clean_str(state)
+
+    zip_code = _clean_str(obj.get("zip") or obj.get("zipcode") or obj.get("postalCode"))
+
+    country = obj.get("country")
+    if country is None:
+        country = obj.get("countryCode") or obj.get("country_code") or obj.get("countrycode")
+    country_code = None
+    if isinstance(country, dict):
+        country_code = _clean_str(country.get("code") or country.get("name"))
+    else:
+        country_code = _clean_str(country)
+
+    parts: List[str] = []
+    if street1:
+        parts.append(street1)
+    if street2:
+        parts.append(street2)
+
+    locality: List[str] = []
+    if city_name:
+        locality.append(city_name)
+    if state_code:
+        locality.append(state_code)
+
+    if zip_code:
+        if locality:
+            locality[-1] = f"{locality[-1]} {zip_code}".strip()
+        else:
+            locality.append(zip_code)
+
+    if locality:
+        parts.append(", ".join(locality))
+
+    if country_code and country_code.upper() != "USA":
+        parts.append(country_code)
+
+    return ", ".join([p for p in parts if p])
+
+
+def _normalize_source_url(notice_id: Optional[str], ui_link: Optional[str]) -> Optional[str]:
+    ui = _clean_str(ui_link)
+    if ui:
+        # Old examples use beta.sam.gov; normalize to sam.gov for stability
+        return ui.replace("beta.sam.gov", "sam.gov")
+    if notice_id:
+        return f"https://sam.gov/opp/{notice_id}/view"
+    return None
+
+
+def normalize_opportunities(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Normalize raw SAM.gov opportunities into event dictionaries."""
+    events: List[Dict[str, Any]] = []
+
+    for record in records:
+        notice_id = _clean_str(record.get("noticeId") or record.get("noticeid") or record.get("notice_id"))
+        doc_id = notice_id
+
+        if notice_id:
+            unique_key = f"{SOURCE_NAME}:{notice_id}"
+        else:
+            unique_key = json.dumps(record, sort_keys=True, default=str)
+
+        digest = hashlib.sha256(unique_key.encode("utf-8")).hexdigest()
+
+        occurred_at = _parse_posted_date(_clean_str(record.get("postedDate") or record.get("posted_date")))
+        snippet = _clean_str(record.get("title"))
+
+        pop_text = _render_location(record.get("placeOfPerformance"))
+        if not pop_text:
+            pop_text = _render_location(record.get("officeAddress"))
+
+        source_url = _normalize_source_url(notice_id, _clean_str(record.get("uiLink")))
+
+        # Preserve full payload, but copy awardee identifiers into canonical keys if present
+        raw_json: Dict[str, Any] = dict(record)
+        award = raw_json.get("award")
+        if isinstance(award, dict):
+            awardee = award.get("awardee")
+            if isinstance(awardee, dict):
+                a_name = _clean_str(awardee.get("name"))
+                a_uei = _clean_str(awardee.get("ueiSAM") or awardee.get("ueiSam") or awardee.get("uei"))
+                if a_name and not raw_json.get("Recipient Name"):
+                    raw_json["Recipient Name"] = a_name
+                if a_uei and not raw_json.get("Recipient UEI"):
+                    raw_json["Recipient UEI"] = a_uei
+
+        events.append(
+            {
+                "category": "procurement",
+                "occurred_at": occurred_at,
+                "source": SOURCE_NAME,
+                "source_url": source_url,
+                "doc_id": doc_id,
+                "place_text": pop_text,
+                "snippet": snippet,
+                "raw_json": raw_json,
+                "keywords": [],
+                "clauses": [],
+                "lat": None,
+                "lon": None,
+                "hash": digest,
+            }
+        )
+
+    return events
+
+
+__all__ = [
+    "BASE_URL",
+    "MAX_LIMIT",
+    "SOURCE_NAME",
+    "OpportunityFilter",
+    "SamGovError",
+    "SamGovAuthError",
+    "fetch_opportunities_page",
+    "normalize_opportunities",
+]
