@@ -59,7 +59,8 @@ def doctor_status(
             snapshot_items_total = _count(db, select(func.count()).select_from(LeadSnapshotItem))
 
             # --- Windowed events ---
-            ev_where = [Event.created_at >= since]
+            event_ts = func.coalesce(Event.occurred_at, Event.created_at)
+            ev_where = [event_ts >= since]
             if source:
                 ev_where.append(Event.source == source)
 
@@ -82,13 +83,15 @@ def doctor_status(
                     select(func.count())
                     .select_from(Correlation)
                     .where(
+                        Correlation.window_days == window_days,
+
                         Correlation.correlation_key.isnot(None),
                         or_(*[Correlation.correlation_key.like(p) for p in patterns]),
                     ),
                 )
 
             # --- Sample recent events for keyword diagnostics ---
-            q = select(Event.id, Event.keywords, Event.entity_id).where(*ev_where).order_by(Event.created_at.desc()).limit(int(scan_limit))
+            q = select(Event.id, Event.keywords, Event.entity_id).where(*ev_where).order_by(event_ts.desc()).limit(int(scan_limit))
             rows = db.execute(q).all()
 
             scanned_events = len(rows)
