@@ -146,4 +146,3 @@ Notes:
 - Use `--skip-ingest` to run offline (no network calls).
 - The workflow runs: ingest -> ontology -> entities -> correlations -> snapshot -> exports.
 - If --out is a file path (example: .\\reports\\run.csv), the workflow generates per-artifact files (prefix + timestamp) to avoid overwriting.
- 
