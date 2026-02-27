@@ -1,4 +1,4 @@
-# ShadowScope Windows Quick Start
+﻿# ShadowScope Windows Quick Start
 
 ## Prerequisites
 
@@ -36,6 +36,20 @@ Press <kbd>Ctrl</kbd> + <kbd>C</kbd> to stop the API when you are done reviewing
 - Logs are rotated under `logs/app.log` and `logs/ingest.log`.
 - Visit `http://127.0.0.1:8000/docs` for the FastAPI interactive documentation.
 
+## Optional: SAM.gov ingestion
+
+If you have a SAM.gov API key, keep it local and set it via environment or your local `.env` (gitignored):
+
+- Current PowerShell session:
+  - `$env:SAM_API_KEY = "YOUR_SAM_API_KEY"`
+
+Then run a small bounded ingest:
+
+- `ss ingest samgov --days 3 --pages 1 --limit 25 --keyword "DOE"`
+
+Raw snapshots:
+- `data/raw/sam/YYYYMMDD/`
+
 If the script fails, check the [troubleshooting table in README.md](../README.md#troubleshooting-quick-start).
 ## Doctor / Status
 
@@ -68,3 +82,4 @@ Notes:
 - Use `--skip-ingest` to run offline (no network calls).
 - The workflow runs: ingest -> ontology -> entities -> correlations -> snapshot -> exports.
 - If --out is a file path (example: .\\reports\\run.csv), the workflow generates per-artifact files (prefix + timestamp) to avoid overwriting.
+

@@ -21,6 +21,27 @@ Example (30-day window, two pages of 100 each, keyword narrowing):
 Artifacts:
 - Raw snapshots: `data/raw/usaspending/YYYYMMDD/page_*.json`
 
+### 1b) Ingest (SAM.gov opportunities) (optional)
+Pull a bounded slice of SAM.gov opportunities (Get Opportunities v2).
+
+Prereq:
+- `SAM_API_KEY` must be set locally (do **not** commit it).
+  - For the current PowerShell session: `$env:SAM_API_KEY = "YOUR_SAM_API_KEY"`
+  - Or add to your local `.env` (gitignored): `SAM_API_KEY=YOUR_SAM_API_KEY`
+
+Examples:
+- 30-day window, one page:
+  - `ss ingest samgov --days 30 --pages 1 --page-size 100`
+- Keyword narrowing (title search; union across repeats):
+  - `ss ingest samgov --days 30 --pages 1 --page-size 100 --keyword "DOE" --keyword "NNSA"`
+
+Artifacts:
+- Raw snapshots: `data/raw/sam/YYYYMMDD/page_*.json` (or `kwN_page_*.json` when keywords are used)
+
+Notes:
+- Downstream commands should use source name: `SAM.gov`
+  - Example: `ss doctor status --source "SAM.gov" --days 30`
+
 ### 2) Ontology tagging
 Apply ontology rules to populate `events.keywords` and `events.clauses`.
 

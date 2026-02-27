@@ -111,11 +111,55 @@ def ingest_usaspending_cli(
     typer.echo(f"Raw snapshots: {Path(result['snapshot_dir']).resolve()}")
 
 
+@ingest_app.command("samgov")
 @ingest_app.command("sam")
-def ingest_sam_cli(api_key: Optional[str] = typer.Option(None, help="Override SAM_API_KEY from environment")):
-    token = api_key or os.getenv("SAM_API_KEY")
-    result = ingest_sam_opportunities(token)
-    typer.echo(f"SAM ingest status: {result['status']}")
+def ingest_samgov_cli(
+    days: int = typer.Option(7, help="Days of history to request (lookback window)"),
+    pages: int = typer.Option(1, help="Maximum API pages to request"),
+    page_size: int = typer.Option(100, "--page-size", help="Records per API page (max 1000)"),
+    max_records: Optional[int] = typer.Option(None, "--max-records", "--limit", help="Total cap across pages (and across keyword union when multiple --keyword are used)."),
+    start_page: int = typer.Option(1, "--start-page", help="Start page (resume/chunking)"),
+    keywords: Optional[List[str]] = typer.Option(None, "--keyword", help="Optional title search terms (repeat --keyword)."),
+    api_key: Optional[str] = typer.Option(None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    """Ingest SAM.gov opportunities into events (bounded window + paging).
+
+    Notes:
+      - API key is read from SAM_API_KEY unless --api-key is provided.
+      - Raw snapshots are written under data/raw/sam/YYYYMMDD/.
+    """
+    try:
+        result = ingest_sam_opportunities(
+            api_key=api_key,
+            days=days,
+            pages=pages,
+            page_size=page_size,
+            max_records=max_records,
+            start_page=start_page,
+            keywords=keywords,
+            database_url=database_url,
+        )
+    except Exception as exc:
+        typer.secho(f'SAM.gov ingest failed: {exc}', fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    status = result.get('status')
+    if status == 'skipped':
+        typer.secho(
+            'SAM.gov ingest skipped: SAM_API_KEY is not set. Set $env:SAM_API_KEY for this session or add SAM_API_KEY=... to your local .env (gitignored).',
+            fg=typer.colors.YELLOW,
+        )
+        return
+
+    run_id = result.get('run_id')
+    typer.echo(f'Run ID: {run_id}')
+    typer.echo(
+        f"Summary: source=SAM.gov run_id={run_id} fetched={result['fetched']} inserted={result['inserted']} normalized={result['normalized']}"
+    )
+    typer.echo(f"Ingested {result['fetched']} rows ({result['inserted']} inserted, {result['normalized']} normalized).")
+    typer.echo(f"Raw snapshots: {Path(result['snapshot_dir']).resolve()}")
+
 
 
 @export_app.command("events")
