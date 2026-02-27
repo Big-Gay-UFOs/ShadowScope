@@ -1,76 +1,68 @@
 # ShadowScope Roadmap
 
 <!-- ROADMAP:CURRENT_USASPENDING_BEGIN -->
-## Current focus: USAspending MVP closeout (Iteration 1)
 
-This section is the **authoritative checklist** for the current iteration (USAspending).  
-SAM.gov is planned, but intentionally **deferred** until USAspending is stable end-to-end.
+## Iteration 1: USAspending MVP closeout (current)
 
-### Definition of ?MVP done? for Iteration 1 (USAspending)
-MVP is ?done? when a non-developer can run:
-1) ingest a bounded slice of USAspending data  
-2) apply ontology tagging  
-3) rebuild correlations (including keyword-pairs)  
-4) link entities  
-5) generate a lead snapshot  
-6) export artifacts (CSV/JSON)  
-?and the outputs are understandable enough to review manually.
+Goal: make the USAspending pipeline runnable end-to-end by a non-developer, with outputs that are reviewable.
 
-### ? Completed (already on `main`)
-- [x] CLI workflow exists (`ss ingest`, `ss ontology`, `ss correlate`, `ss leads`, `ss export`).
-- [x] kw-pair correlations export to CSV+JSON (`ss export kw-pairs`).
-- [x] kw-pair exporter supports the actual `lanes_hit` shape (`lane == "kw_pair"`) and legacy nested form.
-- [x] Entity-linking supports UEI and CAGE, and stores extra identifiers in `Entity.sites_json`.
-- [x] Entity-linking adds DUNS fallback logic (prevents fragmentation when payloads vary).
-- [x] Docs: Quickstart + Runbook exist; PowerShell notes and workflow guardrails documented.
+### Definition of MVP-done (Iteration 1)
+MVP is done when a non-developer can run:
+1) ingest a bounded slice of USAspending data
+2) apply ontology tagging
+3) rebuild correlations (including keyword-pairs)
+4) link entities
+5) generate a lead snapshot
+6) export artifacts (CSV/JSON) that explain why a lead scored
 
-### ?? Next sprint backlog (MVP hardening + guardrails)
-#### 1) Repo workflow guardrails (GitHub settings)
-These are not code changes, but they are MVP-critical because they prevent accidental bypass of the intended workflow.
-- [ ] Enable branch protection on `main`:
-  - Require PRs (no direct pushes)
-  - Require CI checks to pass
-  - Block force-pushes
-  - Optional: require 1 review
-- [ ] Add a PR template (`.github/PULL_REQUEST_TEMPLATE.md`) to standardize change descriptions and testing notes.
+### Current status (2026-02-26)
+- Done: Guardrails + CI (PR template, ruff gate, full pytest in CI) - PR #58
+- Done: Operator UX (`ss doctor status` + semantics hardening) - PRs #59, #60
+- Done: Exports + explainability (why_summary + entity exports) - PR #61
 
-#### 2) CI correctness (make the CI reflect reality)
-- [ ] Update CI to run the **full** test suite (not a narrow subset).
-- [ ] Add a lightweight lint gate:
-  - Option A: `ruff` (fast lint + import sorting)
-  - Option B: `black` + `ruff` (format + lint)
-- [ ] Add a short ?CI expectations? note in the runbook (what must pass before merge).
+### Iteration 1 checklist (authoritative)
 
-#### 3) Operator UX (reduce ?hand-holding? needed)
-- [ ] Add `ss doctor` (or `ss status`) command that prints:
-  - DB connectivity
-  - event counts in the selected window
-  - keyword coverage (kw>=1, kw>=2)
-  - why kw-pairs may be zero (common causes)
-- [ ] Add a one-command workflow wrapper (optional but high value):
-  - `ss workflow foia --days N --pages P --page-size S --keyword ...`
-  - runs ingest ? ontology ? correlations ? entities ? snapshot ? exports
+#### Repo guardrails / workflow
+- [ ] Enable branch protection on `main` (manual GitHub setting; requires repo admin)
+  - [ ] Require PRs (no direct pushes)
+  - [ ] Require CI checks to pass
+  - [ ] Block force-pushes
+  - [ ] (Optional) Require 1 review
+- [x] PR template: `.github/PULL_REQUEST_TEMPLATE.md` (PR #58)
+- [x] CONTRIBUTING + line-ending guardrails: `.gitattributes`, `CONTRIBUTING.md` (PR #58)
 
-#### 4) Data quality + explainability (still Iteration 1)
-- [ ] Improve lead output explainability:
-  - include ?why this lead scored? in JSON export (top contributing correlations)
-- [ ] Add an ?analyst-friendly? export for entities:
-  - entity list (UEI/CAGE/DUNS + name)
-  - event?entity mapping export
+#### CI / quality gates
+- [x] CI runs full pytest suite (`python -m pytest`) (PR #58)
+- [x] CI runs ruff lint gate (`ruff check .`) (PR #58)
 
-### Future milestone (deferred): SAM.gov connector (Iteration 2)
+#### Operator UX
+- [x] `ss doctor status` (counts, keyword coverage, lane presence, last runs, actionable hints) (PR #59)
+- [x] Doctor window semantics aligned with correlation rebuild + lane counts scoped to `--days` (PR #60)
+- [ ] Optional: one-command workflow wrapper (ingest -> ontology -> correlate -> entities -> snapshot -> exports)
+
+#### Exports + explainability
+- [x] Lead snapshot export includes explainability fields (why_summary, score components, top kw-pair contributors) (PR #61)
+- [x] Entity exports: entity list + event->entity mapping (`ss export entities`) (PR #61)
+
+### Remaining to close Iteration 1
+- [ ] Apply branch protection settings on GitHub (if repo admin)
+- [ ] Decide on optional workflow wrapper (implement or explicitly defer)
+
+## Iteration 2: SAM.gov (deferred; NOT this sprint)
+
 Start only after Iteration 1 is stable and repeatable.
+
 - [ ] Add SAM.gov connector skeleton (`backend/connectors/samgov.py`)
-- [ ] Define normalized fields ? `Event` mapping (doc_id, occurred_at, place_text, snippet, raw_json)
+- [ ] Define normalized fields -> `Event` mapping (doc_id, occurred_at, place_text, snippet, raw_json)
 - [ ] Ingest command: `ss ingest samgov ...` (bounded window + filters)
 - [ ] Ontology coverage updates for SAM.gov-specific fields
 - [ ] Cross-source entity linking strategy (UEI-first)
-- [ ] Cross-source correlations (USAspending ? SAM.gov)
+- [ ] Cross-source correlations (`USAspending <-> SAM.gov`)
 
 <!-- ROADMAP:CURRENT_USASPENDING_END -->
 
 
-Last updated: 2026-02-24
+Last updated: 2026-02-26
 
 ## Done
 - M0 plumbing: Compose + migrations + idempotent ingest
