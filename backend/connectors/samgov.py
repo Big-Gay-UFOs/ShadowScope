@@ -181,6 +181,8 @@ def _render_location(obj: Any) -> Optional[str]:
     zip_code = _clean_str(obj.get("zip") or obj.get("zipcode") or obj.get("postalCode"))
 
     country = obj.get("country")
+    if country is None:
+        country = obj.get("countryCode") or obj.get("country_code") or obj.get("countrycode")
     country_code = None
     if isinstance(country, dict):
         country_code = _clean_str(country.get("code") or country.get("name"))
