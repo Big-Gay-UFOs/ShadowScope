@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import logging
 from datetime import date, timedelta, datetime, timezone
 from typing import Dict, Optional, List
@@ -13,7 +14,7 @@ from urllib3.util.retry import Retry
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from backend.connectors import usaspending
+from backend.connectors import usaspending, samgov
 from backend.db.models import Event, IngestRun, get_session_factory
 from backend.runtime import RAW_SOURCES, ensure_runtime_directories
 
@@ -214,13 +215,157 @@ def _upsert_events(session: Session, events):
 
     return inserted
 
-def ingest_sam_opportunities(api_key: Optional[str]) -> Dict[str, object]:
+def ingest_sam_opportunities(
+    api_key: Optional[str] = None,
+    days: int = 30,
+    pages: int = 1,
+    page_size: int = 100,
+    max_records: Optional[int] = None,
+    start_page: int = 1,
+    keywords: Optional[List[str]] = None,
+    database_url: Optional[str] = None,
+) -> Dict[str, object]:
+    """Ingest SAM.gov opportunities into the events table.
+
+    Semantics:
+      - days: lookback window for postedDate (capped to <= 365)
+      - pages: maximum pages to request (starting at start_page)
+      - page_size: max records per page (capped to <= 1000 by the upstream API)
+      - max_records: optional total cap across all pages (defaults to pages * page_size)
+      - keywords: optional title search terms. If multiple are provided, we run one query per keyword and union results.
+    """
     ensure_runtime_directories()
+
+    # Back-compat: allow callers to pass api_key positionally,
+    # but default to env var for operator ergonomics.
+    if not api_key:
+        api_key = os.getenv("SAM_API_KEY")
+
     if not api_key:
         LOGGER.info("SAM_API_KEY not provided; skipping SAM.gov ingest")
         return {"status": "skipped", "reason": "missing_api_key"}
-    LOGGER.info("SAM.gov ingest placeholder executed (API integration pending)")
-    return {"status": "placeholder"}
+
+    session = _build_retrying_session()
+
+    days = max(1, int(days))
+    days = min(days, 365)
+
+    posted_to = date.today()
+    posted_from = posted_to - timedelta(days=days)
+
+    page_size = max(1, min(int(page_size), samgov.MAX_LIMIT))
+    pages = max(1, int(pages))
+    start_page = max(1, int(start_page))
+
+    max_total = int(max_records) if max_records is not None else pages * page_size
+
+    total_fetched = 0
+    normalized_total = 0
+    inserted = 0
+
+    snapshot_dir = RAW_SOURCES["sam"] / date.today().strftime("%Y%m%d")
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+    SessionFactory = get_session_factory(database_url)
+    db = SessionFactory()
+
+    run = IngestRun(
+        source="SAM.gov",
+        status="running",
+        days=days,
+        start_page=start_page,
+        pages=pages,
+        page_size=page_size,
+        max_records=max_total,
+        snapshot_dir=str(snapshot_dir),
+    )
+    db.add(run)
+    db.commit()  # ensure run id exists
+
+    try:
+        terms: List[Optional[str]] = []
+        if keywords:
+            for k in keywords:
+                if k is None:
+                    continue
+                ks = str(k).strip()
+                if ks:
+                    terms.append(ks)
+
+        if not terms:
+            terms = [None]
+
+        for term_idx, term in enumerate(terms, start=1):
+            for page in range(start_page, start_page + pages):
+                remaining = max_total - total_fetched
+                if remaining <= 0:
+                    break
+
+                page_limit = min(page_size, remaining)
+
+                # SAM uses offset-based paging
+                offset = (page - 1) * page_size
+
+                filters = samgov.OpportunityFilter(
+                    posted_from=posted_from,
+                    posted_to=posted_to,
+                    limit=page_limit,
+                    offset=offset,
+                    title=term,
+                )
+                data = samgov.fetch_opportunities_page(session, filters, api_key=api_key)
+
+                fname = f"page_{page}.json" if not term else f"kw{term_idx}_page_{page}.json"
+                raw_path = snapshot_dir / fname
+                raw_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+                results = data.get("opportunitiesData") or []
+                if not isinstance(results, list):
+                    results = []
+
+                LOGGER.info("Fetched %d SAM.gov rows (page %d, offset %d)", len(results), page, offset)
+
+                total_fetched += len(results)
+                normalized = samgov.normalize_opportunities(results)
+                normalized_total += len(normalized)
+
+                if normalized:
+                    inserted += _upsert_events(db, normalized)
+                    db.commit()
+
+                # Short page => no more data for this query
+                if len(results) < page_limit:
+                    break
+
+            if (max_total - total_fetched) <= 0:
+                break
+
+        run.status = "success"
+        run.fetched = total_fetched
+        run.normalized = normalized_total
+        run.inserted = inserted
+        run.ended_at = datetime.now(timezone.utc)
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        run.status = "failed"
+        run.error = str(e)
+        run.ended_at = datetime.now(timezone.utc)
+        db.commit()
+        raise
+    finally:
+        db.close()
+
+    return {
+        "run_id": run.id,
+        "fetched": total_fetched,
+        "normalized": normalized_total,
+        "inserted": inserted,
+        "snapshot_dir": snapshot_dir,
+        "page_size": page_size,
+        "max_total": max_total,
+    }
 
 
 __all__ = ["ingest_usaspending", "ingest_sam_opportunities"]
