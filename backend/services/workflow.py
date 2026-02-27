@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -63,7 +64,8 @@ def run_usaspending_workflow(
     Order:
       ingest -> ontology -> entities -> correlations -> snapshot -> exports
 
-    Designed to be operator-friendly and testable (skip flags avoid network calls).
+    NOTE: If output is a file path (has a suffix), we generate per-artifact
+    file names with a shared prefix + timestamp to avoid clobbering.
     """
     res: dict[str, Any] = {"source": "USAspending"}
 
@@ -156,31 +158,64 @@ def run_usaspending_workflow(
 
     if not skip_exports:
         exports: dict[str, Any] = {}
+
         out_path = Path(output).expanduser() if output else None
+
+        out_is_file = False
+        if out_path is not None:
+            try:
+                if out_path.exists() and out_path.is_dir():
+                    out_is_file = False
+                elif out_path.suffix:
+                    out_is_file = True
+            except Exception:
+                if out_path.suffix:
+                    out_is_file = True
+
+        export_dir: Optional[Path] = None
+        base: Optional[str] = None
+        ts: Optional[str] = None
+
+        if out_is_file and out_path is not None:
+            export_dir = out_path.parent if out_path.parent else Path(".")
+            export_dir.mkdir(parents=True, exist_ok=True)
+            base = out_path.stem or "run"
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+        def _out(kind: str) -> Optional[Path]:
+            if out_path is None:
+                return None
+            if not out_is_file:
+                return out_path
+            assert export_dir is not None and base is not None and ts is not None
+            if kind == "lead_snapshot":
+                assert snapshot_id is not None
+                return export_dir / f"{base}_lead_snapshot_{int(snapshot_id)}_{ts}.csv"
+            return export_dir / f"{base}_{kind}_{ts}.csv"
 
         if snapshot_id is not None:
             exports["lead_snapshot"] = export_lead_snapshot(
                 snapshot_id=int(snapshot_id),
                 database_url=database_url,
-                output=out_path,
+                output=_out("lead_snapshot"),
             )
 
         exports["kw_pairs"] = export_kw_pairs(
             database_url=database_url,
-            output=out_path,
+            output=_out("kw_pairs"),
             limit=int(kw_pairs_limit),
             min_event_count=int(kw_pairs_min_event_count),
         )
 
         exports["entities"] = export_entities_bundle(
             database_url=database_url,
-            output=out_path,
+            output=_out("entities"),
         )
 
         if export_events_flag:
             exports["events"] = export_events(
                 database_url=database_url,
-                output=out_path,
+                output=_out("events"),
             )
 
         res["exports"] = exports

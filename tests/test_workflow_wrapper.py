@@ -5,7 +5,7 @@ from backend.db.models import Event, ensure_schema, get_session_factory
 from backend.services.workflow import run_usaspending_workflow
 
 
-def test_workflow_wrapper_runs_offline_parts(tmp_path: Path):
+def test_workflow_wrapper_file_output_does_not_clobber(tmp_path: Path):
     db_path = tmp_path / "wf.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
 
@@ -17,44 +17,21 @@ def test_workflow_wrapper_runs_offline_parts(tmp_path: Path):
     with SessionFactory() as db:
         db.add_all(
             [
-                Event(
-                    category="award",
-                    source="USAspending",
-                    hash="wf1",
-                    created_at=now,
-                    raw_json={"Recipient Name": "Acme Corp", "UEI": "UEI123"},
-                    keywords=["alpha", "beta"],
-                    clauses=[],
-                ),
-                Event(
-                    category="award",
-                    source="USAspending",
-                    hash="wf2",
-                    created_at=now,
-                    raw_json={"Recipient Name": "Acme Corp", "UEI": "UEI123"},
-                    keywords=["alpha", "beta"],
-                    clauses=[],
-                ),
-                Event(
-                    category="award",
-                    source="USAspending",
-                    hash="wf3",
-                    created_at=now,
-                    raw_json={"Recipient Name": "Other Corp", "UEI": "UEI999"},
-                    keywords=["alpha", "gamma"],
-                    clauses=[],
-                ),
+                Event(category="award", source="USAspending", hash="wf1", created_at=now, raw_json={"Recipient Name": "Acme Corp", "UEI": "UEI123"}, keywords=["alpha", "beta"], clauses=[]),
+                Event(category="award", source="USAspending", hash="wf2", created_at=now, raw_json={"Recipient Name": "Acme Corp", "UEI": "UEI123"}, keywords=["alpha", "beta"], clauses=[]),
+                Event(category="award", source="USAspending", hash="wf3", created_at=now, raw_json={"Recipient Name": "Other Corp", "UEI": "UEI999"}, keywords=["alpha", "gamma"], clauses=[]),
             ]
         )
         db.commit()
 
-    out_dir = tmp_path / "out"
+    # File-style output (suffix present) must not cause exporters to overwrite each other
+    out_file = tmp_path / "reports" / "run.csv"
+
     res = run_usaspending_workflow(
         database_url=db_url,
-        output=out_dir,
+        output=out_file,
         skip_ingest=True,
         skip_ontology=True,
-        # run the rest
         window_days=30,
         min_events_entity=2,
         min_events_keywords=2,  # make alpha+beta eligible
@@ -63,13 +40,22 @@ def test_workflow_wrapper_runs_offline_parts(tmp_path: Path):
         export_events_flag=False,
     )
 
-    assert res.get("entities_link") is not None
-    assert res.get("correlations") is not None
-    assert res.get("snapshot") is not None
-    assert res.get("exports") is not None
-
     ex = res["exports"]
-    assert Path(ex["lead_snapshot"]["csv"]).exists()
-    assert Path(ex["kw_pairs"]["csv"]).exists()
-    assert Path(ex["entities"]["entities_csv"]).exists()
+    ls_csv = Path(ex["lead_snapshot"]["csv"])
+    kw_csv = Path(ex["kw_pairs"]["csv"])
+    en_csv = Path(ex["entities"]["entities_csv"])
+    map_csv = Path(ex["entities"]["event_entities_csv"])
+
+    assert ls_csv.exists()
+    assert kw_csv.exists()
+    assert en_csv.exists()
+    assert map_csv.exists()
+
+    # Ensure distinct stems (no intra-run clobber)
+    assert len({ls_csv.name, kw_csv.name, en_csv.name}) == 3
+
+    assert ls_csv.name.startswith("run_lead_snapshot_")
+    assert kw_csv.name.startswith("run_kw_pairs_")
+    assert en_csv.name.startswith("run_entities_")
+
     assert ex["kw_pairs"]["count"] >= 1
