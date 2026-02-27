@@ -27,6 +27,7 @@ ontology_app = typer.Typer(help="Ontology utilities")
 leads_app = typer.Typer(help="Lead utilities")
 entities_app = typer.Typer(help="Entity utilities")
 doctor_app = typer.Typer(help="Operator diagnosis utilities")
+workflow_app = typer.Typer(help="One-command workflows")
 
 app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
@@ -35,6 +36,7 @@ app.add_typer(ontology_app, name="ontology")
 app.add_typer(leads_app, name="leads")
 app.add_typer(entities_app, name="entities")
 app.add_typer(doctor_app, name="doctor")
+app.add_typer(workflow_app, name="workflow")
 
 
 @app.callback()
@@ -402,6 +404,116 @@ def doctor_status_cli(
         typer.echo("Hints:")
         for h in hints:
             typer.echo(f"- {h}")
+
+
+@workflow_app.command("usaspending")
+def workflow_usaspending(
+    ingest_days: int = typer.Option(30, "--ingest-days", help="Ingest: days of history to request"),
+    pages: int = typer.Option(1, "--pages", help="Ingest: maximum API pages to request"),
+    page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 100)"),
+    max_records: Optional[int] = typer.Option(None, "--max-records", "--limit", help="Ingest: total cap across all pages"),
+    start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
+    recipient: Optional[List[str]] = typer.Option(None, "--recipient", help="Ingest: recipient search text (repeat --recipient)"),
+    keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: keyword filter (repeat --keyword)"),
+    ontology_path: Path = typer.Option(Path("ontology.json"), "--ontology", "-o", help="Ontology: path to ontology.json"),
+    ontology_days: int = typer.Option(30, "--ontology-days", help="Ontology: tag events in last N days"),
+    window_days: int = typer.Option(30, "--window-days", help="Correlations: lookback window (days)"),
+    min_events_entity: int = typer.Option(2, "--min-events-entity", help="Correlations: min events for entity/UEI lanes"),
+    min_events_keywords: int = typer.Option(3, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"),
+    max_events_keywords: int = typer.Option(200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"),
+    max_keywords_per_event: int = typer.Option(10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"),
+    entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
+    min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
+    snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot: how many recent events to scan"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    notes: Optional[str] = typer.Option(None, "--notes", help="Snapshot: optional snapshot notes"),
+    out: Optional[str] = typer.Option(None, "--out", help="Exports: output directory or base file path"),
+    export_events_flag: bool = typer.Option(False, "--export-events", help="Exports: also export events CSV/JSONL"),
+    skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (no network)"),
+    skip_ontology: bool = typer.Option(False, "--skip-ontology", help="Skip ontology apply step"),
+    skip_entities: bool = typer.Option(False, "--skip-entities", help="Skip entity linking step"),
+    skip_correlations: bool = typer.Option(False, "--skip-correlations", help="Skip correlation rebuild step"),
+    skip_snapshot: bool = typer.Option(False, "--skip-snapshot", help="Skip snapshot creation step"),
+    skip_exports: bool = typer.Option(False, "--skip-exports", help="Skip export step"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload (default=str for paths)"),
+):
+    from backend.services.workflow import run_usaspending_workflow
+
+    export_path = Path(out).expanduser() if out else None
+    res = run_usaspending_workflow(
+        ingest_days=ingest_days,
+        pages=pages,
+        page_size=page_size,
+        max_records=max_records,
+        start_page=start_page,
+        recipient_search_text=recipient,
+        keywords=keyword,
+        ontology_path=ontology_path,
+        ontology_days=ontology_days,
+        window_days=window_days,
+        min_events_entity=min_events_entity,
+        min_events_keywords=min_events_keywords,
+        max_events_keywords=max_events_keywords,
+        max_keywords_per_event=max_keywords_per_event,
+        entity_days=entity_days,
+        min_score=min_score,
+        snapshot_limit=snapshot_limit,
+        scan_limit=scan_limit,
+        scoring_version=scoring_version,
+        notes=notes,
+        output=export_path,
+        export_events_flag=export_events_flag,
+        database_url=database_url,
+        skip_ingest=skip_ingest,
+        skip_ontology=skip_ontology,
+        skip_entities=skip_entities,
+        skip_correlations=skip_correlations,
+        skip_snapshot=skip_snapshot,
+        skip_exports=skip_exports,
+    )
+
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+
+    typer.echo("Workflow complete: USAspending")
+    if res.get("ingest"):
+        ing = res["ingest"]
+        typer.echo(f"Ingest: run_id={ing.get('run_id')} fetched={ing.get('fetched')} inserted={ing.get('inserted')} normalized={ing.get('normalized')}")
+        if ing.get("snapshot_dir"):
+            typer.echo(f"Raw snapshots: {Path(ing.get('snapshot_dir')).resolve()}")
+    if res.get("ontology_apply"):
+        ont = res["ontology_apply"]
+        typer.echo(f"Ontology: analysis_run_id={ont.get('analysis_run_id')} scanned={ont.get('scanned')} updated={ont.get('updated')} unchanged={ont.get('unchanged')}")
+    if res.get("entities_link"):
+        ent = res["entities_link"]
+        typer.echo(f"Entities: scanned={ent.get('scanned')} linked={ent.get('linked')} entities_created={ent.get('entities_created')}")
+    if res.get("correlations"):
+        c = res["correlations"]
+        typer.echo("Correlations:")
+        for k in ("same_entity","same_uei","same_keyword","kw_pair"):
+            if k in c:
+                typer.echo(f"- {k}: " + " ".join([f"{kk}={vv}" for kk, vv in c[k].items() if kk in ('correlations_created','correlations_updated','correlations_deleted','links_created','eligible_pairs','eligible_keywords','eligible_entities','eligible_ueis')]))
+    if res.get("snapshot"):
+        s = res["snapshot"]
+        typer.echo(f"Snapshot: snapshot_id={s.get('snapshot_id')} items={s.get('items')} scanned={s.get('scanned')} scoring_version={s.get('scoring_version')}")
+    if res.get("exports"):
+        ex = res["exports"]
+        if ex.get("lead_snapshot"):
+            ls = ex["lead_snapshot"]
+            typer.echo(f"Export lead snapshot: csv={Path(ls['csv']).resolve()} json={Path(ls['json']).resolve()} rows={ls.get('count')}")
+        if ex.get("kw_pairs"):
+            kw = ex["kw_pairs"]
+            typer.echo(f"Export kw_pairs: csv={Path(kw['csv']).resolve()} json={Path(kw['json']).resolve()} rows={kw.get('count')}")
+        if ex.get("entities"):
+            en = ex["entities"]
+            typer.echo(f"Export entities: csv={Path(en['entities_csv']).resolve()} json={Path(en['entities_json']).resolve()}")
+            typer.echo(f"Export event->entity: csv={Path(en['event_entities_csv']).resolve()} json={Path(en['event_entities_json']).resolve()}")
+        if ex.get("events"):
+            ev = ex["events"]
+            typer.echo(f"Export events: csv={Path(ev['csv']).resolve()} jsonl={Path(ev['jsonl']).resolve()} rows={ev.get('count')}")
 
 
 def run() -> None:

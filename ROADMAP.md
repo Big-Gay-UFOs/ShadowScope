@@ -23,7 +23,7 @@ MVP is done when a non-developer can run:
 ### Iteration 1 checklist (authoritative)
 
 #### Repo guardrails / workflow
-- [ ] Enable branch protection on `main` (manual GitHub setting; requires repo admin)
+- [x] Enable branch protection on `main` (applied)
   - [ ] Require PRs (no direct pushes)
   - [ ] Require CI checks to pass
   - [ ] Block force-pushes
@@ -38,15 +38,15 @@ MVP is done when a non-developer can run:
 #### Operator UX
 - [x] `ss doctor status` (counts, keyword coverage, lane presence, last runs, actionable hints) (PR #59)
 - [x] Doctor window semantics aligned with correlation rebuild + lane counts scoped to `--days` (PR #60)
-- [ ] Optional: one-command workflow wrapper (ingest -> ontology -> correlate -> entities -> snapshot -> exports)
+- [x] Optional: one-command workflow wrapper (`ss workflow usaspending`)
 
 #### Exports + explainability
 - [x] Lead snapshot export includes explainability fields (why_summary, score components, top kw-pair contributors) (PR #61)
 - [x] Entity exports: entity list + event->entity mapping (`ss export entities`) (PR #61)
 
 ### Remaining to close Iteration 1
-- [ ] Apply branch protection settings on GitHub (if repo admin)
-- [ ] Decide on optional workflow wrapper (implement or explicitly defer)
+- [x] Apply branch protection settings on GitHub (done)
+- [x] Decide on optional workflow wrapper (implemented)
 
 ## Iteration 2: SAM.gov (deferred; NOT this sprint)
 
