@@ -295,6 +295,10 @@ def ingest_sam_opportunities(
         if not terms:
             terms = [None]
 
+        if max_records is None:
+            max_total = pages * page_size * len(terms)
+            run.max_records = max_total
+
         for term_idx, term in enumerate(terms, start=1):
             for page in range(start_page, start_page + pages):
                 remaining = max_total - total_fetched
@@ -358,6 +362,7 @@ def ingest_sam_opportunities(
         db.close()
 
     return {
+        "status": "success",
         "run_id": run.id,
         "fetched": total_fetched,
         "normalized": normalized_total,
