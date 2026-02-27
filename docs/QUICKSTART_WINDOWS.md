@@ -57,3 +57,13 @@ Generate an entity list export plus an event->entity mapping export:
 Outputs:
 - Entities CSV/JSON
 - Event->Entity mapping CSV/JSON (includes recipient identifiers when present in raw_json)
+
+## Workflow wrapper (optional)
+
+One command to run the standard USAspending pipeline end-to-end:
+
+- `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\ontology.json --window-days 30`
+
+Notes:
+- Use `--skip-ingest` to run offline (no network calls).
+- The workflow runs: ingest -> ontology -> entities -> correlations -> snapshot -> exports.
