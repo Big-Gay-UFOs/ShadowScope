@@ -46,3 +46,14 @@ If something seems off (empty outputs, no correlations, no leads), run:
 For a full payload:
 
 - `ss doctor status --source USAspending --days 30 --json`
+
+## Export: Entities
+
+Generate an entity list export plus an event->entity mapping export:
+
+- `ss export entities`
+- `ss export entities --out data/exports`
+
+Outputs:
+- Entities CSV/JSON
+- Event->Entity mapping CSV/JSON (includes recipient identifiers when present in raw_json)

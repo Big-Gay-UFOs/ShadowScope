@@ -124,3 +124,14 @@ What it reports:
 - Keyword coverage on a recent sample window + top keywords
 - Last ingest / ontology apply / lead snapshot metadata (when present)
 - Actionable hints (common failure causes + next commands to run)
+
+## Export: Entities
+
+Generate an entity list export plus an event->entity mapping export:
+
+- `ss export entities`
+- `ss export entities --out data/exports`
+
+Outputs:
+- Entities CSV/JSON
+- Event->Entity mapping CSV/JSON (includes recipient identifiers when present in raw_json)

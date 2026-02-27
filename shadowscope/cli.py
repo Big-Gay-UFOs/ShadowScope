@@ -128,6 +128,21 @@ def export_events_cli(
     typer.echo(f"Rows exported: {results['count']}")
 
 
+@export_app.command("entities")
+def export_entities_cli(
+    out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    from backend.services.export_entities import export_entities_bundle
+
+    export_path = Path(out).expanduser() if out else None
+    res = export_entities_bundle(database_url=database_url, output=export_path)
+    typer.echo(f"Entities CSV: {res['entities_csv'].resolve()}")
+    typer.echo(f"Entities JSON: {res['entities_json'].resolve()}")
+    typer.echo(f"Event->Entity CSV: {res['event_entities_csv'].resolve()}")
+    typer.echo(f"Event->Entity JSON: {res['event_entities_json'].resolve()}")
+    typer.echo(f"Entities: {res['entities_count']}  Event mappings: {res['event_entities_count']}")
+
 @export_app.command("lead-snapshot")
 def export_lead_snapshot_cli(
     snapshot_id: int = typer.Option(..., "--snapshot-id", help="Lead snapshot ID to export"),
