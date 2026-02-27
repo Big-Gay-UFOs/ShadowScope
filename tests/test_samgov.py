@@ -31,6 +31,14 @@ def test_normalize_opportunities_handles_date_formats_and_missing_fields():
             "officeAddress": {"city": "WASHINGTON", "state": "DC", "zipcode": "20405", "countryCode": "USA"},
         },
         {
+            # International officeAddress uses countryCode (common SAM shape)
+            "noticeId": "N3",
+            "postedDate": "2018-05-04",
+            "title": "International notice",
+            "placeOfPerformance": None,
+            "officeAddress": {"city": "OTTAWA", "countryCode": "CAN"},
+        },
+        {
             # No noticeId => fallback hash based on the full record
             "postedDate": "not-a-date",
             "title": "Missing notice id sample",
@@ -38,7 +46,7 @@ def test_normalize_opportunities_handles_date_formats_and_missing_fields():
     ]
 
     events = normalize_opportunities(records)
-    assert len(events) == 3
+    assert len(events) == 4
 
     for event in events:
         assert event["category"] == "procurement"
@@ -48,10 +56,11 @@ def test_normalize_opportunities_handles_date_formats_and_missing_fields():
         assert isinstance(event["clauses"], list)
         assert event["raw_json"]
 
-    # First two records have parseable dates
+    # First three records have parseable dates
     assert isinstance(events[0]["occurred_at"], datetime)
     assert isinstance(events[1]["occurred_at"], datetime)
-    assert events[2]["occurred_at"] is None
+    assert isinstance(events[2]["occurred_at"], datetime)
+    assert events[3]["occurred_at"] is None
 
     # Hash strategy uses a stable SOURCE_NAME prefix for noticeId rows
     expected = hashlib.sha256(f"{SOURCE_NAME}:N1".encode("utf-8")).hexdigest()
@@ -62,6 +71,11 @@ def test_normalize_opportunities_handles_date_formats_and_missing_fields():
 
     # When uiLink is null, use a stable fallback
     assert events[1]["source_url"] == "https://sam.gov/opp/N2/view"
+
+    # International officeAddress.countryCode should be preserved in place_text
+    assert events[2]["place_text"] is not None
+    assert "OTTAWA" in events[2]["place_text"]
+    assert "CAN" in events[2]["place_text"]
 
     # Awardee identifiers copied into canonical keys for later entity-linking
     assert events[0]["raw_json"].get("Recipient Name") == "ACME INC"
