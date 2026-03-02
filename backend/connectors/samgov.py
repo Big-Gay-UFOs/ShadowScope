@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = os.getenv("SAM_API_BASE_URL", "https://api.sam.gov/prod/opportunities/v2/search")
+BASE_URL = (os.getenv("SAM_API_BASE_URL") or "").strip() or "https://api.sam.gov/prod/opportunities/v2/search"
 MAX_LIMIT = 1000
 SOURCE_NAME = "SAM.gov"
 
