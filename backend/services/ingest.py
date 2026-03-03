@@ -118,6 +118,22 @@ def ingest_usaspending(
         run.ended_at = datetime.now(timezone.utc)
         db.commit()
 
+    except KeyboardInterrupt:
+        # Ctrl+C should not leave the run 'running'
+
+        db.rollback()
+
+        run.status = "aborted"
+
+        run.error = "KeyboardInterrupt"
+
+        run.ended_at = datetime.now(timezone.utc)
+
+        db.commit()
+
+        raise
+
+
     except Exception as e:
         db.rollback()
         run.status = "failed"
@@ -350,6 +366,22 @@ def ingest_sam_opportunities(
         run.inserted = inserted
         run.ended_at = datetime.now(timezone.utc)
         db.commit()
+
+    except KeyboardInterrupt:
+        # Ctrl+C should not leave the run 'running'
+
+        db.rollback()
+
+        run.status = "aborted"
+
+        run.error = "KeyboardInterrupt"
+
+        run.ended_at = datetime.now(timezone.utc)
+
+        db.commit()
+
+        raise
+
 
     except Exception as e:
         db.rollback()
