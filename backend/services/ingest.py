@@ -118,8 +118,7 @@ def ingest_usaspending(
         run.ended_at = datetime.now(timezone.utc)
         db.commit()
 
-    except KeyboardInterrupt as e:
-
+    except KeyboardInterrupt:
         # Ctrl+C should not leave the run 'running'
 
         db.rollback()
@@ -368,8 +367,7 @@ def ingest_sam_opportunities(
         run.ended_at = datetime.now(timezone.utc)
         db.commit()
 
-    except KeyboardInterrupt as e:
-
+    except KeyboardInterrupt:
         # Ctrl+C should not leave the run 'running'
 
         db.rollback()
