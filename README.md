@@ -3,6 +3,157 @@
 
 ## Quickstart
 
+<!-- SHADOWSCOPE:OVERVIEW:START -->
+
+## What this repo is
+
+**ShadowScope** is a small data pipeline + API that turns public U.S. federal procurement/spending feeds into a
+single, queryable dataset of **events** (things that happened) and **entities** (who they happened to).
+The goal is to help you spot patterns — recurring agencies, vendors, UEIs/DUNS, and keyword themes — and produce
+reviewable “leads” without manually bouncing between multiple government sites.
+
+## What it’s for
+
+- Ingest public datasets (e.g., solicitations and awards) into a database
+- Keep a **raw snapshot** trail for debugging/reproducibility
+- Normalize records into “events” you can filter/search/export
+- Optionally enrich events by:
+  - linking organizations/entities (e.g., via UEI/DUNS-style identifiers when present)
+  - tagging events using an ontology/keyword list
+  - computing simple “correlation lanes” (e.g., shared keywords, same entity/identifier)
+
+You can drive the workflow via the `ss` CLI and/or the backend API.
+
+## Key concepts
+
+- **Source**: A feed you ingest from (e.g., SAM.gov or USAspending).
+- **Raw snapshot**: The original JSON responses saved under `data/raw/<source>/<YYYYMMDD>/...` (useful for audits/debugging).
+- **Event**: A normalized record in the DB (an opportunity, an award, etc.).
+- **Entity**: A real-world org/vendor/agency that events can link to.
+- **Correlation lane**: A lightweight way of saying “these things are related” (shared keywords, same UEI, etc.).
+- **Lead snapshot**: A ranked/reviewable output built from events + correlations.
+
+## Hypothetical example
+
+Imagine you’re doing business development for a small IT services firm and you care about “zero trust” work.
+
+Every morning you want to answer:
+
+- “Did any new solicitations drop that match our focus areas?”
+- “Has this agency funded similar work recently?”
+- “Is the likely incumbent vendor identifiable from prior awards?”
+
+With ShadowScope you could:
+
+1. Ingest recent SAM.gov opportunities (solicitations) and recent USAspending awards.
+2. Apply your ontology so events get tagged with terms like `zero trust`, `MFA`, `SIEM`, `cloud migration`.
+3. Build correlations so a new solicitation automatically connects to:
+   - recent awards from the same agency,
+   - the same vendor/entity (when identifiers are available),
+   - similar notices that share key phrases.
+4. Export a lead snapshot to share internally (CSV/JSON) with a clear “why this looks relevant” trail
+   (shared keywords/entities/correlations).
+
+Instead of manual searching across multiple sites, you get a reproducible dataset and explainable links.
+
+## Data sources
+
+ShadowScope currently focuses on public U.S. government datasets such as:
+
+- **SAM.gov Contract Opportunities** (solicitations/opportunities)
+- **USAspending** (awards/spending)
+
+(Connectors live under `backend/connectors/`.)
+
+## Quickstart (local)
+
+> Commands can evolve — use `ss --help` and `ss doctor status` for “what to run next” in your current version.
+
+1. Configure your database connection:
+   - `DATABASE_URL` in your environment or a local `.env` (gitignored)
+
+2. Verify the system can talk to your DB:
+   - `ss doctor status`
+
+3. Run a small ingest:
+   - `ss ingest usaspending --pages 1 --limit 25`
+   - `ss ingest samgov --days 7 --pages 1 --limit 25` (requires `SAM_API_KEY`)
+
+4. If you’re using ontology/correlation features, follow the hints from:
+   - `ss doctor status --source "SAM.gov" --days 7`
+
+### Configuration notes
+
+Common environment variables:
+
+- `DATABASE_URL` — database connection string
+- `SAM_API_KEY` — SAM.gov public API key (required for SAM.gov ingestion)
+- `SAM_API_BASE_URL` — optional SAM.gov endpoint override  
+  If blank/whitespace, ShadowScope falls back to the default `/prod` URL.
+
+PowerShell reminder:
+
+- `SAM_API_KEY` is session-scoped if you set it via `$env:SAM_API_KEY = "..."`.
+  If you open a new terminal, you’ll need to set it again (or use a local `.env`).
+
+<!-- SHADOWSCOPE:OVERVIEW:END -->
+
+<!-- SHADOWSCOPE:SPRINT:START -->
+
+## Sprint roadmap
+
+_Last updated: 2026-03-04_
+
+### Sprint goal
+
+Make **SAM.gov ingestion reliable end-to-end** (local Windows dev + CI) so we can consistently:
+ingest → normalize → tag → correlate → produce reviewable lead snapshots.
+
+### Quick status summary (plain English)
+
+- **Done:** SAM.gov base URL behavior is safe (defaults to `/prod`, env override supported, blank override won’t break it).
+- **Done:** Ingest runs no longer get stuck as `running` if you Ctrl+C — they finalize as `aborted` (with tests).
+- **Done:** SAM.gov HTTP retry/backoff handles transient errors and now **honors `Retry-After`** on HTTP 429 (with tests).
+- **Still an issue:** SAM.gov can return **0 rows** for certain windows/queries; we should clarify expected behavior + recommended defaults.
+- **Next:** Verify SAM.gov date-window/query behavior and complete the “happy path” through ontology/correlations/leads.
+
+### Checklist
+
+#### ✅ Completed (this sprint)
+
+- [x] **SAM.gov opportunities base URL** defaults to `/prod` and supports `SAM_API_BASE_URL` override
+- [x] Treat blank/whitespace `SAM_API_BASE_URL` as unset (prevents accidental outage mode)
+- [x] Add tests for default / override / blank override behavior
+- [x] Ensure ingest runs finalize on Ctrl+C (`KeyboardInterrupt`) instead of staying `running`
+- [x] Add regression test verifying Ctrl+C marks the run `aborted`
+- [x] Fix CI lint failure caused by unused exception variable in KeyboardInterrupt handler (ruff F841)
+- [x] Honor `Retry-After` for SAM.gov HTTP 429 retries (+ regression tests)
+
+#### 🔜 Next up
+
+- [ ] Make SAM.gov ingest return **non-zero rows reliably** for typical date windows (verify query params + date window behavior)
+- [ ] Document **PowerShell-friendly SAM_API_KEY setup** clearly (session vs `.env`) + common failure modes
+- [ ] Run an end-to-end “happy path”:
+  - ingest (SAM.gov + USAspending)
+  - ontology apply
+  - correlations rebuild
+  - lead snapshot generation
+
+#### ⚠️ Known issues / risks (still true right now)
+
+- **Rate limiting (HTTP 429):** mitigated via backoff + `Retry-After`, but it can still slow ingest or fail after max retries.
+- **Key scope:** `SAM_API_KEY` set via `$env:SAM_API_KEY = ...` is **per-terminal-session**. New terminal = ingest skipped.
+- **“0 rows” ambiguity:** A successful run can still fetch 0 rows due to a narrow/quiet window. We should make this clearer in docs + doctor output.
+
+### How to help (when reporting issues)
+
+Attach:
+- last ~200 lines of `logs/ingest.log` (if present)
+- the latest raw snapshot JSON under `data/raw/<source>/<YYYYMMDD>/...`
+
+<!-- SHADOWSCOPE:SPRINT:END -->
+
+
 Typical workflow:
 
 1) Ingest a bounded slice of USAspending data
