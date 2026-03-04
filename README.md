@@ -102,7 +102,7 @@ PowerShell reminder:
 
 ## Sprint roadmap
 
-_Last updated: 2026-03-03_
+_Last updated: 2026-03-04_
 
 ### Sprint goal
 
@@ -113,8 +113,9 @@ ingest → normalize → tag → correlate → produce reviewable lead snapshots
 
 - **Done:** SAM.gov base URL behavior is safe (defaults to `/prod`, env override supported, blank override won’t break it).
 - **Done:** Ingest runs no longer get stuck as `running` if you Ctrl+C — they finalize as `aborted` (with tests).
-- **Still an issue:** SAM.gov can return **0 rows** for certain windows/queries and can rate-limit with **HTTP 429**.
-- **Next:** Improve SAM.gov fetch reliability + rate-limit handling, then complete the “happy path” through ontology/correlations/leads.
+- **Done:** SAM.gov HTTP retry/backoff handles transient errors and now **honors `Retry-After`** on HTTP 429 (with tests).
+- **Still an issue:** SAM.gov can return **0 rows** for certain windows/queries; we should clarify expected behavior + recommended defaults.
+- **Next:** Verify SAM.gov date-window/query behavior and complete the “happy path” through ontology/correlations/leads.
 
 ### Checklist
 
@@ -126,11 +127,11 @@ ingest → normalize → tag → correlate → produce reviewable lead snapshots
 - [x] Ensure ingest runs finalize on Ctrl+C (`KeyboardInterrupt`) instead of staying `running`
 - [x] Add regression test verifying Ctrl+C marks the run `aborted`
 - [x] Fix CI lint failure caused by unused exception variable in KeyboardInterrupt handler (ruff F841)
+- [x] Honor `Retry-After` for SAM.gov HTTP 429 retries (+ regression tests)
 
 #### 🔜 Next up
 
 - [ ] Make SAM.gov ingest return **non-zero rows reliably** for typical date windows (verify query params + date window behavior)
-- [ ] Add **retry/backoff** for SAM.gov rate limiting (HTTP 429), ideally respecting `Retry-After` when present
 - [ ] Document **PowerShell-friendly SAM_API_KEY setup** clearly (session vs `.env`) + common failure modes
 - [ ] Run an end-to-end “happy path”:
   - ingest (SAM.gov + USAspending)
@@ -140,7 +141,7 @@ ingest → normalize → tag → correlate → produce reviewable lead snapshots
 
 #### ⚠️ Known issues / risks (still true right now)
 
-- **Rate limiting (HTTP 429):** SAM.gov can throttle requests; without built-in backoff this can interrupt ingest.
+- **Rate limiting (HTTP 429):** mitigated via backoff + `Retry-After`, but it can still slow ingest or fail after max retries.
 - **Key scope:** `SAM_API_KEY` set via `$env:SAM_API_KEY = ...` is **per-terminal-session**. New terminal = ingest skipped.
 - **“0 rows” ambiguity:** A successful run can still fetch 0 rows due to a narrow/quiet window. We should make this clearer in docs + doctor output.
 

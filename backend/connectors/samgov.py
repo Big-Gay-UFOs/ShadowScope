@@ -53,6 +53,30 @@ def _clean_str(value: Any) -> Optional[str]:
     return v
 
 
+# SHADOWSCOPE:RETRY_AFTER:START
+def _retry_after_seconds(resp: requests.Response) -> Optional[float]:
+    """Parse Retry-After header into seconds (delta-seconds or HTTP-date)."""
+    value = resp.headers.get("Retry-After")
+    if not value:
+        return None
+    v = str(value).strip()
+    if not v:
+        return None
+    if v.isdigit():
+        return float(v)
+    try:
+        from email.utils import parsedate_to_datetime
+        from datetime import datetime, timezone
+
+        dt = parsedate_to_datetime(v)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        return max(0.0, (dt - now).total_seconds())
+    except Exception:
+        return None
+# SHADOWSCOPE:RETRY_AFTER:END
+
 def _get_with_retries(
     session: requests.Session,
     url: str,
@@ -74,7 +98,14 @@ def _get_with_retries(
         except requests.RequestException as exc:
             if attempt >= max_retries:
                 raise
-            sleep_s = min(60.0, backoff_base * (2**attempt)) + random.random()
+            sleep_s = None
+            resp = getattr(exc, "response", None)
+            if resp is not None and getattr(resp, "status_code", None) == 429:
+                ra = _retry_after_seconds(resp)
+                if ra is not None:
+                    sleep_s = ra
+            if sleep_s is None:
+                sleep_s = min(60.0, backoff_base * (2**attempt)) + random.random()
             logger.warning(
                 "SAM.gov request failed (%s). Retry %d/%d in %.1fs",
                 type(exc).__name__,
