@@ -202,13 +202,25 @@ ss doctor status --source "SAM.gov" --days 30
 
 ### What success looks like
 
-A healthy demo run should show all of the following in `ss doctor status --source "SAM.gov" --days 30`:
+A healthy SAM.gov demo run should show success in the **SAM.gov-specific command outputs**, not just a global total.
+
+Use these checks:
+
+- `ss ingest samgov ...` reports non-zero fetched/inserted or normalized rows
+- `ss ontology apply --source "SAM.gov" ...` reports `updated > 0` or `unchanged > 0`
+- `ss correlate rebuild-keywords --source "SAM.gov" ...` reports `correlations_created > 0` or `correlations_updated > 0`
+- `ss correlate rebuild-keyword-pairs --source "SAM.gov" ...` reports `correlations_created > 0` or `correlations_updated > 0`
+- `ss leads snapshot --source "SAM.gov" ...` reports `items > 0`
+
+Then confirm in `ss doctor status --source "SAM.gov" --days 30` that you see:
 
 - `events_window > 0`
 - `with_keywords > 0`
 - `same_keyword > 0`
 - `kw_pair > 0`
-- `lead_snapshots_total > 0`
+- `Last lead snapshot: ... source=SAM.gov`
+
+**Do not use `lead_snapshots_total > 0` as a SAM.gov-specific success check**. That count is global across sources.
 
 ### Notes
 
