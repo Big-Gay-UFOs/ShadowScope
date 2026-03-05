@@ -1,0 +1,87 @@
+{
+  "version": "1",
+  "defaults": {
+    "fields": [
+      "snippet",
+      "raw_json"
+    ]
+  },
+  "packs": [
+    {
+      "id": "sam_kwpair_demo",
+      "name": "SAM KWPair Demo",
+      "enabled": true,
+      "description": "Demo ontology intentionally designed to create repeated overlapping rule matches on SAM.gov events.",
+      "weight": 1,
+      "rules": [
+        {
+          "id": "active_notice",
+          "type": "regex",
+          "pattern": "\"active\":\"Yes\"",
+          "fields": [
+            "raw_json"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "has_ui_link",
+          "type": "regex",
+          "pattern": "\"uiLink\":\"https://sam\\.gov/workspace/contract/opp/",
+          "fields": [
+            "raw_json"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "combined_notice",
+          "type": "regex",
+          "pattern": "Combined Synopsis/Solicitation",
+          "fields": [
+            "raw_json"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "valve_item",
+          "type": "regex",
+          "pattern": "\\bVALVE\\b|\\bVALVES\\b",
+          "fields": [
+            "snippet",
+            "raw_json"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "mechanical_item",
+          "type": "regex",
+          "pattern": "\\bVALVE\\b|\\bHOUSING\\b",
+          "fields": [
+            "snippet",
+            "raw_json"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "replacement_work",
+          "type": "regex",
+          "pattern": "\\bREPLACEMENT\\b",
+          "fields": [
+            "snippet",
+            "raw_json"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "gate_work",
+          "type": "regex",
+          "pattern": "FRONT GATE|GATE REPLACEMENT",
+          "fields": [
+            "snippet",
+            "raw_json"
+          ],
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}
