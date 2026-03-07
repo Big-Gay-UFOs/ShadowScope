@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import func, cast, String
+from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
 from backend.db.models import Entity, Event, get_session_factory
@@ -17,31 +17,50 @@ def _clean_id(value: str) -> str:
     return _clean_text(value).upper()
 
 
-def _extract_usaspending_identity(raw_json: Any) -> Dict[str, Optional[str]]:
-    """
-    Extract recipient identity fields from a USAspending normalized raw_json payload.
-    """
+def _as_clean_optional_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    v = _clean_text(value)
+    return v if v else None
+
+
+def _as_clean_optional_id(value: Any) -> Optional[str]:
+    v = _as_clean_optional_text(value)
+    return _clean_id(v) if v else None
+
+
+def _extract_usaspending_identity(raw_json: Any) -> Dict[str, Any]:
+    out: Dict[str, Any] = {
+        "name": None,
+        "uei": None,
+        "duns": None,
+        "cage": None,
+        "recipient_id": None,
+        "meta": {},
+    }
     if not isinstance(raw_json, dict):
-        return {"name": None, "uei": None, "duns": None, "cage": None, "recipient_id": None}
+        return out
 
     name = (
         raw_json.get("Recipient Name")
         or raw_json.get("recipient_name")
         or raw_json.get("recipient")
+        or raw_json.get("recipientName")
     )
-
     uei = (
         raw_json.get("Recipient UEI")
         or raw_json.get("recipient_uei")
         or raw_json.get("uei")
+        or raw_json.get("UEI")
     )
-
     duns = (
         raw_json.get("Recipient DUNS Number")
         or raw_json.get("recipient_duns")
         or raw_json.get("duns")
+        or raw_json.get("DUNS")
     )
-
     cage = (
         raw_json.get("Recipient CAGE Code")
         or raw_json.get("Recipient CAGE")
@@ -50,23 +69,79 @@ def _extract_usaspending_identity(raw_json: Any) -> Dict[str, Optional[str]]:
         or raw_json.get("cage")
         or raw_json.get("CAGE")
     )
-
     recipient_id = raw_json.get("recipient_id") or raw_json.get("prime_award_recipient_id")
 
-    out: Dict[str, Optional[str]] = {"name": None, "uei": None, "duns": None, "cage": None, "recipient_id": None}
+    out["name"] = _as_clean_optional_text(name)
+    out["uei"] = _as_clean_optional_id(uei)
+    out["duns"] = _as_clean_optional_id(duns)
+    out["cage"] = _as_clean_optional_id(cage)
+    out["recipient_id"] = _as_clean_optional_text(recipient_id)
 
-    if isinstance(name, str) and name.strip():
-        out["name"] = _clean_text(name)
-    if isinstance(uei, str) and uei.strip():
-        out["uei"] = _clean_id(uei)
-    if isinstance(duns, str) and duns.strip():
-        out["duns"] = _clean_id(duns)
-    if isinstance(cage, str) and cage.strip():
-        out["cage"] = _clean_id(cage)
-    if isinstance(recipient_id, str) and recipient_id.strip():
-        out["recipient_id"] = _clean_text(recipient_id)
+    if out["recipient_id"]:
+        out["meta"]["recipient_id"] = out["recipient_id"]
+    if out["duns"]:
+        out["meta"]["duns"] = out["duns"]
+    if out["cage"]:
+        out["meta"]["cage"] = out["cage"]
 
     return out
+
+
+def _extract_samgov_identity(raw_json: Any) -> Dict[str, Any]:
+    """
+    Best-effort SAM.gov identity extraction.
+
+    Priority:
+    1) recipient/awardee identity if present
+    2) agency/office identity via fullParentPathName/fullParentPathCode
+    """
+    out = _extract_usaspending_identity(raw_json)
+    if not isinstance(raw_json, dict):
+        return out
+
+    parent_name = (
+        raw_json.get("fullParentPathName")
+        or raw_json.get("parentPathName")
+        or raw_json.get("organization")
+    )
+    parent_code = (
+        raw_json.get("fullParentPathCode")
+        or raw_json.get("parentPathCode")
+        or raw_json.get("organizationCode")
+    )
+    org_type = raw_json.get("organizationType")
+
+    parent_name_clean = _as_clean_optional_text(parent_name)
+    parent_code_clean = _as_clean_optional_id(parent_code)
+    org_type_clean = _as_clean_optional_text(org_type)
+
+    if not out["name"] and parent_name_clean:
+        out["name"] = parent_name_clean
+
+    if parent_code_clean:
+        if not out["recipient_id"]:
+            out["recipient_id"] = parent_code_clean
+            out["meta"].setdefault("recipient_id", parent_code_clean)
+        out["meta"]["sam_parent_path_code"] = parent_code_clean
+
+    if parent_name_clean:
+        out["meta"]["sam_parent_path_name"] = parent_name_clean
+    if org_type_clean:
+        out["meta"]["sam_organization_type"] = org_type_clean
+
+    return out
+
+
+def _find_entity_by_sites_value(db: Session, key: str, value: str) -> Optional[Entity]:
+    sites_text = cast(Entity.sites_json, String)
+    p1 = f'%"{key}":"{value}"%'
+    p2 = f'%"{key}": "{value}"%'
+    return (
+        db.query(Entity)
+        .filter(or_(sites_text.like(p1), sites_text.like(p2)))
+        .order_by(Entity.id.asc())
+        .first()
+    )
 
 
 def _get_or_create_entity(
@@ -76,64 +151,78 @@ def _get_or_create_entity(
     uei: Optional[str] = None,
     duns: Optional[str] = None,
     cage: Optional[str] = None,
+    entity_type: Optional[str] = None,
     meta: Optional[Dict[str, str]] = None,
 ) -> Tuple[Entity, bool]:
     ent: Optional[Entity] = None
+    meta = dict(meta or {})
 
-    # Prefer UEI match (strongest id)
     if uei:
         ent = db.query(Entity).filter(Entity.uei == uei).order_by(Entity.id.asc()).first()
 
-# Then DUNS match (common identifier in mixed payloads)
     if ent is None and duns:
+        ent = _find_entity_by_sites_value(db, "duns", duns)
+
+    if ent is None and cage:
+        ent = db.query(Entity).filter(Entity.cage == cage).order_by(Entity.id.asc()).first()
+
+    if ent is None:
+        for meta_key in ("sam_parent_path_code", "recipient_id"):
+            meta_value = meta.get(meta_key)
+            if meta_value:
+                ent = _find_entity_by_sites_value(db, meta_key, meta_value)
+                if ent is not None:
+                    break
+
+    if ent is None:
         ent = (
             db.query(Entity)
-            .filter(cast(Entity.sites_json, String).like(f'%"duns": "{duns}"%'))
+            .filter(func.lower(Entity.name) == name.lower())
             .order_by(Entity.id.asc())
             .first()
         )
 
-    # Then CAGE match (strong stable identifier)
-    if ent is None and cage:
-        ent = db.query(Entity).filter(Entity.cage == cage).order_by(Entity.id.asc()).first()
-
-    # Fall back to case-insensitive name match
-    if ent is None:
-        key = name.lower()
-        ent = db.query(Entity).filter(func.lower(Entity.name) == key).order_by(Entity.id.asc()).first()
-
     if ent is not None:
         changed = False
+
         if uei and not ent.uei:
             ent.uei = uei
             changed = True
         if cage and not ent.cage:
             ent.cage = cage
             changed = True
+        if entity_type and not ent.type:
+            ent.type = entity_type
+            changed = True
 
         if meta:
             cur_sites = ent.sites_json if isinstance(ent.sites_json, dict) else {}
-            merged_sites = dict(cur_sites)
+            merged = dict(cur_sites)
             sites_changed = False
             for k, v in meta.items():
-                if v and not merged_sites.get(k):
-                    merged_sites[k] = v
+                if v and not merged.get(k):
+                    merged[k] = v
                     sites_changed = True
             if sites_changed:
-                # IMPORTANT: reassign so SQLAlchemy reliably persists JSON updates
-                ent.sites_json = merged_sites
+                ent.sites_json = merged
                 changed = True
 
         if changed:
             db.flush()
         return ent, False
 
-    ent = Entity(name=name, uei=uei, cage=cage)
+    ent = Entity(name=name, uei=uei, cage=cage, type=entity_type)
     if meta:
         ent.sites_json = dict(meta)
     db.add(ent)
     db.flush()
     return ent, True
+
+
+def _extract_identity(raw_json: Any, source: str) -> Dict[str, Any]:
+    if source == "SAM.gov":
+        return _extract_samgov_identity(raw_json)
+    return _extract_usaspending_identity(raw_json)
 
 
 def link_entities_from_events(
@@ -148,8 +237,8 @@ def link_entities_from_events(
     Link events -> entities for a given source.
 
     - only processes events where entity_id is NULL
-    - USAspending identity priority: UEI > CAGE > DUNS > recipient_id > normalized name
-    - idempotent: running again should do 0 updates once linked
+    - source-aware identity extraction
+    - idempotent once linked
     """
     since = datetime.now(timezone.utc) - timedelta(days=max(int(days), 1))
     SessionFactory = get_session_factory(database_url)
@@ -180,10 +269,9 @@ def link_entities_from_events(
                 scanned += 1
                 last_id = int(ev.id)
 
-                ident = _extract_usaspending_identity(ev.raw_json)
-
-                # Choose a display name (prefer actual recipient name)
+                ident = _extract_identity(ev.raw_json, source)
                 display_name = ident["name"]
+
                 if not display_name:
                     if ident["uei"]:
                         display_name = f"UEI:{ident['uei']}"
@@ -192,18 +280,19 @@ def link_entities_from_events(
                     elif ident["duns"]:
                         display_name = f"DUNS:{ident['duns']}"
                     elif ident["recipient_id"]:
-                        display_name = f"RID:{ident['recipient_id']}"
+                        prefix = "SAM" if source == "SAM.gov" else "RID"
+                        display_name = f"{prefix}:{ident['recipient_id']}"
                     else:
                         skipped_no_name += 1
                         continue
 
-                meta: Dict[str, str] = {}
-                if ident["cage"]:
-                    meta["cage"] = ident["cage"]
-                if ident["duns"]:
-                    meta["duns"] = ident["duns"]
+                meta: Dict[str, str] = dict(ident.get("meta") or {})
                 if ident["recipient_id"]:
-                    meta["recipient_id"] = ident["recipient_id"]
+                    meta.setdefault("recipient_id", ident["recipient_id"])
+                if ident["duns"]:
+                    meta.setdefault("duns", ident["duns"])
+                if ident["cage"]:
+                    meta.setdefault("cage", ident["cage"])
 
                 ent, created = _get_or_create_entity(
                     db,
@@ -211,6 +300,7 @@ def link_entities_from_events(
                     uei=ident["uei"],
                     duns=ident["duns"],
                     cage=ident["cage"],
+                    entity_type=meta.get("sam_organization_type"),
                     meta=meta or None,
                 )
                 if created:
