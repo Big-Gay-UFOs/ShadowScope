@@ -1,4 +1,4 @@
-﻿"""SAM.gov Get Opportunities Public API connector for ShadowScope."""
+"""SAM.gov Get Opportunities Public API connector for ShadowScope."""
 from __future__ import annotations
 
 import hashlib
@@ -18,6 +18,35 @@ logger = logging.getLogger(__name__)
 BASE_URL = (os.getenv("SAM_API_BASE_URL") or "").strip() or "https://api.sam.gov/prod/opportunities/v2/search"
 MAX_LIMIT = 1000
 SOURCE_NAME = "SAM.gov"
+
+# SHADOWSCOPE:RETRY_KNOBS:START
+def _env_int(name: str, default: int) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+DEFAULT_TIMEOUT = _env_int("SAM_API_TIMEOUT_SECONDS", 60)
+DEFAULT_MAX_RETRIES = _env_int("SAM_API_MAX_RETRIES", 8)
+DEFAULT_BACKOFF_BASE = _env_float("SAM_API_BACKOFF_BASE", 0.75)
+# SHADOWSCOPE:RETRY_KNOBS:END
+
 
 
 class SamGovError(RuntimeError):
@@ -81,9 +110,9 @@ def _get_with_retries(
     session: requests.Session,
     url: str,
     params: Dict[str, Any],
-    timeout: int = 60,
-    max_retries: int = 8,
-    backoff_base: float = 0.75,
+    timeout: int = DEFAULT_TIMEOUT,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    backoff_base: float = DEFAULT_BACKOFF_BASE,
 ) -> requests.Response:
     for attempt in range(max_retries + 1):
         try:
@@ -122,7 +151,7 @@ def fetch_opportunities_page(
     session: requests.Session,
     filters: OpportunityFilter,
     api_key: str,
-    timeout: int = 60,
+    timeout: int = DEFAULT_TIMEOUT,
 ) -> Dict[str, Any]:
     """Fetch a single page of opportunities."""
 
@@ -318,6 +347,9 @@ def normalize_opportunities(records: Iterable[Dict[str, Any]]) -> List[Dict[str,
 
 __all__ = [
     "BASE_URL",
+    "DEFAULT_TIMEOUT",
+    "DEFAULT_MAX_RETRIES",
+    "DEFAULT_BACKOFF_BASE",
     "MAX_LIMIT",
     "SOURCE_NAME",
     "OpportunityFilter",
