@@ -1,0 +1,94 @@
+{
+  "version": "1",
+  "defaults": {
+    "fields": [
+      "snippet",
+      "raw_json"
+    ]
+  },
+  "packs": [
+    {
+      "id": "sam_procurement_starter",
+      "name": "SAM Procurement Starter",
+      "enabled": true,
+      "description": "Conservative starter ontology for common SAM.gov procurement concepts. Less aggressive than the demo ontology.",
+      "weight": 1,
+      "rules": [
+        {
+          "id": "combined_synopsis_solicitation",
+          "type": "regex",
+          "pattern": "Combined Synopsis/?Solicitation",
+          "keywords": [
+            "notice",
+            "solicitation"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "solicitation",
+          "type": "regex",
+          "pattern": "\\bSolicitation\\b",
+          "keywords": [
+            "solicitation"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "sources_sought",
+          "type": "regex",
+          "pattern": "Sources Sought",
+          "keywords": [
+            "sources_sought",
+            "market_research"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "presolicitation",
+          "type": "regex",
+          "pattern": "\\bPresolicitation\\b",
+          "keywords": [
+            "presolicitation"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "construction",
+          "type": "regex",
+          "pattern": "construction|repair|renovation",
+          "keywords": [
+            "construction"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "generator",
+          "type": "regex",
+          "pattern": "\\bgenerators?\\b",
+          "keywords": [
+            "generator"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "valve",
+          "type": "regex",
+          "pattern": "\\bvalves?\\b",
+          "keywords": [
+            "valve"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "water",
+          "type": "regex",
+          "pattern": "\\bwater\\b|\\bfeedwater\\b",
+          "keywords": [
+            "water"
+          ],
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}
