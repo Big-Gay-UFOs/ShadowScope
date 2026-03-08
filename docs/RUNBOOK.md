@@ -25,10 +25,12 @@ Artifacts:
 Pull a bounded slice of SAM.gov opportunities (Get Opportunities v2).
 
 Prereq:
-- `SAM_API_KEY` must be set locally (do **not** commit it).
-- Recommended in PowerShell: run `.\examples\powershell\set-shadow-env.ps1`
-  - loads safe values from local `.env`
-  - prompts for `SAM_API_KEY` when missing
+- `SAM_API_KEY` must be set locally (do not commit it).
+- Recommended in PowerShell (execution-policy safe):
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\examples\powershell\set-shadow-env.ps1`
+- Or in current PowerShell process:
+  - `Set-ExecutionPolicy -Scope Process Bypass -Force`
+  - `.\examples\powershell\set-shadow-env.ps1`
 
 Optional retry tuning in local `.env`:
 - `SAM_API_TIMEOUT_SECONDS=60`
@@ -51,7 +53,10 @@ Notes:
 ### 2) Ontology tagging
 Apply ontology rules to populate `events.keywords` and `events.clauses`.
 
-Example:
+Recommended baseline for USAspending:
+- `ss ontology apply --path .\examples\ontology_usaspending_starter.json --days 30 --source USAspending`
+
+Optional FOIA-focused alternative:
 - `ss ontology apply --path .\ontology.foia.json --days 30 --source USAspending`
 
 ### 3) Correlations
@@ -108,6 +113,13 @@ Checks:
   - `--min-events 2`
   - increase `--max-keywords-per-event`
 
+### USAspending rows remain untagged
+Use the schema-safe diagnostic query helper (works with JSON `keywords` column):
+
+```powershell
+psql -U postgres -d shadowscope -v window_days=30 -v row_limit=50 -f .\tools\diagnose_untagged_usaspending.sql
+```
+
 ### Entity linking skips everything
 Symptoms:
 - `skipped_no_name` is high
@@ -125,9 +137,12 @@ Checks:
 ## PowerShell notes
 - Do not paste placeholders like `<ID>` or `<SNAPSHOT_ID>` into PowerShell; `<` and `>` are treated as operators.
   - Use the numeric value directly (example: `--snapshot-id 2`).
+- If script execution is blocked, run:
+  - `Set-ExecutionPolicy -Scope Process Bypass -Force`
 - Correlation commands use `--window-days` (not `--days`):
   - `ss correlate rebuild --window-days 30 ...`
   - `ss correlate rebuild-keyword-pairs --window-days 30 ...`
+- SAM workflow commands accept both `--ingest-days` and `--days`.
 - USAspending raw snapshots are written as:
   - `data/raw/usaspending/YYYYMMDD/page_*.json` (not `.jsonl`).
 
@@ -136,6 +151,7 @@ Git hooks are not versioned by default. If you want a local guardrail on your ma
 
 - Create `.git/hooks/pre-push` that rejects pushes to `origin/main`.
 - Keep it local (do not commit it).
+
 ## Doctor / Status
 
 Use this when the pipeline looks empty (no events, no keywords, no kw-pairs, no entities, etc.) or when you want a fast sanity check.
@@ -165,15 +181,24 @@ Generate an entity list export plus an event->entity mapping export:
 
 Outputs:
 - Entities CSV/JSON
-- Event->Entity mapping CSV/JSON (includes recipient identifiers when present in raw_json)
+- Event->Entity mapping CSV/JSON (includes recipient identifiers when present in `raw_json`)
 
-## Workflow wrapper (optional)
+## Workflow wrappers (optional)
 
-One command to run the standard USAspending pipeline end-to-end:
+One command to run end-to-end pipelines:
 
-- `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\ontology.json --window-days 30`
+- USAspending:
+  - `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\examples\ontology_usaspending_starter.json --window-days 30`
+- SAM.gov:
+  - `ss workflow samgov --days 30 --pages 2 --limit 50 --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30`
+- SAM.gov smoke bundle (repeatable validation artifacts + non-zero checks):
+  - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30`
 
 Notes:
 - Use `--skip-ingest` to run offline (no network calls).
-- The workflow runs: ingest -> ontology -> entities -> correlations -> snapshot -> exports.
-- If --out is a file path (example: .\\reports\\run.csv), the workflow generates per-artifact files (prefix + timestamp) to avoid overwriting.
+- Workflows run: ingest -> ontology -> entities -> correlations -> snapshot -> exports.
+- `samgov-smoke` additionally runs `doctor status` and writes a bundle with:
+  - `workflow_result.json`
+  - `doctor_status.json`
+  - `smoke_summary.json`
+- If `--out` is a file path (example: `.\reports\run.csv`), workflows generate per-artifact files (prefix + timestamp) to avoid overwriting.

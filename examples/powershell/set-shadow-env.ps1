@@ -1,3 +1,6 @@
+# If script execution is blocked in PowerShell, run this helper with:
+# powershell -NoProfile -ExecutionPolicy Bypass -File .\\examples\\powershell\\set-shadow-env.ps1
+
 param(
     [switch]$ForcePrompt
 )
@@ -73,3 +76,4 @@ if (-not [string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
 }
 
 Write-Host "Tip: re-run this script in each new PowerShell window, or keep SAM_API_KEY in your local .env (never commit it)." -ForegroundColor Yellow
+
