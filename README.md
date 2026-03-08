@@ -102,7 +102,7 @@ PowerShell reminder:
 
 ## Sprint roadmap
 
-_Last updated: 2026-03-05_
+_Last updated: 2026-03-08_
 
 ### Sprint goal
 
@@ -111,47 +111,39 @@ ingest -> normalize -> tag -> correlate -> produce reviewable lead snapshots.
 
 ### Quick status summary (plain English)
 
-- **Done:** SAM.gov base URL behavior is safe (defaults to `/prod`, env override supported, blank override will not break it).
-- **Done:** Ingest runs no longer get stuck as `running` if you Ctrl+C — they finalize as `aborted` (with tests).
-- **Done:** SAM.gov HTTP retry/backoff now honors `Retry-After` on HTTP 429 (with tests).
-- **Done:** We proved the local SAM.gov happy path works with a tracked demo ontology:
-  ingest -> ontology tags -> same-keyword correlations -> keyword-pair correlations -> lead snapshot.
-- **Still an issue:** SAM.gov entity linking coverage is still 0 for the recent demo slice.
-- **Still an issue:** The demo ontology is intentionally broad for smoke-testing; it is not production-quality tagging logic.
-- **Next:** Tighten default SAM.gov query behavior, improve entity coverage, and document the PowerShell workflow more clearly.
+- **Done:** SAM.gov base URL behavior is safe (defaults to `/prod`; blank overrides are treated as unset).
+- **Done:** Ingest runs no longer get stuck as `running` if interrupted; they finalize as `aborted`.
+- **Done:** SAM.gov HTTP retries are env-tunable (`SAM_API_MAX_RETRIES`, `SAM_API_BACKOFF_BASE`, `SAM_API_TIMEOUT_SECONDS`) and honor `Retry-After` on HTTP 429.
+- **Done:** `ss doctor status` includes source-aware next-step hints for SAM.gov workflows.
+- **Done:** SAM.gov entity-linking fallback is in place, and recipient identity now matches before parent-path fallback when both are present.
+- **Done:** PowerShell env helper script added at `examples/powershell/set-shadow-env.ps1`.
+- **Done:** Conservative starter ontology added at `examples/ontology_sam_procurement_starter.json`.
+- **Done:** PR #73 is open to land this sprint hardening set.
+- **Next:** Keep PR #73 green and merge.
 
 ### Checklist
 
-#### ✅ Completed (this sprint)
+#### Completed (this sprint)
 
 - [x] **SAM.gov opportunities base URL** defaults to `/prod` and supports `SAM_API_BASE_URL` override
 - [x] Treat blank/whitespace `SAM_API_BASE_URL` as unset (prevents accidental outage mode)
-- [x] Add tests for default / override / blank override behavior
 - [x] Ensure ingest runs finalize on Ctrl+C (`KeyboardInterrupt`) instead of staying `running`
-- [x] Add regression test verifying Ctrl+C marks the run `aborted`
-- [x] Fix CI lint failure caused by unused exception variable in KeyboardInterrupt handler
-- [x] Honor `Retry-After` for SAM.gov HTTP 429 retries (+ regression tests)
-- [x] Add tracked SAM.gov demo ontology + PowerShell happy-path walkthrough
-- [x] Prove local SAM.gov demo flow can produce:
-  - ingest success
-  - ontology tags
-  - same-keyword correlations
-  - keyword-pair correlations
-  - lead snapshot output
+- [x] Make SAM.gov HTTP retry/backoff env-tunable and honor `Retry-After` on HTTP 429
+- [x] Add source-aware `ss doctor status` hints for SAM.gov operators
+- [x] Improve SAM.gov entity-linking fallback behavior and precedence
+- [x] Add PowerShell session env helper for local SAM.gov setup
+- [x] Add conservative SAM.gov starter ontology for non-demo runs
+- [x] Open PR #73 for sprint hardening
 
-#### 🔜 Next up
+#### Next up
 
-- [ ] Make SAM.gov ingest return representative non-zero rows more reliably for common/default date windows
-- [ ] Improve SAM.gov entity linking coverage
-- [ ] Document PowerShell-friendly `SAM_API_KEY` setup more clearly (session vs `.env`) + common failure modes
-- [ ] Decide whether to promote the demo ontology into a more realistic procurement ontology, or keep it explicitly demo-only
+- [ ] Merge PR #73 after CI checks are green
 
-#### ⚠️ Known issues / risks (still true right now)
+#### Known issues / risks (still true right now)
 
 - **Rate limiting (HTTP 429):** mitigated via backoff + `Retry-After`, but still possible under heavier usage.
-- **Key scope:** `SAM_API_KEY` set via `$env:SAM_API_KEY = ...` is **per-terminal-session**. New terminal = ingest skipped.
-- **Entity linking:** recent SAM.gov demo runs still show `entities_total=0`.
-- **Demo ontology:** current correlation success is driven by an intentionally broad demo ontology for smoke-testing, not final production semantics.
+- **Key scope:** `SAM_API_KEY` set via `$env:SAM_API_KEY = ...` is per terminal session unless persisted in local `.env`.
+- **Ontology quality:** the starter ontology is intentionally conservative and still needs domain tuning for production use.
 
 ### How to help (when reporting issues)
 
@@ -165,29 +157,24 @@ Attach:
 
 ## PowerShell demo walkthrough
 
-This repo includes a **demo ontology** at `examples/ontology_sam_kwpair_demo.json`.
+This repo includes two SAM.gov ontology options:
 
-It is intentionally broad and is meant for **smoke-testing the full pipeline**:
+- **Starter (recommended):** `examples/ontology_sam_procurement_starter.json` (conservative baseline)
+- **Demo (smoke test):** `examples/ontology_sam_kwpair_demo.json` (broad signal to prove full pipeline wiring)
 
-**ingest -> ontology tags -> same-keyword correlations -> keyword-pair correlations -> lead snapshot**
+For PowerShell session setup, use:
 
-It is **not** a production-quality ontology. Its purpose is to prove the pipeline works end-to-end on local SAM.gov data.
+- `examples/powershell/set-shadow-env.ps1` to load `.env` values and prompt for `SAM_API_KEY` if missing.
 
 ```powershell
-# 1) Set your SAM.gov API key for this terminal session
-$sec = Read-Host -Prompt "Paste SAM.gov Public API Key (input hidden)" -AsSecureString
-$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
-try {
-  $env:SAM_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
-} finally {
-  [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
-}
+# 1) Load local env defaults and ensure SAM_API_KEY is set for this PowerShell session
+.\examples\powershell\set-shadow-env.ps1
 
 # 2) Ingest a bounded SAM.gov slice
 ss ingest samgov --days 30 --pages 2 --limit 50
 
-# 3) Apply the demo ontology
-ss ontology apply --path .\examples\ontology_sam_kwpair_demo.json --days 30 --source "SAM.gov"
+# 3) Apply the conservative starter ontology (recommended)
+ss ontology apply --path .\examples\ontology_sam_procurement_starter.json --days 30 --source "SAM.gov"
 
 # 4) Build correlations
 ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2
@@ -196,13 +183,21 @@ ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-eve
 # 5) Generate a lead snapshot
 ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200
 
-# 6) Inspect pipeline health
+# 6) Inspect pipeline health and source-specific hints
 ss doctor status --source "SAM.gov" --days 30
+```
+
+### Optional smoke-test mode
+
+If you want stronger signal just to validate end-to-end wiring, swap step 3 to the broader demo ontology:
+
+```powershell
+ss ontology apply --path .\examples\ontology_sam_kwpair_demo.json --days 30 --source "SAM.gov"
 ```
 
 ### What success looks like
 
-A healthy SAM.gov demo run should show success in the **SAM.gov-specific command outputs**, not just a global total.
+A healthy SAM.gov run should show success in the SAM.gov-specific outputs, not just global totals.
 
 Use these checks:
 
@@ -220,13 +215,13 @@ Then confirm in `ss doctor status --source "SAM.gov" --days 30` that you see:
 - `kw_pair > 0`
 - `Last lead snapshot: ... source=SAM.gov`
 
-**Do not use `lead_snapshots_total > 0` as a SAM.gov-specific success check**. That count is global across sources.
+Do not use `lead_snapshots_total > 0` as a SAM.gov-specific success check. That count is global across sources.
 
 ### Notes
 
-- This demo ontology is intentionally broad so the end-to-end flow is easy to verify locally.
-- `SAM_API_KEY` is session-scoped in PowerShell unless you also persist it elsewhere.
-- The tracked demo ontology lives under `examples/`; the scratch ontology files created during experimentation are not part of the repo.
+- Starter ontology is the default recommendation for realistic signal.
+- Demo ontology is intentionally broad for quick smoke tests.
+- `SAM_API_KEY` is session-scoped in PowerShell unless you also persist it in local `.env`.
 
 <!-- SHADOWSCOPE:DEMO:END -->
 

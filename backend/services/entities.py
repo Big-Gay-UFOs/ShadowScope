@@ -167,7 +167,7 @@ def _get_or_create_entity(
         ent = db.query(Entity).filter(Entity.cage == cage).order_by(Entity.id.asc()).first()
 
     if ent is None:
-        for meta_key in ("sam_parent_path_code", "recipient_id"):
+        for meta_key in ("recipient_id", "sam_parent_path_code"):
             meta_value = meta.get(meta_key)
             if meta_value:
                 ent = _find_entity_by_sites_value(db, meta_key, meta_value)

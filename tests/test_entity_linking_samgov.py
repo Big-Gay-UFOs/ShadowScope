@@ -84,3 +84,55 @@ def test_entity_linking_samgov_matches_existing_by_parent_path_code(tmp_path):
     with SessionFactory() as db:
         ev2 = db.query(Event).filter(Event.hash == "sam_ev_match_1").one()
         assert ev2.entity_id == ent_id
+
+
+def test_entity_linking_samgov_prefers_recipient_id_before_parent_path_code(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_entities_precedence.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        parent_ent = Entity(
+            name="Legacy Agency Office",
+            type="OFFICE",
+            sites_json={"sam_parent_path_code": "021.2100.MICC"},
+        )
+        recipient_ent = Entity(
+            name="Known Recipient",
+            type="VENDOR",
+            sites_json={"recipient_id": "RID-ACME-001"},
+        )
+        db.add_all([parent_ent, recipient_ent])
+        db.commit()
+        db.refresh(parent_ent)
+        db.refresh(recipient_ent)
+
+        ev = Event(
+            category="procurement",
+            source="SAM.gov",
+            occurred_at=now,
+            created_at=now,
+            snippet="Generators",
+            raw_json={
+                "recipient_name": "ACME Power Systems",
+                "recipient_id": "RID-ACME-001",
+                "fullParentPathName": "DEPT OF DEFENSE.DEPT OF THE ARMY.MICC",
+                "fullParentPathCode": "021.2100.MICC",
+                "organizationType": "OFFICE",
+            },
+            hash="sam_ev_precedence_1",
+            keywords=[],
+            clauses=[],
+        )
+        db.add(ev)
+        db.commit()
+
+    res = link_entities_from_events(source="SAM.gov", days=30, batch=100, dry_run=False, database_url=db_url)
+    assert res["linked"] == 1
+    assert res["entities_created"] == 0
+
+    with SessionFactory() as db:
+        ev2 = db.query(Event).filter(Event.hash == "sam_ev_precedence_1").one()
+        assert ev2.entity_id == recipient_ent.id
+        assert ev2.entity_id != parent_ent.id
