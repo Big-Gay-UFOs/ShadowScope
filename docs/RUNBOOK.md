@@ -1,6 +1,6 @@
 # ShadowScope Runbook
 
-This runbook documents the standard ?investigator? workflow for ShadowScope using the CLI (`ss`).
+This runbook documents the standard investigator workflow for ShadowScope using the CLI (`ss`).
 
 ## Prereqs
 - Docker services running (Postgres, OpenSearch, API if needed):
@@ -26,14 +26,20 @@ Pull a bounded slice of SAM.gov opportunities (Get Opportunities v2).
 
 Prereq:
 - `SAM_API_KEY` must be set locally (do **not** commit it).
-  - For the current PowerShell session: `$env:SAM_API_KEY = "YOUR_SAM_API_KEY"`
-  - Or add to your local `.env` (gitignored): `SAM_API_KEY=YOUR_SAM_API_KEY`
+- Recommended in PowerShell: run `.\examples\powershell\set-shadow-env.ps1`
+  - loads safe values from local `.env`
+  - prompts for `SAM_API_KEY` when missing
+
+Optional retry tuning in local `.env`:
+- `SAM_API_TIMEOUT_SECONDS=60`
+- `SAM_API_MAX_RETRIES=8`
+- `SAM_API_BACKOFF_BASE=0.75`
 
 Examples:
-- 30-day window, one page:
-  - `ss ingest samgov --days 30 --pages 1 --page-size 100`
+- 30-day window, two pages:
+  - `ss ingest samgov --days 30 --pages 2 --limit 50`
 - Keyword narrowing (title search; union across repeats):
-  - `ss ingest samgov --days 30 --pages 1 --page-size 100 --keyword "DOE" --keyword "NNSA"`
+  - `ss ingest samgov --days 30 --pages 2 --limit 100 --keyword "DOE" --keyword "NNSA"`
 
 Artifacts:
 - Raw snapshots: `data/raw/sam/YYYYMMDD/page_*.json` (or `kwN_page_*.json` when keywords are used)
@@ -64,8 +70,9 @@ Notes:
 ### 4) Entity linking
 Link events to entities from recipient identifiers.
 
-Example:
+Examples:
 - `ss entities link --source USAspending --days 30`
+- `ss entities link --source "SAM.gov" --days 30`
 
 ### 5) Leads snapshot (ranking)
 Create a snapshot of the top-scoring leads using scoring v2 by default.
@@ -106,8 +113,9 @@ Symptoms:
 - `skipped_no_name` is high
 
 Checks:
-- inspect `events.raw_json` for `Recipient Name`, `Recipient UEI`, `Recipient DUNS Number`, `Recipient CAGE Code`
-- confirm ingest is using the USAspending connector fields list
+- inspect `events.raw_json` for identity fields (`Recipient UEI`, `Recipient DUNS Number`, `Recipient CAGE Code`, `recipient_id`, `fullParentPathCode`)
+- run `ss doctor status --source "SAM.gov" --days 30` and review entity coverage diagnostics
+- confirm ingest data has source-appropriate identity fields before linking
 
 ## Dev workflow
 - Do not push directly to `origin/main`.
@@ -130,17 +138,19 @@ Git hooks are not versioned by default. If you want a local guardrail on your ma
 - Keep it local (do not commit it).
 ## Doctor / Status
 
-Use this when the pipeline "looks empty" (no events, no keywords, no kw-pairs, no entities, etc.) or when you want a fast sanity check.
+Use this when the pipeline looks empty (no events, no keywords, no kw-pairs, no entities, etc.) or when you want a fast sanity check.
 
 Examples:
 
 - `ss doctor status --source USAspending --days 30`
-- `ss doctor status --source USAspending --days 30 --json`
+- `ss doctor status --source "SAM.gov" --days 30`
+- `ss doctor status --source "SAM.gov" --days 30 --json`
 
 What it reports:
 
 - DB connectivity (safe URL)
 - Counts: events, entities, correlations, lead snapshots
+- Entity coverage diagnostics (window linked percentage + sampled identity-signal linkage)
 - Correlations by lane (kw_pair, same_keyword, same_uei, same_entity)
 - Keyword coverage on a recent sample window + top keywords
 - Last ingest / ontology apply / lead snapshot metadata (when present)

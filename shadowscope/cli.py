@@ -386,6 +386,7 @@ def doctor_status_cli(
     db = res.get("db", {})
     window = res.get("window", {})
     counts = res.get("counts", {})
+    entities_diag = res.get("entities", {})
     kw = res.get("keywords", {})
     corr = res.get("correlations", {})
     last = res.get("last_runs", {})
@@ -401,6 +402,15 @@ def doctor_status_cli(
         f"events_with_entity_window={counts.get('events_with_entity_window')} entities_total={counts.get('entities_total')} "
         f"correlations_total={counts.get('correlations_total')} lead_snapshots_total={counts.get('lead_snapshots_total')}"
     )
+
+    if entities_diag:
+        typer.echo(
+            "Entities (coverage): "
+            f"window_linked_pct={entities_diag.get('window_linked_coverage_pct')} "
+            f"sample_identity={entities_diag.get('sample_events_with_identity_signal')} "
+            f"sample_identity_linked={entities_diag.get('sample_events_with_identity_signal_linked')} "
+            f"sample_identity_linked_pct={entities_diag.get('sample_identity_signal_coverage_pct')}"
+        )
 
     lane = corr.get("by_lane") or {}
     if lane:

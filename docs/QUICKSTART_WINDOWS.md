@@ -1,4 +1,4 @@
-﻿# ShadowScope Windows Quick Start
+# ShadowScope Windows Quick Start
 
 ## Prerequisites
 
@@ -38,28 +38,41 @@ Press <kbd>Ctrl</kbd> + <kbd>C</kbd> to stop the API when you are done reviewing
 
 ## Optional: SAM.gov ingestion
 
-If you have a SAM.gov API key, keep it local and set it via environment or your local `.env` (gitignored):
+If you have a SAM.gov API key, keep it local and load it for your current PowerShell session.
 
-- Current PowerShell session:
-  - `$env:SAM_API_KEY = "YOUR_SAM_API_KEY"`
+Recommended helper:
 
-Then run a small bounded ingest:
+- `.\examples\powershell\set-shadow-env.ps1`
 
-- `ss ingest samgov --days 3 --pages 1 --limit 25 --keyword "DOE"`
+This script can load `.env` values and will prompt for `SAM_API_KEY` if missing.
+
+Optional retry tuning via local `.env`:
+
+- `SAM_API_TIMEOUT_SECONDS=60`
+- `SAM_API_MAX_RETRIES=8`
+- `SAM_API_BACKOFF_BASE=0.75`
+
+Then run a bounded ingest:
+
+- `ss ingest samgov --days 30 --pages 2 --limit 50`
 
 Raw snapshots:
+
 - `data/raw/sam/YYYYMMDD/`
 
-If the script fails, check the [troubleshooting table in README.md](../README.md#troubleshooting-quick-start).
+If the command fails, check the [troubleshooting table in README.md](../README.md#troubleshooting-quick-start).
+
 ## Doctor / Status
 
 If something seems off (empty outputs, no correlations, no leads), run:
 
 - `ss doctor status --source USAspending --days 30`
+- `ss doctor status --source "SAM.gov" --days 30`
 
 For a full payload:
 
 - `ss doctor status --source USAspending --days 30 --json`
+- `ss doctor status --source "SAM.gov" --days 30 --json`
 
 ## Export: Entities
 
@@ -82,4 +95,3 @@ Notes:
 - Use `--skip-ingest` to run offline (no network calls).
 - The workflow runs: ingest -> ontology -> entities -> correlations -> snapshot -> exports.
 - If --out is a file path (example: .\\reports\\run.csv), the workflow generates per-artifact files (prefix + timestamp) to avoid overwriting.
-
