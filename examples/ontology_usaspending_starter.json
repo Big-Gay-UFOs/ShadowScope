@@ -1,0 +1,165 @@
+{
+  "version": "0.1",
+  "updated_at": "2026-03-08",
+  "description": "Conservative USAspending starter ontology tuned for award descriptions and procurement lifecycle signals.",
+  "defaults": {
+    "case_insensitive": true,
+    "fields": [
+      "snippet",
+      "doc_id",
+      "raw_json"
+    ]
+  },
+  "packs": [
+    {
+      "id": "procurement_lifecycle",
+      "name": "Procurement Lifecycle Signals",
+      "enabled": true,
+      "default_weight": 5,
+      "rules": [
+        {
+          "id": "option_year",
+          "type": "regex",
+          "pattern": "\\boption\\s+(year|yr)\\b",
+          "weight": 6
+        },
+        {
+          "id": "period_of_performance",
+          "type": "phrase",
+          "pattern": "period of performance",
+          "weight": 7
+        },
+        {
+          "id": "task_order",
+          "type": "phrase",
+          "pattern": "task order",
+          "weight": 6
+        },
+        {
+          "id": "call_order",
+          "type": "phrase",
+          "pattern": "call order",
+          "weight": 6
+        },
+        {
+          "id": "blanket_purchase_agreement",
+          "type": "regex",
+          "pattern": "\\bbpa\\b|blanket purchase agreement",
+          "weight": 6
+        },
+        {
+          "id": "idiq_vehicle",
+          "type": "regex",
+          "pattern": "\\bidiq\\b",
+          "weight": 5
+        },
+        {
+          "id": "rfx_notice",
+          "type": "regex",
+          "pattern": "\\brfq\\b|\\brfp\\b",
+          "weight": 5
+        }
+      ]
+    },
+    {
+      "id": "sustainment_it_ops",
+      "name": "Sustainment and IT Operations",
+      "enabled": true,
+      "default_weight": 5,
+      "rules": [
+        {
+          "id": "support_services",
+          "type": "phrase",
+          "pattern": "support services",
+          "weight": 5
+        },
+        {
+          "id": "software_maintenance",
+          "type": "phrase",
+          "pattern": "software maintenance",
+          "weight": 6
+        },
+        {
+          "id": "maintenance_renewal",
+          "type": "phrase",
+          "pattern": "maintenance renewal",
+          "weight": 6
+        },
+        {
+          "id": "subscription_service",
+          "type": "regex",
+          "pattern": "subscription( service)?",
+          "weight": 5
+        },
+        {
+          "id": "license_renewal",
+          "type": "regex",
+          "pattern": "(license|licensing).{0,20}renewal",
+          "weight": 6
+        },
+        {
+          "id": "certificate_management",
+          "type": "regex",
+          "pattern": "\\bcertificates?\\b",
+          "weight": 4
+        },
+        {
+          "id": "network_cabling",
+          "type": "phrase",
+          "pattern": "network cabling",
+          "weight": 6
+        },
+        {
+          "id": "siem",
+          "type": "regex",
+          "pattern": "\\bsiem\\b",
+          "weight": 7
+        }
+      ]
+    },
+    {
+      "id": "test_and_lab_activity",
+      "name": "Testing and Lab Activity",
+      "enabled": true,
+      "default_weight": 4,
+      "rules": [
+        {
+          "id": "commissioning",
+          "type": "phrase",
+          "pattern": "commissioning",
+          "weight": 5
+        },
+        {
+          "id": "laboratory",
+          "type": "regex",
+          "pattern": "\\blaboratory\\b|\\blab\\b",
+          "weight": 4
+        },
+        {
+          "id": "testing",
+          "type": "regex",
+          "pattern": "\\btesting\\b",
+          "weight": 3
+        },
+        {
+          "id": "flight_experiment",
+          "type": "phrase",
+          "pattern": "flight experiment",
+          "weight": 6
+        },
+        {
+          "id": "decompression",
+          "type": "phrase",
+          "pattern": "decompression",
+          "weight": 6
+        },
+        {
+          "id": "repair",
+          "type": "regex",
+          "pattern": "\\brepair\\b",
+          "weight": 3
+        }
+      ]
+    }
+  ]
+}

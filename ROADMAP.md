@@ -2,67 +2,48 @@
 
 <!-- ROADMAP:CURRENT_USASPENDING_BEGIN -->
 
-## Iteration 1: USAspending MVP closeout (current)
+## Iteration 1: USAspending MVP closeout (completed)
 
-Goal: make the USAspending pipeline runnable end-to-end by a non-developer, with outputs that are reviewable.
+Goal achieved: USAspending is runnable end-to-end by a non-developer with reviewable outputs.
 
-### Definition of MVP-done (Iteration 1)
-MVP is done when a non-developer can run:
-1) ingest a bounded slice of USAspending data
-2) apply ontology tagging
-3) rebuild correlations (including keyword-pairs)
-4) link entities
-5) generate a lead snapshot
-6) export artifacts (CSV/JSON) that explain why a lead scored
+### Completed highlights
+- Guardrails + CI baseline (PR template, lint/test gates)
+- Operator UX hardening (`ss doctor status`)
+- Exports + explainability fields
+- One-command USAspending workflow (`ss workflow usaspending`)
 
-### Current status (2026-02-26)
-- Done: Guardrails + CI (PR template, ruff gate, full pytest in CI) - PR #58
-- Done: Operator UX (`ss doctor status` + semantics hardening) - PRs #59, #60
-- Done: Exports + explainability (why_summary + entity exports) - PR #61
+## Iteration 2: Workflow validation pass (current)
 
-### Iteration 1 checklist (authoritative)
+Current theme:
+- keep SAM.gov healthy and repeatable with source-scoped smoke artifacts
+- close USAspending ontology usefulness gaps on representative windows
 
-#### Repo guardrails / workflow
-- [x] Enable branch protection on `main` (applied)
-  - [ ] Require PRs (no direct pushes)
-  - [ ] Require CI checks to pass
-  - [ ] Block force-pushes
-  - [ ] (Optional) Require 1 review
-- [x] PR template: `.github/PULL_REQUEST_TEMPLATE.md` (PR #58)
-- [x] CONTRIBUTING + line-ending guardrails: `.gitattributes`, `CONTRIBUTING.md` (PR #58)
+### Current status (2026-03-08)
+- [x] SAM.gov ingest hardening (base URL defaults, retry/backoff, run finalization)
+- [x] SAM-aware doctor hints + entity-coverage diagnostics
+- [x] SAM workflow wrapper + smoke artifact bundle (`ss workflow samgov`, `ss workflow samgov-smoke`)
+- [x] Live validation confirmed SAM ingest, entity linking, keyword coverage, correlation lanes, and lead snapshot health
+- [x] Added conservative USAspending starter ontology (`examples/ontology_usaspending_starter.json`)
+- [x] Added fixture regression coverage for non-zero USAspending keyword tagging + keyword-correlation lanes
+- [x] Added schema-safe diagnostic helper for recent untagged USAspending rows (`tools/diagnose_untagged_usaspending.sql`)
+- [x] Added SAM workflow `--days` alias ergonomics and aligned PowerShell guidance
 
-#### CI / quality gates
-- [x] CI runs full pytest suite (`python -m pytest`) (PR #58)
-- [x] CI runs ruff lint gate (`ruff check .`) (PR #58)
+### Next sprint priorities
+- [ ] Run two clean SAM live-key smoke bundles and tighten non-zero thresholds from observed baselines
+- [ ] Tune USAspending starter ontology using sampled untagged rows (quality over keyword-count inflation)
+- [ ] Expand deterministic fixture coverage around USAspending ontology edge cases
+- [ ] Keep README/RUNBOOK/QUICKSTART/STATE aligned with validated operator flow
 
-#### Operator UX
-- [x] `ss doctor status` (counts, keyword coverage, lane presence, last runs, actionable hints) (PR #59)
-- [x] Doctor window semantics aligned with correlation rebuild + lane counts scoped to `--days` (PR #60)
-- [x] Optional: one-command workflow wrapper (`ss workflow usaspending`)
-
-#### Exports + explainability
-- [x] Lead snapshot export includes explainability fields (why_summary, score components, top kw-pair contributors) (PR #61)
-- [x] Entity exports: entity list + event->entity mapping (`ss export entities`) (PR #61)
-
-### Remaining to close Iteration 1
-- [x] Apply branch protection settings on GitHub (done)
-- [x] Decide on optional workflow wrapper (implemented)
-
-## Iteration 2: SAM.gov (deferred; NOT this sprint)
-
-Start only after Iteration 1 is stable and repeatable.
-
-- [ ] Add SAM.gov connector skeleton (`backend/connectors/samgov.py`)
-- [ ] Define normalized fields -> `Event` mapping (doc_id, occurred_at, place_text, snippet, raw_json)
-- [ ] Ingest command: `ss ingest samgov ...` (bounded window + filters)
-- [ ] Ontology coverage updates for SAM.gov-specific fields
-- [ ] Cross-source entity linking strategy (UEI-first)
-- [ ] Cross-source correlations (`USAspending <-> SAM.gov`)
+### Definition of done for this pass
+From a clean Windows PowerShell session, operators can run bounded workflows and reliably produce:
+- SAM smoke bundles with required source-scoped non-zero checks
+- USAspending runs with non-zero keyword tagging and at least one keyword correlation lane (`same_keyword` and/or `kw_pair`)
+- a repeatable diagnostic path for inspecting remaining untagged USAspending events
 
 <!-- ROADMAP:CURRENT_USASPENDING_END -->
 
 
-Last updated: 2026-02-26
+Last updated: 2026-03-08
 
 ## Done
 - M0 plumbing: Compose + migrations + idempotent ingest
@@ -77,8 +58,8 @@ Last updated: 2026-02-26
 - Document runbook parameters (Days/MaxRecords/MinScore/ScanLimit)
 
 ### M5 Multi-source
-- SAM.gov ingestion/enrichment
-- Cross-source joins and correlations
+- Expand SAM.gov repeatability from smoke checks to stronger thresholds
+- Add cross-source joins and correlations (USAspending <-> SAM.gov)
 
 
 
@@ -106,11 +87,11 @@ See `docs/AUDIT_BACKLOG_2026-02-24.md` for full reasoning + implementation notes
   - [ ] add filters to `/api/leads` (min_score, scoring_version, include_explanations)
   - [ ] add correlation filters (min_event_count, min_score_signal)
 
-### M4.3 Relationship matrix: kw_pair count → signal
+### M4.3 Relationship matrix: kw_pair count ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ signal
 - [ ] Replace kw_pair `score=count` with a signal score:
   - [ ] Phase 1: PMI/NPMI or lift w/ smoothing + min counts + max df filters
   - [ ] Phase 2: log-odds / Fisher exact / Bayesian shrinkage for investigator-grade ranking
-- [ ] Add “cluster explain” exports:
+- [ ] Add ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œcluster explainÃƒÂ¢Ã¢â€šÂ¬Ã‚Â exports:
   - [ ] member events + co-terms + top clauses (aggregated)
   - [ ] (after schema enrichment) top agencies/PSC/NAICS breakdown per cluster
 - [ ] Add new correlation lanes once schema supports it:
@@ -130,3 +111,4 @@ See `docs/AUDIT_BACKLOG_2026-02-24.md` for full reasoning + implementation notes
 - [ ] Leverage schema-enriched lanes for cross-source linkage
 
 <!-- END SHADOWSCOPE-AUDIT-ROADMAP-2026-02-24 -->
+
