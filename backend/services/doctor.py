@@ -148,29 +148,30 @@ def doctor_status(
         }
 
     # --- Hints / failure heuristics ---
+    hint_source = source or "USAspending"
     if events_total == 0:
         hints.append("No events in DB. Try: ss ingest usaspending --days 30 --pages 1")
     elif events_window == 0:
         hints.append(f"No events in last {window_days} days for source={source or '*'}; increase --days or run ingest.")
 
     if events_window > 0 and events_with_keywords == 0:
-        hints.append("No keywords tagged on recent events. Try: ss ontology apply --path ontology.json --days 30 --source USAspending")
+        hints.append(f'No keywords tagged on recent events. Try: ss ontology apply --path ontology.json --days {window_days} --source "{hint_source}"')
 
     if lane_counts.get("kw_pair", 0) == 0:
         if events_with_keywords == 0:
             hints.append("kw_pair correlations require keywords. Run ontology apply first, then rebuild keyword-pairs.")
         else:
-            hints.append("No kw_pair correlations found. Try: ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 3")
+            hints.append(f'No kw_pair correlations found. Try: ss correlate rebuild-keyword-pairs --window-days {window_days} --source "{hint_source}" --min-events 3')
             if scanned_events and (events_keywords_gt_max / scanned_events) >= 0.2:
                 hints.append(
                     f"Many events have >{int(max_keywords_per_event)} keywords; pair explosion guard may suppress pairs. Consider raising --max-keywords-per-event or tightening ontology."
                 )
 
     if events_window > 0 and events_with_entity_window == 0:
-        hints.append("No entities linked on recent events. Try: ss entities link --source USAspending --days 30")
+        hints.append(f'No entities linked on recent events. Try: ss entities link --source "{hint_source}" --days {window_days}')
 
-    if snapshots_total == 0:
-        hints.append("No lead snapshots found. Try: ss leads snapshot --source USAspending --min-score 1 --limit 200")
+    if lead_snapshot is None:
+        hints.append(f'No lead snapshots found. Try: ss leads snapshot --source "{hint_source}" --min-score 1 --limit 200')
 
     payload: dict[str, Any] = {
         "db": {"status": "ok", "url": safe_url},
