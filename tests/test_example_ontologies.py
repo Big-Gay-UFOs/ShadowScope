@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -11,6 +10,7 @@ def test_example_ontologies_validate():
     for name in [
         "ontology_sam_kwpair_demo.json",
         "ontology_sam_procurement_starter.json",
+        "ontology_usaspending_starter.json",
     ]:
         path = Path("examples") / name
         obj = json.loads(path.read_text(encoding="utf-8-sig"))

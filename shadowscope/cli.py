@@ -460,22 +460,108 @@ def doctor_status_cli(
             typer.echo(f"- {h}")
 
 
+def _echo_workflow_summary(label: str, res: dict) -> None:
+    typer.echo(f"Workflow complete: {label}")
+    if res.get("ingest"):
+        ing = res["ingest"]
+        typer.echo(
+            f"Ingest: run_id={ing.get('run_id')} fetched={ing.get('fetched')} inserted={ing.get('inserted')} normalized={ing.get('normalized')}"
+        )
+        if ing.get("snapshot_dir"):
+            typer.echo(f"Raw snapshots: {Path(ing.get('snapshot_dir')).resolve()}")
+    if res.get("ontology_apply"):
+        ont = res["ontology_apply"]
+        typer.echo(
+            f"Ontology: analysis_run_id={ont.get('analysis_run_id')} scanned={ont.get('scanned')} updated={ont.get('updated')} unchanged={ont.get('unchanged')}"
+        )
+    if res.get("entities_link"):
+        ent = res["entities_link"]
+        typer.echo(
+            f"Entities: scanned={ent.get('scanned')} linked={ent.get('linked')} entities_created={ent.get('entities_created')}"
+        )
+    if res.get("correlations"):
+        c = res["correlations"]
+        typer.echo("Correlations:")
+        for k in ("same_entity", "same_uei", "same_keyword", "kw_pair"):
+            if k in c:
+                typer.echo(
+                    f"- {k}: "
+                    + " ".join(
+                        [
+                            f"{kk}={vv}"
+                            for kk, vv in c[k].items()
+                            if kk
+                            in (
+                                "correlations_created",
+                                "correlations_updated",
+                                "correlations_deleted",
+                                "links_created",
+                                "eligible_pairs",
+                                "eligible_keywords",
+                                "eligible_entities",
+                                "eligible_ueis",
+                            )
+                        ]
+                    )
+                )
+    if res.get("snapshot"):
+        s = res["snapshot"]
+        typer.echo(
+            f"Snapshot: snapshot_id={s.get('snapshot_id')} items={s.get('items')} scanned={s.get('scanned')} scoring_version={s.get('scoring_version')}"
+        )
+    if res.get("exports"):
+        ex = res["exports"]
+        if ex.get("lead_snapshot"):
+            ls = ex["lead_snapshot"]
+            typer.echo(
+                f"Export lead snapshot: csv={Path(ls['csv']).resolve()} json={Path(ls['json']).resolve()} rows={ls.get('count')}"
+            )
+        if ex.get("kw_pairs"):
+            kw = ex["kw_pairs"]
+            typer.echo(
+                f"Export kw_pairs: csv={Path(kw['csv']).resolve()} json={Path(kw['json']).resolve()} rows={kw.get('count')}"
+            )
+        if ex.get("entities"):
+            en = ex["entities"]
+            typer.echo(
+                f"Export entities: csv={Path(en['entities_csv']).resolve()} json={Path(en['entities_json']).resolve()}"
+            )
+            typer.echo(
+                f"Export event->entity: csv={Path(en['event_entities_csv']).resolve()} json={Path(en['event_entities_json']).resolve()}"
+            )
+        if ex.get("events"):
+            ev = ex["events"]
+            typer.echo(
+                f"Export events: csv={Path(ev['csv']).resolve()} jsonl={Path(ev['jsonl']).resolve()} rows={ev.get('count')}"
+            )
+
+
 @workflow_app.command("usaspending")
 def workflow_usaspending(
-    ingest_days: int = typer.Option(30, "--ingest-days", help="Ingest: days of history to request"),
+    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
     pages: int = typer.Option(1, "--pages", help="Ingest: maximum API pages to request"),
     page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 100)"),
-    max_records: Optional[int] = typer.Option(None, "--max-records", "--limit", help="Ingest: total cap across all pages"),
+    max_records: Optional[int] = typer.Option(
+        None, "--max-records", "--limit", help="Ingest: total cap across all pages"
+    ),
     start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
-    recipient: Optional[List[str]] = typer.Option(None, "--recipient", help="Ingest: recipient search text (repeat --recipient)"),
+    recipient: Optional[List[str]] = typer.Option(
+        None, "--recipient", help="Ingest: recipient search text (repeat --recipient)"
+    ),
     keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: keyword filter (repeat --keyword)"),
-    ontology_path: Path = typer.Option(Path("ontology.json"), "--ontology", "-o", help="Ontology: path to ontology.json"),
+    ontology_path: Path = typer.Option(Path("examples/ontology_usaspending_starter.json"), "--ontology", "-o", help="Ontology: path to USAspending ontology JSON"),
     ontology_days: int = typer.Option(30, "--ontology-days", help="Ontology: tag events in last N days"),
     window_days: int = typer.Option(30, "--window-days", help="Correlations: lookback window (days)"),
     min_events_entity: int = typer.Option(2, "--min-events-entity", help="Correlations: min events for entity/UEI lanes"),
-    min_events_keywords: int = typer.Option(3, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"),
-    max_events_keywords: int = typer.Option(200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"),
-    max_keywords_per_event: int = typer.Option(10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"),
+    min_events_keywords: int = typer.Option(
+        3, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"
+    ),
+    max_events_keywords: int = typer.Option(
+        200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"
+    ),
+    max_keywords_per_event: int = typer.Option(
+        10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"
+    ),
     entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
@@ -532,43 +618,212 @@ def workflow_usaspending(
         typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
         return
 
-    typer.echo("Workflow complete: USAspending")
-    if res.get("ingest"):
-        ing = res["ingest"]
-        typer.echo(f"Ingest: run_id={ing.get('run_id')} fetched={ing.get('fetched')} inserted={ing.get('inserted')} normalized={ing.get('normalized')}")
-        if ing.get("snapshot_dir"):
-            typer.echo(f"Raw snapshots: {Path(ing.get('snapshot_dir')).resolve()}")
-    if res.get("ontology_apply"):
-        ont = res["ontology_apply"]
-        typer.echo(f"Ontology: analysis_run_id={ont.get('analysis_run_id')} scanned={ont.get('scanned')} updated={ont.get('updated')} unchanged={ont.get('unchanged')}")
-    if res.get("entities_link"):
-        ent = res["entities_link"]
-        typer.echo(f"Entities: scanned={ent.get('scanned')} linked={ent.get('linked')} entities_created={ent.get('entities_created')}")
-    if res.get("correlations"):
-        c = res["correlations"]
-        typer.echo("Correlations:")
-        for k in ("same_entity","same_uei","same_keyword","kw_pair"):
-            if k in c:
-                typer.echo(f"- {k}: " + " ".join([f"{kk}={vv}" for kk, vv in c[k].items() if kk in ('correlations_created','correlations_updated','correlations_deleted','links_created','eligible_pairs','eligible_keywords','eligible_entities','eligible_ueis')]))
-    if res.get("snapshot"):
-        s = res["snapshot"]
-        typer.echo(f"Snapshot: snapshot_id={s.get('snapshot_id')} items={s.get('items')} scanned={s.get('scanned')} scoring_version={s.get('scoring_version')}")
-    if res.get("exports"):
-        ex = res["exports"]
-        if ex.get("lead_snapshot"):
-            ls = ex["lead_snapshot"]
-            typer.echo(f"Export lead snapshot: csv={Path(ls['csv']).resolve()} json={Path(ls['json']).resolve()} rows={ls.get('count')}")
-        if ex.get("kw_pairs"):
-            kw = ex["kw_pairs"]
-            typer.echo(f"Export kw_pairs: csv={Path(kw['csv']).resolve()} json={Path(kw['json']).resolve()} rows={kw.get('count')}")
-        if ex.get("entities"):
-            en = ex["entities"]
-            typer.echo(f"Export entities: csv={Path(en['entities_csv']).resolve()} json={Path(en['entities_json']).resolve()}")
-            typer.echo(f"Export event->entity: csv={Path(en['event_entities_csv']).resolve()} json={Path(en['event_entities_json']).resolve()}")
-        if ex.get("events"):
-            ev = ex["events"]
-            typer.echo(f"Export events: csv={Path(ev['csv']).resolve()} jsonl={Path(ev['jsonl']).resolve()} rows={ev.get('count')}")
+    _echo_workflow_summary("USAspending", res)
 
+
+@workflow_app.command("samgov")
+@workflow_app.command("sam")
+def workflow_samgov(
+    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
+    pages: int = typer.Option(2, "--pages", help="Ingest: maximum API pages to request"),
+    page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
+    max_records: Optional[int] = typer.Option(
+        50, "--max-records", "--limit", help="Ingest: total cap across pages"
+    ),
+    start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
+    keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    api_key: Optional[str] = typer.Option(
+        None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."
+    ),
+    ontology_path: Path = typer.Option(
+        Path("examples/ontology_sam_procurement_starter.json"),
+        "--ontology",
+        "-o",
+        help="Ontology: path to SAM ontology JSON",
+    ),
+    ontology_days: int = typer.Option(30, "--ontology-days", help="Ontology: tag events in last N days"),
+    window_days: int = typer.Option(30, "--window-days", help="Correlations: lookback window (days)"),
+    min_events_entity: int = typer.Option(2, "--min-events-entity", help="Correlations: min events for entity/UEI lanes"),
+    min_events_keywords: int = typer.Option(
+        2, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"
+    ),
+    max_events_keywords: int = typer.Option(
+        200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"
+    ),
+    max_keywords_per_event: int = typer.Option(
+        10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"
+    ),
+    entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
+    min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
+    snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot: how many recent events to scan"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    notes: Optional[str] = typer.Option(None, "--notes", help="Snapshot: optional snapshot notes"),
+    out: Optional[str] = typer.Option(None, "--out", help="Exports: output directory or base file path"),
+    export_events_flag: bool = typer.Option(True, "--export-events/--no-export-events", help="Exports: include events CSV/JSONL"),
+    skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (offline replay from existing data)"),
+    skip_ontology: bool = typer.Option(False, "--skip-ontology", help="Skip ontology apply step"),
+    skip_entities: bool = typer.Option(False, "--skip-entities", help="Skip entity linking step"),
+    skip_correlations: bool = typer.Option(False, "--skip-correlations", help="Skip correlation rebuild step"),
+    skip_snapshot: bool = typer.Option(False, "--skip-snapshot", help="Skip snapshot creation step"),
+    skip_exports: bool = typer.Option(False, "--skip-exports", help="Skip export step"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload (default=str for paths)"),
+):
+    from backend.services.workflow import run_samgov_workflow
+
+    export_path = Path(out).expanduser() if out else None
+    res = run_samgov_workflow(
+        ingest_days=ingest_days,
+        pages=pages,
+        page_size=page_size,
+        max_records=max_records,
+        start_page=start_page,
+        keywords=keyword,
+        api_key=api_key,
+        ontology_path=ontology_path,
+        ontology_days=ontology_days,
+        window_days=window_days,
+        min_events_entity=min_events_entity,
+        min_events_keywords=min_events_keywords,
+        max_events_keywords=max_events_keywords,
+        max_keywords_per_event=max_keywords_per_event,
+        entity_days=entity_days,
+        min_score=min_score,
+        snapshot_limit=snapshot_limit,
+        scan_limit=scan_limit,
+        scoring_version=scoring_version,
+        notes=notes,
+        output=export_path,
+        export_events_flag=export_events_flag,
+        database_url=database_url,
+        skip_ingest=skip_ingest,
+        skip_ontology=skip_ontology,
+        skip_entities=skip_entities,
+        skip_correlations=skip_correlations,
+        skip_snapshot=skip_snapshot,
+        skip_exports=skip_exports,
+    )
+
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        if res.get("status") == "skipped":
+            raise typer.Exit(code=2)
+        return
+
+    if res.get("status") == "skipped":
+        typer.secho(
+            "SAM.gov workflow ingest skipped: SAM_API_KEY is not set. Set $env:SAM_API_KEY for this session or add SAM_API_KEY=... to your local .env (gitignored).",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=2)
+
+    _echo_workflow_summary("SAM.gov", res)
+
+
+@workflow_app.command("samgov-smoke")
+def workflow_samgov_smoke(
+    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
+    pages: int = typer.Option(2, "--pages", help="Ingest: maximum API pages to request"),
+    page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
+    max_records: Optional[int] = typer.Option(
+        50, "--max-records", "--limit", help="Ingest: total cap across pages"
+    ),
+    start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
+    keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    api_key: Optional[str] = typer.Option(
+        None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."
+    ),
+    ontology_path: Path = typer.Option(
+        Path("examples/ontology_sam_procurement_starter.json"),
+        "--ontology",
+        "-o",
+        help="Ontology: path to SAM ontology JSON",
+    ),
+    ontology_days: int = typer.Option(30, "--ontology-days", help="Ontology: tag events in last N days"),
+    window_days: int = typer.Option(30, "--window-days", help="Correlation/doctor lookback window (days)"),
+    min_events_entity: int = typer.Option(2, "--min-events-entity", help="Correlations: min events for entity/UEI lanes"),
+    min_events_keywords: int = typer.Option(
+        2, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"
+    ),
+    max_events_keywords: int = typer.Option(
+        200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"
+    ),
+    max_keywords_per_event: int = typer.Option(
+        10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"
+    ),
+    entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
+    min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
+    snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot/doctor scan window"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    notes: Optional[str] = typer.Option("samgov smoke workflow", "--notes", help="Snapshot: optional notes"),
+    bundle_root: Optional[str] = typer.Option(
+        None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/smoke/samgov)"
+    ),
+    require_nonzero: bool = typer.Option(
+        True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required non-zero checks fail"
+    ),
+    skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (offline fixture replay)"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload (default=str for paths)"),
+):
+    from backend.services.workflow import run_samgov_smoke_workflow
+
+    bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    res = run_samgov_smoke_workflow(
+        ingest_days=ingest_days,
+        pages=pages,
+        page_size=page_size,
+        max_records=max_records,
+        start_page=start_page,
+        keywords=keyword,
+        api_key=api_key,
+        ontology_path=ontology_path,
+        ontology_days=ontology_days,
+        entity_days=entity_days,
+        window_days=window_days,
+        min_events_entity=min_events_entity,
+        min_events_keywords=min_events_keywords,
+        max_events_keywords=max_events_keywords,
+        max_keywords_per_event=max_keywords_per_event,
+        min_score=min_score,
+        snapshot_limit=snapshot_limit,
+        scan_limit=scan_limit,
+        scoring_version=scoring_version,
+        notes=notes,
+        bundle_root=bundle_path,
+        database_url=database_url,
+        require_nonzero=require_nonzero,
+        skip_ingest=skip_ingest,
+    )
+
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+    else:
+        typer.echo(f"SAM.gov smoke workflow: {'PASS' if res.get('smoke_passed') else 'FAIL'}")
+        typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+        artifacts = res.get("artifacts") or {}
+        if artifacts.get("smoke_summary_json"):
+            typer.echo(f"Smoke summary: {Path(artifacts.get('smoke_summary_json')).resolve()}")
+        if artifacts.get("doctor_status_json"):
+            typer.echo(f"Doctor status: {Path(artifacts.get('doctor_status_json')).resolve()}")
+        for chk in res.get("checks", []):
+            marker = "OK" if chk.get("ok") else "FAIL"
+            req = "" if chk.get("required", True) else " (info)"
+            typer.echo(f"- [{marker}] {chk.get('name')}{req} actual={chk.get('actual')} expected={chk.get('expected')}")
+
+        entities_diag = (res.get("baseline") or {}).get("entity_coverage") or {}
+        typer.echo(
+            "Entity coverage baseline: "
+            f"window_linked_pct={entities_diag.get('window_linked_coverage_pct')} "
+            f"sample_identity={entities_diag.get('sample_events_with_identity_signal')} "
+            f"sample_identity_linked={entities_diag.get('sample_events_with_identity_signal_linked')} "
+            f"sample_identity_linked_pct={entities_diag.get('sample_identity_signal_coverage_pct')}"
+        )
+
+    if require_nonzero and res.get("status") != "ok":
+        raise typer.Exit(code=2)
 
 def run() -> None:
     app()
@@ -712,3 +967,5 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
+
+
