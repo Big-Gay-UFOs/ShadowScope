@@ -18,6 +18,7 @@ from backend.db.models import (
     get_engine,
     get_session_factory,
 )
+from backend.services.entities import _extract_identity
 
 
 def doctor_status(
@@ -69,6 +70,9 @@ def doctor_status(
                 db,
                 select(func.count()).select_from(Event).where(*ev_where, Event.entity_id.isnot(None)),
             )
+            entity_window_coverage_pct = (
+                round((events_with_entity_window / events_window) * 100.0, 1) if events_window else 0.0
+            )
 
             # --- Correlations by lane (use correlation_key prefixes; include both source and '*' forms) ---
             lane_prefixes = ["kw_pair", "same_keyword", "same_uei", "same_entity"]
@@ -84,22 +88,30 @@ def doctor_status(
                     .select_from(Correlation)
                     .where(
                         Correlation.window_days == window_days,
-
                         Correlation.correlation_key.isnot(None),
                         or_(*[Correlation.correlation_key.like(p) for p in patterns]),
                     ),
                 )
 
-            # --- Sample recent events for keyword diagnostics ---
-            q = select(Event.id, Event.keywords, Event.entity_id).where(*ev_where).order_by(event_ts.desc()).limit(int(scan_limit))
+            # --- Sample recent events for keyword/entity diagnostics ---
+            q = (
+                select(Event.id, Event.keywords, Event.entity_id, Event.raw_json, Event.source)
+                .where(*ev_where)
+                .order_by(event_ts.desc())
+                .limit(int(scan_limit))
+            )
             rows = db.execute(q).all()
 
             scanned_events = len(rows)
             events_with_keywords = 0
             events_keywords_gt_max = 0
+            events_with_identity_signal = 0
+            events_with_identity_signal_linked = 0
+            events_with_name_signal = 0
+            events_with_name_signal_linked = 0
             kw_counter: Counter[str] = Counter()
 
-            for _eid, keywords, _entity_id in rows:
+            for _eid, keywords, _entity_id, raw_json, row_source in rows:
                 kws: list[str] = []
                 if isinstance(keywords, list):
                     kws = [str(x) for x in keywords if x is not None and str(x).strip() != ""]
@@ -109,9 +121,46 @@ def doctor_status(
                 if len(kws) > int(max_keywords_per_event):
                     events_keywords_gt_max += 1
 
+                identity_signal = False
+                name_signal = False
+                try:
+                    ident = _extract_identity(raw_json, row_source or (source or "USAspending"))
+                    if isinstance(ident, dict):
+                        meta = ident.get("meta")
+                        identity_signal = bool(
+                            ident.get("uei")
+                            or ident.get("duns")
+                            or ident.get("cage")
+                            or ident.get("recipient_id")
+                            or (isinstance(meta, dict) and meta.get("sam_parent_path_code"))
+                        )
+                        name_signal = bool(ident.get("name"))
+                except Exception:
+                    identity_signal = False
+                    name_signal = False
+
+                if identity_signal:
+                    events_with_identity_signal += 1
+                    if _entity_id is not None:
+                        events_with_identity_signal_linked += 1
+                if name_signal:
+                    events_with_name_signal += 1
+                    if _entity_id is not None:
+                        events_with_name_signal_linked += 1
+
             unique_keywords = len(kw_counter)
             top_keywords = [{"keyword": k, "count": int(v)} for k, v in kw_counter.most_common(10)]
             coverage_pct = round((events_with_keywords / scanned_events) * 100.0, 1) if scanned_events else 0.0
+            identity_signal_coverage_pct = (
+                round((events_with_identity_signal_linked / events_with_identity_signal) * 100.0, 1)
+                if events_with_identity_signal
+                else 0.0
+            )
+            name_signal_coverage_pct = (
+                round((events_with_name_signal_linked / events_with_name_signal) * 100.0, 1)
+                if events_with_name_signal
+                else 0.0
+            )
 
             # --- Last runs ---
             ingest_q = select(IngestRun).order_by(IngestRun.id.desc())
@@ -155,13 +204,17 @@ def doctor_status(
         hints.append(f"No events in last {window_days} days for source={source or '*'}; increase --days or run ingest.")
 
     if events_window > 0 and events_with_keywords == 0:
-        hints.append(f'No keywords tagged on recent events. Try: ss ontology apply --path ontology.json --days {window_days} --source "{hint_source}"')
+        hints.append(
+            f'No keywords tagged on recent events. Try: ss ontology apply --path ontology.json --days {window_days} --source "{hint_source}"'
+        )
 
     if lane_counts.get("kw_pair", 0) == 0:
         if events_with_keywords == 0:
             hints.append("kw_pair correlations require keywords. Run ontology apply first, then rebuild keyword-pairs.")
         else:
-            hints.append(f'No kw_pair correlations found. Try: ss correlate rebuild-keyword-pairs --window-days {window_days} --source "{hint_source}" --min-events 3')
+            hints.append(
+                f'No kw_pair correlations found. Try: ss correlate rebuild-keyword-pairs --window-days {window_days} --source "{hint_source}" --min-events 3'
+            )
             if scanned_events and (events_keywords_gt_max / scanned_events) >= 0.2:
                 hints.append(
                     f"Many events have >{int(max_keywords_per_event)} keywords; pair explosion guard may suppress pairs. Consider raising --max-keywords-per-event or tightening ontology."
@@ -169,6 +222,15 @@ def doctor_status(
 
     if events_window > 0 and events_with_entity_window == 0:
         hints.append(f'No entities linked on recent events. Try: ss entities link --source "{hint_source}" --days {window_days}')
+    elif events_window > 0 and entity_window_coverage_pct < 25.0:
+        hints.append(
+            f'Entity coverage is low ({entity_window_coverage_pct}%). Try: ss entities link --source "{hint_source}" --days {window_days}'
+        )
+
+    if events_with_identity_signal > 0 and identity_signal_coverage_pct < 50.0:
+        hints.append(
+            "Low identity-based entity linkage in sampled events. Inspect recipient_id/UEI/CAGE fields in raw_json and rerun entity linking."
+        )
 
     if lead_snapshot is None:
         hints.append(f'No lead snapshots found. Try: ss leads snapshot --source "{hint_source}" --min-score 1 --limit 200')
@@ -184,6 +246,16 @@ def doctor_status(
             "correlations_total": int(correlations_total),
             "lead_snapshots_total": int(snapshots_total),
             "lead_snapshot_items_total": int(snapshot_items_total),
+        },
+        "entities": {
+            "window_linked_coverage_pct": float(entity_window_coverage_pct),
+            "sample_scanned_events": int(scanned_events),
+            "sample_events_with_identity_signal": int(events_with_identity_signal),
+            "sample_events_with_identity_signal_linked": int(events_with_identity_signal_linked),
+            "sample_identity_signal_coverage_pct": float(identity_signal_coverage_pct),
+            "sample_events_with_name": int(events_with_name_signal),
+            "sample_events_with_name_linked": int(events_with_name_signal_linked),
+            "sample_name_coverage_pct": float(name_signal_coverage_pct),
         },
         "keywords": {
             "scanned_events": int(scanned_events),

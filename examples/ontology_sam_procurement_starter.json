@@ -53,6 +53,69 @@
           "weight": 1
         },
         {
+          "id": "request_for_proposal",
+          "type": "regex",
+          "pattern": "\\bRFP\\b|Request for Proposal",
+          "keywords": [
+            "rfp"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "request_for_quote",
+          "type": "regex",
+          "pattern": "\\bRFQ\\b|Request for Quotation",
+          "keywords": [
+            "rfq"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "invitation_for_bid",
+          "type": "regex",
+          "pattern": "\\bIFB\\b|Invitation for Bid",
+          "keywords": [
+            "ifb"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "idiq",
+          "type": "regex",
+          "pattern": "\\bIDIQ\\b|Indefinite Delivery",
+          "keywords": [
+            "idiq"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "task_order",
+          "type": "regex",
+          "pattern": "\\btask order\\b",
+          "keywords": [
+            "task_order"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "small_business_set_aside",
+          "type": "regex",
+          "pattern": "small business set-?aside|set-?aside",
+          "keywords": [
+            "set_aside"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "naics",
+          "type": "regex",
+          "pattern": "\\bNAICS\\b",
+          "keywords": [
+            "naics"
+          ],
+          "weight": 1
+        },
+        {
           "id": "construction",
           "type": "regex",
           "pattern": "construction|repair|renovation",

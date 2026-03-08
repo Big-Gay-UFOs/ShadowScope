@@ -253,28 +253,28 @@ More detail: see `docs/RUNBOOK.md`.
 
 ## Status
 
-- Current focus: **USAspending iteration (MVP closeout)** ? stable ingest ? tag ? correlate ? rank ? export.
-- Roadmap/checklist: see `ROADMAP.md` (this is the authoritative tracker).
-- Future: **SAM.gov** support is planned, but intentionally deferred until USAspending is solid end-to-end.
+- Current focus: harden SAM.gov + USAspending operator workflow end-to-end.
+- Roadmap/checklist: see `ROADMAP.md` (authoritative tracker).
+- SAM.gov and USAspending ingestion are both supported; use source-specific commands/hints in `ss doctor status`.
 
 ### Notes
+
 - PowerShell: do not paste placeholders like `<ID>`; use numeric values directly.
 - Correlations: use `--window-days` for rebuild commands (not `--days`).
-- Raw ingest snapshots: `data/raw/usaspending/YYYYMMDD/page_*.json`.
+- Raw ingest snapshots:
+  - USAspending: `data/raw/usaspending/YYYYMMDD/page_*.json`
+  - SAM.gov: `data/raw/sam/YYYYMMDD/page_*.json`
 
-
-
-ShadowScope is a **batch investigative OSINT pipeline** for surfacing “support footprints” of sensitive programs inside **public procurement data** (starting with USAspending; SAM.gov planned).
+ShadowScope is a batch investigative OSINT pipeline for surfacing support footprints inside public procurement data.
 
 It is designed for repeatable investigator runs:
 
-1) ingest a time window (seeded searches)  
-2) normalize + persist to Postgres (idempotent)  
-3) tag with ontology signals (keywords + clause hits)  
-4) score/rank leads (**v2** scoring by default)  
-5) snapshot leads (repeatability + deltas)  
+1) ingest a time window (seeded searches)
+2) normalize + persist to Postgres (idempotent)
+3) tag with ontology signals (keywords + clause hits)
+4) score/rank leads (v2 scoring by default)
+5) snapshot leads (repeatability + deltas)
 6) cluster related records (entity / UEI / keyword / keyword-pair)
-
 ## Runbook
 One command:
 - `tools/runbook.ps1`
