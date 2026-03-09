@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 from backend.services.reporting import (
@@ -204,4 +205,42 @@ def test_find_latest_sam_smoke_bundle_uses_latest_stamp(tmp_path: Path):
     new.mkdir(parents=True, exist_ok=True)
 
     assert find_latest_sam_smoke_bundle(root) == new
+
+
+def test_generate_report_resolves_bundle_prefixed_relative_artifact_paths(tmp_path: Path):
+    bundle = tmp_path / "tmp_rel_bundle"
+    workflow, doctor, smoke, artifacts = _sample_payloads(bundle)
+
+    artifacts["workflow_result_json"] = f"{bundle.name}/workflow_result.json"
+    artifacts["doctor_status_json"] = f"{bundle.name}/doctor_status.json"
+    artifacts["smoke_summary_json"] = f"{bundle.name}/smoke_summary.json"
+    smoke["artifacts"] = artifacts
+
+    _write_json(bundle / "workflow_result.json", {"generated_at": "2026-03-09T12:00:00+00:00", "result": workflow})
+    _write_json(bundle / "doctor_status.json", {"generated_at": "2026-03-09T12:00:00+00:00", "result": doctor})
+    _write_json(bundle / "smoke_summary.json", smoke)
+
+    res = generate_sam_report_from_bundle(bundle)
+    report_html = Path(res["report_html"]).read_text(encoding="utf-8")
+
+    assert re.search(r"<tr><td>workflow_result_json</td><td>.*?</td><td>yes</td></tr>", report_html)
+    assert re.search(r"<tr><td>doctor_status_json</td><td>.*?</td><td>yes</td></tr>", report_html)
+
+
+def test_find_latest_sam_smoke_bundle_ignores_non_stamped_directories(tmp_path: Path):
+    root = tmp_path / "smoke" / "samgov"
+    (root / "archive").mkdir(parents=True, exist_ok=True)
+    (root / "tmp").mkdir(parents=True, exist_ok=True)
+    stamped = root / "20260309_120000"
+    stamped.mkdir(parents=True, exist_ok=True)
+
+    assert find_latest_sam_smoke_bundle(root) == stamped
+
+
+def test_find_latest_sam_smoke_bundle_returns_none_when_no_stamped_runs(tmp_path: Path):
+    root = tmp_path / "smoke" / "samgov"
+    (root / "archive").mkdir(parents=True, exist_ok=True)
+    (root / "tmp").mkdir(parents=True, exist_ok=True)
+
+    assert find_latest_sam_smoke_bundle(root) is None
 

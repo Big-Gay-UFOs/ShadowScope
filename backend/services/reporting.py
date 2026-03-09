@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -12,6 +13,7 @@ from backend.runtime import EXPORTS_DIR
 
 _REPORTABLE_EXTENSIONS = {".csv", ".html", ".json", ".jsonl"}
 _STATUS_BADGE_CLASS = {"PASS": "pass", "FAIL": "fail", "WARNING": "warn"}
+_STAMPED_BUNDLE_DIR_RE = re.compile(r"^\d{8}_\d{6}$")
 
 
 def resolve_bundle_directory(bundle_path: Path | str) -> Path:
@@ -25,7 +27,7 @@ def find_latest_sam_smoke_bundle(bundle_root: Optional[Path | str] = None) -> Op
     root = Path(bundle_root).expanduser() if bundle_root else (EXPORTS_DIR / "smoke" / "samgov")
     if not root.exists() or not root.is_dir():
         return None
-    dirs = [p for p in root.iterdir() if p.is_dir()]
+    dirs = [p for p in root.iterdir() if _is_stamped_bundle_dir(p)]
     if not dirs:
         return None
     dirs.sort(key=lambda p: p.name, reverse=True)
@@ -663,7 +665,23 @@ def _resolve_path(base: Path, value: Any) -> Optional[Path]:
     raw = Path(value).expanduser() if isinstance(value, (str, Path)) else None
     if raw is None:
         return None
-    return raw if raw.is_absolute() else (base / raw)
+    if raw.is_absolute():
+        return raw
+
+    # Most artifacts are bundle-relative paths.
+    candidate = base / raw
+    if candidate.exists():
+        return candidate
+
+    # Some persisted payloads already include the bundle-dir prefix (for example:
+    # "<bundle_name>/workflow_result.json"), so resolve from parent in that case.
+    rooted_candidate = base.parent / raw
+    if rooted_candidate.exists():
+        return rooted_candidate
+    if raw.parts and raw.parts[0] == base.name:
+        return rooted_candidate
+
+    return candidate
 
 
 def _find_first(bundle_dir: Path, contains: str, suffix: str, exclude_prefix: str = "") -> Optional[Path]:
@@ -694,6 +712,12 @@ def _infer_workflow_type(smoke_summary: dict[str, Any]) -> str:
     if smoke_summary:
         return "samgov-smoke"
     return "samgov"
+
+
+def _is_stamped_bundle_dir(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    return bool(_STAMPED_BUNDLE_DIR_RE.fullmatch(path.name))
 
 
 def _esc(value: Any) -> str:
