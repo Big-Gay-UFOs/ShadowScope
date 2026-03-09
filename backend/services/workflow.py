@@ -15,6 +15,7 @@ from backend.services.export_entities import export_entities_bundle
 from backend.services.export_leads import export_lead_snapshot
 from backend.services.ingest import ingest_sam_opportunities, ingest_usaspending
 from backend.services.leads import create_lead_snapshot
+from backend.services.reporting import generate_sam_report
 from backend.services.tagging import apply_ontology_to_events
 
 _IngestFn = Callable[..., dict[str, Any]]
@@ -567,6 +568,7 @@ def run_samgov_smoke_workflow(
 
     events_window = _safe_int(counts.get("events_window"))
     events_with_keywords = _safe_int(kw.get("events_with_keywords"))
+    keywords_scanned_events = _safe_int(kw.get("scanned_events"))
     events_with_entity = _safe_int(counts.get("events_with_entity_window"))
     same_keyword_lane = _safe_int(lane_counts.get("same_keyword"))
     kw_pair_lane = _safe_int(lane_counts.get("kw_pair"))
@@ -583,7 +585,13 @@ def run_samgov_smoke_workflow(
     sam_solicitation_number_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_solicitation_number"))
     sam_naics_code_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_naics_code"))
 
-    keywords_coverage_pct = round((events_with_keywords / events_window) * 100.0, 1) if events_window else 0.0
+    raw_keywords_coverage = kw.get("coverage_pct")
+    if raw_keywords_coverage is None:
+        keywords_coverage_pct = (
+            round((events_with_keywords / keywords_scanned_events) * 100.0, 1) if keywords_scanned_events else 0.0
+        )
+    else:
+        keywords_coverage_pct = _safe_float(raw_keywords_coverage)
     entity_coverage_pct = round((events_with_entity / events_window) * 100.0, 1) if events_window else 0.0
 
     smoke_tune_cmd = (
@@ -673,7 +681,7 @@ def run_samgov_smoke_workflow(
                 unit="%",
                 actual={
                     "events_with_keywords": events_with_keywords,
-                    "events_window": events_window,
+                    "sample_scanned_events": keywords_scanned_events,
                     "coverage_pct": keywords_coverage_pct,
                 },
                 why="Low keyword coverage reduces thematic signal quality for SAM.gov research pivots.",
@@ -839,26 +847,67 @@ def run_samgov_smoke_workflow(
     doctor_json = bundle_dir / "doctor_status.json"
     summary_json = bundle_dir / "smoke_summary.json"
 
+    run_metadata = {
+        "source": "SAM.gov",
+        "workflow_type": "samgov-smoke",
+        "run_timestamp": now.isoformat(),
+        "ingest_days": int(ingest_days),
+        "pages": int(pages),
+        "page_size": int(page_size),
+        "max_records": max_records,
+        "start_page": int(start_page),
+        "window_days": int(window_days),
+        "min_events_entity": int(min_events_entity),
+        "min_events_keywords": int(min_events_keywords),
+        "max_events_keywords": int(max_events_keywords),
+        "max_keywords_per_event": int(max_keywords_per_event),
+        "entity_days": int(entity_days),
+        "min_score": int(min_score),
+        "snapshot_limit": int(snapshot_limit),
+        "scan_limit": int(scan_limit),
+        "scoring_version": str(scoring_version),
+        "skip_ingest": bool(skip_ingest),
+        "require_nonzero": bool(require_nonzero),
+    }
+
+    artifacts_payload = {
+        "workflow_result_json": workflow_json,
+        "doctor_status_json": doctor_json,
+        "smoke_summary_json": summary_json,
+        "exports": (workflow_res.get("exports") if isinstance(workflow_res, dict) else None),
+    }
+
+    summary_payload = {
+        "generated_at": now.isoformat(),
+        "source": "SAM.gov",
+        "smoke_passed": smoke_passed,
+        "require_nonzero": bool(require_nonzero),
+        "thresholds": thresholds,
+        "failed_required_checks": failed_required_checks,
+        "checks": checks,
+        "baseline": baseline,
+        "run_metadata": run_metadata,
+        "artifacts": artifacts_payload,
+    }
+
     _write_json(workflow_json, {"generated_at": now.isoformat(), "result": workflow_res})
     _write_json(doctor_json, {"generated_at": now.isoformat(), "result": doc})
-    _write_json(
-        summary_json,
-        {
-            "generated_at": now.isoformat(),
-            "source": "SAM.gov",
-            "smoke_passed": smoke_passed,
-            "require_nonzero": bool(require_nonzero),
-            "thresholds": thresholds,
-            "failed_required_checks": failed_required_checks,
-            "checks": checks,
-            "baseline": baseline,
-            "artifacts": {
-                "workflow_result_json": workflow_json,
-                "doctor_status_json": doctor_json,
-                "exports": (workflow_res.get("exports") if isinstance(workflow_res, dict) else None),
-            },
-        },
+    _write_json(summary_json, summary_payload)
+
+    report_html = generate_sam_report(
+        bundle_dir=bundle_dir,
+        workflow_type="samgov-smoke",
+        source="SAM.gov",
+        generated_at=now.isoformat(),
+        run_metadata=run_metadata,
+        workflow_result=workflow_res if isinstance(workflow_res, dict) else {},
+        doctor_status_result=doc if isinstance(doc, dict) else {},
+        smoke_summary=summary_payload,
+        artifacts=artifacts_payload,
     )
+
+    artifacts_payload["report_html"] = report_html
+    _write_json(summary_json, summary_payload)
 
     smoke_status = "failed" if (require_nonzero and not smoke_passed) else "ok"
 
@@ -872,12 +921,8 @@ def run_samgov_smoke_workflow(
         "failed_required_checks": failed_required_checks,
         "thresholds": thresholds,
         "baseline": baseline,
-        "artifacts": {
-            "workflow_result_json": workflow_json,
-            "doctor_status_json": doctor_json,
-            "smoke_summary_json": summary_json,
-            "exports": (workflow_res.get("exports") if isinstance(workflow_res, dict) else None),
-        },
+        "run_metadata": run_metadata,
+        "artifacts": artifacts_payload,
     }
 
 
@@ -886,7 +931,4 @@ __all__ = [
     "run_samgov_workflow",
     "run_samgov_smoke_workflow",
 ]
-
-
-
 

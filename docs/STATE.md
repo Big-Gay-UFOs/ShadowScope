@@ -2,10 +2,10 @@
 
 ## Sprint state
 
-Current sprint theme: **SAM-only Threshold Calibration + Operator Trust Hardening**.
+Current sprint theme: **SAM Workflow Report Productization + Operator Trust Hardening**.
 
 ### Scope boundaries
-- SAM.gov is the active source for calibration and diagnostics hardening.
+- SAM.gov is the active source for workflow validation and review hardening.
 - USAspending remains maintenance mode this sprint.
 - Cross-source SAM<->USAspending linkage work is out of scope.
 - Keyword/term expansion for either source is deferred.
@@ -49,15 +49,27 @@ Observed ranges:
 - `same_sam_naics >= 1`
 - `snapshot_items >= 1`
 
+## Canonical review bundle contract
+- `smoke_summary.json`
+- `doctor_status.json`
+- `workflow_result.json`
+- `report.html`
+- `exports/` artifacts (lead snapshot, correlations, entities, event->entity, events)
+
+`report.html` is the canonical SAM run review surface for this sprint.
+
 ## Operator run loop
-1. Bounded smoke run:
-   - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
-2. Review diagnostics:
+1. Run smoke:
+   - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30`
+2. Review report:
+   - `ss report latest --source "SAM.gov"`
+   - Open `<bundle_dir>\report.html` and validate PASS/FAIL + summary tables.
+3. Drill down diagnostics only when needed:
    - `ss doctor status --source "SAM.gov" --days 30 --json`
-3. Tune thresholds when needed:
+4. Tune thresholds when needed:
    - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
-4. Rebuild from local data (offline loop):
+5. Rebuild from local data (offline loop):
    - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_starter.json`
    - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-5. Fixture verification:
-   - `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
+6. Fixture verification:
+   - `.\.venv\Scripts\pytest.exe -q tests\test_reporting.py tests\test_report_cli.py tests\test_workflow_wrapper.py tests\test_workflow_cli_flags.py`
