@@ -137,6 +137,23 @@ SAM.gov Research Context Hardening (SAM-first): improve context depth, signal qu
 - [ ] USAspending ontology expansion beyond maintenance-mode fixes
 - [ ] kw_pair signal-model upgrades (PMI/log-odds/etc.)
 
+### Proposed next sprint (draft)
+
+**Sprint theme:** SAM Cross-Source Validation and Threshold Calibration
+
+**Primary objective:** convert SAM context hardening into calibrated, operator-trusted thresholds and begin pragmatic SAM-to-USAspending linkage experiments.
+
+**Recommended scope:**
+- lock two additional live SAM smoke bundles and calibrate stricter `samgov-smoke` pass gates from observed lane/context baselines
+- add one reviewable SAM->USAspending candidate linkage surface (export/report), without high-risk schema churn
+- tune `same_sam_naics` threshold defaults based on observed false-positive/false-negative behavior
+- preserve fixture-first CI checks; keep live API checks optional/manual
+
+**Suggested acceptance targets:**
+- smoke bundles pass with calibrated thresholds on at least two independent bounded runs
+- non-zero, reviewable SAM linkage candidate output is generated from deterministic fixtures
+- full pytest remains green with no new live-API-dependent tests
+
 #### Known issues / risks
 
 - **Key scope:** `SAM_API_KEY` set via `$env:SAM_API_KEY = ...` is per terminal session unless persisted in local `.env`.
@@ -328,6 +345,7 @@ Full details + checklists live here:
 - `docs/AUDIT_BACKLOG_2026-02-24.md`
 
 <!-- END SHADOWSCOPE-AUDIT-2026-02-24 -->
+
 
 
 

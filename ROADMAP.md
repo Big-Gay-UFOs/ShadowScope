@@ -35,6 +35,25 @@ Current theme:
 - [ ] Evaluate signal-strength ranking upgrades for keyword/kw-pair lanes
 - [ ] Resume USAspending ontology expansion only after SAM context thresholds stabilize
 
+### Proposed next sprint plan (detailed)
+**Theme:** SAM Cross-Source Validation and Threshold Calibration
+
+**Planned work packages:**
+- WP1: baseline calibration
+  - capture at least 2 additional bounded SAM smoke bundles (`--days 30 --pages 2 --limit 50`)
+  - derive tighter non-zero thresholds for context depth + `same_sam_naics`
+- WP2: linkage experiment
+  - implement one reviewable SAM->USAspending candidate linkage export/report using existing normalized fields
+  - keep scope additive and fixture-testable (no live API dependency in tests)
+- WP3: quality + operator ergonomics
+  - refine doctor/smoke hints from observed operator friction
+  - document escalation/tuning commands for threshold misses
+
+**Exit criteria for proposed sprint:**
+- calibrated SAM smoke thresholds validated on multiple runs
+- deterministic fixture proof for cross-source candidate linkage utility
+- full pytest remains green; no required live API in CI-facing checks
+
 ### Definition of done for this pass
 From a clean Windows PowerShell session, operators can run bounded SAM workflows and reliably produce:
 - non-zero SAM keyword/correlation signal under documented defaults
@@ -112,5 +131,6 @@ See `docs/AUDIT_BACKLOG_2026-02-24.md` for full reasoning + implementation notes
 - [ ] Leverage schema-enriched lanes for cross-source linkage
 
 <!-- END SHADOWSCOPE-AUDIT-ROADMAP-2026-02-24 -->
+
 
 
