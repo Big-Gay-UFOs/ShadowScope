@@ -1,32 +1,63 @@
-# ShadowScope State Snapshot (2026-03-08)
+# ShadowScope State Snapshot (2026-03-09)
 
-## What exists now
-- SAM.gov pipeline is healthy enough for current sprint goals: ingest, ontology apply, entity linking, correlations, lead snapshot, and smoke-bundle validation all run through `ss workflow samgov` / `ss workflow samgov-smoke`.
-- USAspending ingest and entity linking are healthy, but ontology quality was the remaining gap (very low keyword coverage and no keyword-correlation lanes on representative windows).
-- Source-aware diagnostics are in place via `ss doctor status`, including SAM entity-coverage metrics and lane-level keyword diagnostics.
-- Ontology assets are now:
-  - `examples/ontology_sam_procurement_starter.json`
-  - `examples/ontology_sam_kwpair_demo.json`
-  - `examples/ontology_usaspending_starter.json` (new baseline for USAspending workflow runs)
+## Sprint state
 
-## Recently landed
-- First-class SAM workflow wrapper: `ss workflow samgov`
-- Repeatable SAM smoke workflow with artifact bundle: `ss workflow samgov-smoke`
-- USAspending starter ontology + fixture regression coverage for non-zero tagging/correlation usefulness
-- SAM workflow ergonomics: `--days` alias support in `workflow samgov` and `workflow samgov-smoke`
-- Schema-safe untagged-row diagnostic helper: `tools/diagnose_untagged_usaspending.sql`
+Current sprint theme: **SAM-only Threshold Calibration + Operator Trust Hardening**.
 
-## Current operational objective
-- Keep SAM live repeatability stable with source-scoped non-zero smoke checks.
-- Improve and iterate USAspending ontology quality using measured coverage/correlation outputs from representative windows.
+### Scope boundaries
+- SAM.gov is the active source for calibration and diagnostics hardening.
+- USAspending remains maintenance mode this sprint.
+- Cross-source SAM<->USAspending linkage work is out of scope.
+- Keyword/term expansion for either source is deferred.
 
-## Current risks
-- Missing `SAM_API_KEY` in runtime still blocks SAM live validation.
-- Rate limiting remains possible even with retry/backoff safeguards.
-- USAspending starter ontology is intentionally conservative and will still need domain tuning over time.
+## Bounded SAM calibration evidence
 
-## Next verification path
-- Run `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\examples\ontology_usaspending_starter.json --window-days 30`.
-- Inspect recent untagged USAspending rows with:
-  - `psql -U postgres -d shadowscope -v window_days=30 -v row_limit=50 -f .\tools\diagnose_untagged_usaspending.sql`
-- Run `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30` and archive `smoke_summary.json` + `doctor_status.json`.
+Command used:
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+
+Bundles used:
+- `data/exports/smoke/samgov/20260309_112458`
+- `data/exports/smoke/samgov/20260309_112520`
+- `data/exports/smoke/samgov/20260309_115814`
+
+Observed ranges:
+- `events_window`: `50..53`
+- `events_with_keywords`: `50..53`
+- `same_keyword`: `9..9`
+- `kw_pair`: `30..30`
+- `same_sam_naics`: `6..7`
+- `events_with_research_context`: `50..53`
+- `events_with_core_procurement_context`: `50..53`
+- `avg_context_fields_per_event`: `5.22..5.23`
+- `coverage_by_field_pct.sam_notice_type`: `100.0..100.0`
+- `coverage_by_field_pct.sam_solicitation_number`: `100.0..100.0`
+- `coverage_by_field_pct.sam_naics_code`: `90.6..92.0`
+
+## Calibrated SAM smoke threshold contract (defaults)
+- `events_window >= 3`
+- `events_with_keywords_coverage_pct >= 60%`
+- `events_with_entity_coverage_pct >= 60%`
+- `keyword_signal_total >= 3`
+- `events_with_research_context >= 2`
+- `research_context_coverage_pct >= 60%`
+- `events_with_core_procurement_context >= 2`
+- `core_procurement_context_coverage_pct >= 60%`
+- `avg_context_fields_per_event >= 2.5`
+- `sam_notice_type_coverage_pct >= 70%`
+- `sam_solicitation_number_coverage_pct >= 70%`
+- `sam_naics_code_coverage_pct >= 60%`
+- `same_sam_naics >= 1`
+- `snapshot_items >= 1`
+
+## Operator run loop
+1. Bounded smoke run:
+   - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+2. Review diagnostics:
+   - `ss doctor status --source "SAM.gov" --days 30 --json`
+3. Tune thresholds when needed:
+   - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
+4. Rebuild from local data (offline loop):
+   - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_starter.json`
+   - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+5. Fixture verification:
+   - `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`

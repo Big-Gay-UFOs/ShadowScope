@@ -18,7 +18,16 @@ def test_ingest_samgov_is_idempotent_and_records_ingest_run(tmp_path: Path, monk
         # Simulate two pages (offset 0 => 2 results, offset 2 => 1 result, then empty)
         if int(filters.offset) == 0:
             rows = [
-                {"noticeId": "N1", "postedDate": "2018-05-04", "title": "t1"},
+                {
+                    "noticeId": "N1",
+                    "postedDate": "2018-05-04",
+                    "title": "t1",
+                    "noticeType": "Sources Sought",
+                    "naicsCode": "541330",
+                    "typeOfSetAside": "SBA",
+                    "responseDeadLine": "2026-03-15",
+                    "fullParentPathCode": "DOE.SCI",
+                },
                 {"noticeId": "N2", "postedDate": "2018-05-04", "title": "t2"},
             ]
         elif int(filters.offset) == 2:
@@ -65,6 +74,13 @@ def test_ingest_samgov_is_idempotent_and_records_ingest_run(tmp_path: Path, monk
     db = SessionFactory()
     try:
         assert db.query(Event).count() == 3
+        n1 = db.query(Event).filter(Event.doc_id == "N1").one()
+        assert isinstance(n1.raw_json, dict)
+        assert n1.raw_json.get("sam_notice_type") == "sources sought"
+        assert n1.raw_json.get("sam_naics_code") == "541330"
+        assert n1.raw_json.get("sam_set_aside_code") == "SBA"
+        assert n1.raw_json.get("sam_agency_path_code") == "DOE.SCI"
+
         runs = db.query(IngestRun).order_by(IngestRun.id.asc()).all()
         assert len(runs) == 2
         assert runs[0].source == "SAM.gov"

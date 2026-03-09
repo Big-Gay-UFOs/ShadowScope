@@ -1,5 +1,5 @@
-{
-  "version": "1",
+﻿{
+  "version": "2",
   "defaults": {
     "fields": [
       "snippet",
@@ -11,144 +11,91 @@
       "id": "sam_procurement_starter",
       "name": "SAM Procurement Starter",
       "enabled": true,
-      "description": "Conservative starter ontology for common SAM.gov procurement concepts. Less aggressive than the demo ontology.",
+      "description": "High-precision starter ontology for SAM.gov research pivots. Rules favor notice metadata and procurement context over broad single-word matches.",
       "weight": 1,
       "rules": [
         {
-          "id": "combined_synopsis_solicitation",
+          "id": "notice_type_sources_sought",
           "type": "regex",
-          "pattern": "Combined Synopsis/?Solicitation",
-          "keywords": [
-            "notice",
-            "solicitation"
-          ],
-          "weight": 1
+          "pattern": "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*sources sought[^\\\"]*\\\"|\\bSources Sought\\b",
+          "weight": 2
         },
         {
-          "id": "solicitation",
+          "id": "notice_type_combined_synopsis_solicitation",
           "type": "regex",
-          "pattern": "\\bSolicitation\\b",
-          "keywords": [
-            "solicitation"
-          ],
-          "weight": 1
+          "pattern": "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*combined synopsis/?solicitation[^\\\"]*\\\"|Combined Synopsis/?Solicitation",
+          "weight": 2
         },
         {
-          "id": "sources_sought",
+          "id": "notice_type_presolicitation",
           "type": "regex",
-          "pattern": "Sources Sought",
-          "keywords": [
-            "sources_sought",
-            "market_research"
-          ],
-          "weight": 1
+          "pattern": "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*presolicitation[^\\\"]*\\\"|\\bPresolicitation\\b",
+          "weight": 2
         },
         {
-          "id": "presolicitation",
+          "id": "notice_type_solicitation",
           "type": "regex",
-          "pattern": "\\bPresolicitation\\b",
-          "keywords": [
-            "presolicitation"
-          ],
+          "pattern": "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*solicitation[^\\\"]*\\\"|\\bSolicitation\\b",
           "weight": 1
         },
         {
           "id": "request_for_proposal",
           "type": "regex",
           "pattern": "\\bRFP\\b|Request for Proposal",
-          "keywords": [
-            "rfp"
-          ],
-          "weight": 1
+          "weight": 2
         },
         {
           "id": "request_for_quote",
           "type": "regex",
           "pattern": "\\bRFQ\\b|Request for Quotation",
-          "keywords": [
-            "rfq"
-          ],
-          "weight": 1
+          "weight": 2
         },
         {
           "id": "invitation_for_bid",
           "type": "regex",
           "pattern": "\\bIFB\\b|Invitation for Bid",
-          "keywords": [
-            "ifb"
-          ],
+          "weight": 2
+        },
+        {
+          "id": "idiq_vehicle",
+          "type": "regex",
+          "pattern": "\\bIDIQ\\b|Indefinite Delivery(?:,? Indefinite Quantity)?",
+          "weight": 2
+        },
+        {
+          "id": "task_or_delivery_order",
+          "type": "regex",
+          "pattern": "\\b(task|delivery) order\\b",
+          "weight": 2
+        },
+        {
+          "id": "naics_context",
+          "type": "regex",
+          "pattern": "(?:\\\"sam_naics_code\\\"|\\\"naicsCode\\\"):\\\"[0-9A-Z]{2,}\\\"|\\bNAICS\\b",
+          "weight": 2
+        },
+        {
+          "id": "set_aside_context",
+          "type": "regex",
+          "pattern": "(?:\\\"sam_set_aside_(?:code|description)\\\"|\\\"typeOfSetAside(?:Description)?\\\"):\\\"[^\\\"]*(?:small business|sba|8\\(a\\)|hubzone|sdvosb|wosb)[^\\\"]*\\\"|small business set-?aside",
+          "weight": 2
+        },
+        {
+          "id": "response_deadline_present",
+          "type": "regex",
+          "pattern": "(?:\\\"sam_response_deadline\\\"|\\\"responseDeadLine\\\"|\\\"responseDeadline\\\"):\\\"[^\\\"]+\\\"",
           "weight": 1
         },
         {
-          "id": "idiq",
+          "id": "solicitation_number_present",
           "type": "regex",
-          "pattern": "\\bIDIQ\\b|Indefinite Delivery",
-          "keywords": [
-            "idiq"
-          ],
+          "pattern": "(?:\\\"sam_solicitation_number\\\"|\\\"solicitationNumber\\\"):\\\"[^\\\"]+\\\"",
           "weight": 1
         },
         {
-          "id": "task_order",
+          "id": "agency_path_code_present",
           "type": "regex",
-          "pattern": "\\btask order\\b",
-          "keywords": [
-            "task_order"
-          ],
-          "weight": 1
-        },
-        {
-          "id": "small_business_set_aside",
-          "type": "regex",
-          "pattern": "small business set-?aside|set-?aside",
-          "keywords": [
-            "set_aside"
-          ],
-          "weight": 1
-        },
-        {
-          "id": "naics",
-          "type": "regex",
-          "pattern": "\\bNAICS\\b",
-          "keywords": [
-            "naics"
-          ],
-          "weight": 1
-        },
-        {
-          "id": "construction",
-          "type": "regex",
-          "pattern": "construction|repair|renovation",
-          "keywords": [
-            "construction"
-          ],
-          "weight": 1
-        },
-        {
-          "id": "generator",
-          "type": "regex",
-          "pattern": "\\bgenerators?\\b",
-          "keywords": [
-            "generator"
-          ],
-          "weight": 1
-        },
-        {
-          "id": "valve",
-          "type": "regex",
-          "pattern": "\\bvalves?\\b",
-          "keywords": [
-            "valve"
-          ],
-          "weight": 1
-        },
-        {
-          "id": "water",
-          "type": "regex",
-          "pattern": "\\bwater\\b|\\bfeedwater\\b",
-          "keywords": [
-            "water"
-          ],
+          "pattern": "(?:\\\"sam_agency_path_code\\\"|\\\"fullParentPathCode\\\"):\\\"[^\\\"]+\\\"",
           "weight": 1
         }
       ]

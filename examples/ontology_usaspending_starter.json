@@ -1,7 +1,7 @@
 {
   "version": "0.1",
-  "updated_at": "2026-03-08",
-  "description": "Conservative USAspending starter ontology tuned for award descriptions and procurement lifecycle signals.",
+  "updated_at": "2026-03-09",
+  "description": "Conservative USAspending starter ontology tuned for award descriptions, procurement lifecycle signals, and high-precision sustainment/service patterns.",
   "defaults": {
     "case_insensitive": true,
     "fields": [
@@ -114,6 +114,36 @@
           "type": "regex",
           "pattern": "\\bsiem\\b",
           "weight": 7
+        },
+        {
+          "id": "software_support_maintenance_bundle",
+          "type": "regex",
+          "pattern": "\\b(software|application|system)\\b.{0,40}\\b(maintenance|support services?|sustainment)\\b|\\b(maintenance|support services?|sustainment)\\b.{0,40}\\b(software|application|system)\\b",
+          "weight": 6
+        },
+        {
+          "id": "software_license_renewal_support",
+          "type": "regex",
+          "pattern": "\\b(software|enterprise)?\\s*licen[cs]e(s)?\\b.{0,30}\\b(renewal|subscription|maintenance|support)\\b|\\b(renewal|subscription|maintenance|support)\\b.{0,30}\\blicen[cs]e(s)?\\b",
+          "weight": 6
+        },
+        {
+          "id": "cloud_ops_support_services",
+          "type": "regex",
+          "pattern": "\\b(cloud|saas|iaas|paas)\\b.{0,35}\\b(hosting|operations?|support services?|managed services?|migration)\\b|\\b(hosting|operations?|support services?|managed services?|migration)\\b.{0,35}\\b(cloud|saas|iaas|paas)\\b",
+          "weight": 6
+        },
+        {
+          "id": "cybersecurity_operations_support",
+          "type": "regex",
+          "pattern": "\\b(cyber(?:security)?|information security|network security)\\b.{0,35}\\b(operations?|support services?|monitoring|siem|maintenance)\\b|\\b(operations?|support services?|monitoring|siem|maintenance)\\b.{0,35}\\b(cyber(?:security)?|information security|network security)\\b",
+          "weight": 7
+        },
+        {
+          "id": "it_training_services",
+          "type": "regex",
+          "pattern": "\\b(training|instruction)\\b.{0,35}\\b(services?|support)\\b.{0,35}\\b(software|system|cyber|security|it|platform)\\b|\\b(software|system|cyber|security|it|platform)\\b.{0,35}\\b(training|instruction)\\b.{0,35}\\b(services?|support)\\b",
+          "weight": 5
         }
       ]
     },

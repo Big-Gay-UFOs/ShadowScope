@@ -118,3 +118,179 @@ def test_doctor_status_reports_entity_coverage_diagnostics(tmp_path):
     assert entities["sample_events_with_name"] == 2
     assert entities["sample_events_with_name_linked"] == 1
     assert entities["sample_name_coverage_pct"] == 50.0
+
+
+def test_doctor_status_kw_pair_hint_recommends_min_events_two(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'doctor_kw_pair_hint.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add_all(
+            [
+                Event(
+                    category="award",
+                    source="USAspending",
+                    occurred_at=now,
+                    created_at=now,
+                    snippet="software maintenance support services",
+                    raw_json={"Recipient Name": "Example 1"},
+                    hash="doctor_kw_hint_1",
+                    keywords=["sustainment_it_ops:software_support_maintenance_bundle", "sustainment_it_ops:support_services"],
+                    clauses=[],
+                ),
+                Event(
+                    category="award",
+                    source="USAspending",
+                    occurred_at=now,
+                    created_at=now,
+                    snippet="cloud hosting support services",
+                    raw_json={"Recipient Name": "Example 2"},
+                    hash="doctor_kw_hint_2",
+                    keywords=["sustainment_it_ops:cloud_ops_support_services", "sustainment_it_ops:support_services"],
+                    clauses=[],
+                ),
+            ]
+        )
+        db.commit()
+
+    res = doctor_status(
+        database_url=db_url,
+        days=30,
+        source="USAspending",
+        scan_limit=100,
+        max_keywords_per_event=10,
+    )
+
+    joined = "\n".join(res["hints"])
+    assert 'ss correlate rebuild-keyword-pairs --window-days 30 --source "USAspending" --min-events 2' in joined
+
+def test_doctor_status_reports_sam_context_depth_metrics(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'doctor_sam_context.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add_all(
+            [
+                Event(
+                    category="procurement",
+                    source="SAM.gov",
+                    occurred_at=now,
+                    created_at=now,
+                    snippet="Sources Sought engineering support",
+                    raw_json={
+                        "noticeType": "Sources Sought",
+                        "solicitationNumber": "DOE-RFP-100",
+                        "naicsCode": "541330",
+                        "typeOfSetAside": "SBA",
+                        "fullParentPathCode": "DOE.HQ",
+                        "responseDeadLine": "2026-03-15",
+                    },
+                    hash="doctor_ctx_1",
+                    keywords=["sam_procurement_starter:request_for_proposal"],
+                    clauses=[],
+                ),
+                Event(
+                    category="procurement",
+                    source="SAM.gov",
+                    occurred_at=now,
+                    created_at=now,
+                    snippet="Sources Sought engineering sustainment",
+                    raw_json={
+                        "noticeType": "Sources Sought",
+                        "solicitationNumber": "DOE-RFP-101",
+                        "naicsCode": "541330",
+                        "typeOfSetAside": "SBA",
+                        "fullParentPathCode": "DOE.HQ",
+                        "responseDeadLine": "2026-03-16",
+                    },
+                    hash="doctor_ctx_2",
+                    keywords=["sam_procurement_starter:request_for_proposal"],
+                    clauses=[],
+                ),
+                Event(
+                    category="procurement",
+                    source="SAM.gov",
+                    occurred_at=now,
+                    created_at=now,
+                    snippet="Generic procurement update",
+                    raw_json={
+                        "fullParentPathCode": "DOE.FIELD",
+                    },
+                    hash="doctor_ctx_3",
+                    keywords=[],
+                    clauses=[],
+                ),
+            ]
+        )
+        db.commit()
+
+    res = doctor_status(
+        database_url=db_url,
+        days=30,
+        source="SAM.gov",
+        scan_limit=100,
+        max_keywords_per_event=10,
+    )
+
+    sam_ctx = res["sam_context"]
+    assert sam_ctx["scanned_events"] == 3
+    assert sam_ctx["events_with_research_context"] == 2
+    assert sam_ctx["events_with_core_procurement_context"] == 2
+    assert sam_ctx["research_context_coverage_pct"] == 66.7
+    assert sam_ctx["core_procurement_context_coverage_pct"] == 66.7
+    assert sam_ctx["coverage_by_field_pct"]["sam_naics_code"] == 66.7
+
+    top_naics = sam_ctx["top_naics_codes"]
+    assert top_naics
+    assert top_naics[0]["naics_code"] == "541330"
+    assert top_naics[0]["count"] == 2
+
+
+def test_doctor_status_sam_context_hints_are_actionable(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'doctor_sam_context_hints.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add(
+            Event(
+                category="procurement",
+                source="SAM.gov",
+                occurred_at=now,
+                created_at=now,
+                snippet="Minimal SAM context",
+                raw_json={
+                    "fullParentPathCode": "DOE.FIELD",
+                },
+                hash="doctor_ctx_hint_1",
+                keywords=["sam_procurement_starter:solicitation"],
+                clauses=[],
+            )
+        )
+        db.commit()
+
+    res = doctor_status(
+        database_url=db_url,
+        days=30,
+        source="SAM.gov",
+        scan_limit=100,
+        max_keywords_per_event=10,
+    )
+
+    joined = "\n".join(res["hints"])
+    assert "SAM.gov context depth is below calibrated target" in joined
+    assert "This reduces research usefulness for lead triage" in joined
+    assert (
+        "ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology "
+        ".\\examples\\ontology_sam_procurement_starter.json"
+    ) in joined
+    assert 'ss doctor status --source "SAM.gov" --days 30 --json' in joined
+    assert "same_sam_naics" in joined
+    assert (
+        'ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200'
+    ) in joined

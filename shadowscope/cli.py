@@ -46,6 +46,30 @@ def main_callback() -> None:
     ensure_runtime_directories()
 
 
+def _parse_threshold_overrides(raw: Optional[List[str]], allowed: Optional[set[str]] = None) -> dict[str, float]:
+    overrides: dict[str, float] = {}
+    for item in raw or []:
+        token = str(item).strip()
+        if not token:
+            continue
+        if "=" not in token:
+            raise typer.BadParameter(
+                f"Invalid --threshold value '{token}'. Use key=value (for example: sam_naics_code_coverage_pct_min=60)."
+            )
+        key, value_raw = token.split("=", 1)
+        key = key.strip()
+        value_raw = value_raw.strip()
+        if not key:
+            raise typer.BadParameter(f"Invalid --threshold value '{token}': missing key.")
+        if allowed is not None and key not in allowed:
+            allowed_list = ", ".join(sorted(allowed))
+            raise typer.BadParameter(f"Unknown threshold key '{key}'. Allowed keys: {allowed_list}")
+        try:
+            overrides[key] = float(value_raw)
+        except ValueError as exc:
+            raise typer.BadParameter(f"Invalid numeric threshold for '{key}': '{value_raw}'") from exc
+    return overrides
+
 @db_app.command("init")
 def db_init(database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command.")):
     status = sync_database(database_url)
@@ -389,6 +413,7 @@ def doctor_status_cli(
     entities_diag = res.get("entities", {})
     kw = res.get("keywords", {})
     corr = res.get("correlations", {})
+    sam_ctx = res.get("sam_context", {})
     last = res.get("last_runs", {})
     hints = res.get("hints", [])
 
@@ -428,6 +453,40 @@ def doctor_status_cli(
         typer.echo("Top keywords (sample):")
         for item in top[:10]:
             typer.echo(f"- {item.get('keyword')}: {item.get('count')}")
+
+    if sam_ctx and int(sam_ctx.get("scanned_events") or 0) > 0:
+        typer.echo(
+            "SAM context (sample): "
+            f"scanned={sam_ctx.get('scanned_events')} "
+            f"research_context={sam_ctx.get('events_with_research_context')} "
+            f"research_context_pct={sam_ctx.get('research_context_coverage_pct')} "
+            f"avg_fields={sam_ctx.get('avg_context_fields_per_event')}"
+        )
+        cov = sam_ctx.get("coverage_by_field_pct") or {}
+        if cov:
+            ordered_keys = [
+                "sam_notice_type",
+                "sam_naics_code",
+                "sam_set_aside_code",
+                "sam_solicitation_number",
+                "sam_agency_path_code",
+                "sam_response_deadline",
+            ]
+            cov_parts = [f"{k}={cov.get(k)}" for k in ordered_keys if k in cov]
+            if cov_parts:
+                typer.echo("SAM context coverage pct: " + " ".join(cov_parts))
+
+        top_notice_types = sam_ctx.get("top_notice_types") or []
+        if top_notice_types:
+            typer.echo("Top SAM notice types (sample):")
+            for item in top_notice_types[:10]:
+                typer.echo(f"- {item.get('notice_type')}: {item.get('count')}")
+
+        top_naics = sam_ctx.get("top_naics_codes") or []
+        if top_naics:
+            typer.echo("Top SAM NAICS (sample):")
+            for item in top_naics[:10]:
+                typer.echo(f"- {item.get('naics_code')}: {item.get('count')}")
 
     if last.get("ingest"):
         i = last["ingest"]
@@ -482,7 +541,9 @@ def _echo_workflow_summary(label: str, res: dict) -> None:
     if res.get("correlations"):
         c = res["correlations"]
         typer.echo("Correlations:")
-        for k in ("same_entity", "same_uei", "same_keyword", "kw_pair"):
+        preferred_order = ["same_entity", "same_uei", "same_keyword", "kw_pair", "same_sam_naics"]
+        ordered_lanes = preferred_order + sorted([k for k in c.keys() if k not in preferred_order])
+        for k in ordered_lanes:
             if k in c:
                 typer.echo(
                     f"- {k}: "
@@ -500,6 +561,7 @@ def _echo_workflow_summary(label: str, res: dict) -> None:
                                 "eligible_keywords",
                                 "eligible_entities",
                                 "eligible_ueis",
+                                "eligible_naics",
                             )
                         ]
                     )
@@ -554,7 +616,7 @@ def workflow_usaspending(
     window_days: int = typer.Option(30, "--window-days", help="Correlations: lookback window (days)"),
     min_events_entity: int = typer.Option(2, "--min-events-entity", help="Correlations: min events for entity/UEI lanes"),
     min_events_keywords: int = typer.Option(
-        3, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"
+        2, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"
     ),
     max_events_keywords: int = typer.Option(
         200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"
@@ -764,13 +826,15 @@ def workflow_samgov_smoke(
     require_nonzero: bool = typer.Option(
         True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required non-zero checks fail"
     ),
+    threshold: Optional[List[str]] = typer.Option(None, "--threshold", help="Threshold override key=value (repeat)."),
     skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (offline fixture replay)"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
     json_out: bool = typer.Option(False, "--json", help="Print full JSON payload (default=str for paths)"),
 ):
-    from backend.services.workflow import run_samgov_smoke_workflow
+    from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_smoke_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     res = run_samgov_smoke_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -796,6 +860,7 @@ def workflow_samgov_smoke(
         database_url=database_url,
         require_nonzero=require_nonzero,
         skip_ingest=skip_ingest,
+        threshold_overrides=threshold_overrides,
     )
 
     if json_out:
@@ -808,11 +873,21 @@ def workflow_samgov_smoke(
             typer.echo(f"Smoke summary: {Path(artifacts.get('smoke_summary_json')).resolve()}")
         if artifacts.get("doctor_status_json"):
             typer.echo(f"Doctor status: {Path(artifacts.get('doctor_status_json')).resolve()}")
+        thresholds_used = res.get("thresholds") or {}
+        if thresholds_used:
+            typer.echo(f"Threshold contract: {thresholds_used}")
         for chk in res.get("checks", []):
-            marker = "OK" if chk.get("ok") else "FAIL"
+            status = str(chk.get("status") or ("pass" if chk.get("ok") else "fail")).upper()
             req = "" if chk.get("required", True) else " (info)"
-            typer.echo(f"- [{marker}] {chk.get('name')}{req} actual={chk.get('actual')} expected={chk.get('expected')}")
-
+            observed = chk.get("observed", chk.get("actual"))
+            typer.echo(
+                f"- [{status}] {chk.get('name')}{req} observed={observed} expected={chk.get('expected')}"
+            )
+            if not chk.get("ok"):
+                if chk.get("why"):
+                    typer.echo(f"  why: {chk.get('why')}")
+                if chk.get("hint"):
+                    typer.echo(f"  next: {chk.get('hint')}")
         entities_diag = (res.get("baseline") or {}).get("entity_coverage") or {}
         typer.echo(
             "Entity coverage baseline: "
@@ -944,6 +1019,51 @@ def correlate_rebuild_keyword_pairs(
         )
     )
 
+
+@correlate_app.command("rebuild-sam-naics")
+def correlate_rebuild_sam_naics(
+    window_days: int = typer.Option(30, "--window-days", help="Lookback window (days)"),
+    source: str = typer.Option("SAM.gov", "--source", help="Event source (blank for all)"),
+    min_events: int = typer.Option(2, "--min-events", help="Minimum events per NAICS code"),
+    max_events: int = typer.Option(200, "--max-events", help="Skip NAICS codes matching more than this many events"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute only; do not write to DB"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+):
+    from backend.correlate import correlate
+
+    res = correlate.rebuild_sam_naics_correlations(
+        window_days=window_days,
+        source=source if source else None,
+        min_events=min_events,
+        max_events=max_events,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+    typer.echo(
+        "SAM NAICS correlation rebuild: "
+        + " ".join(
+            [
+                f"{k}={v}"
+                for k, v in res.items()
+                if k
+                in (
+                    "dry_run",
+                    "source",
+                    "window_days",
+                    "min_events",
+                    "max_events",
+                    "naics_seen",
+                    "eligible_naics",
+                    "correlations_created",
+                    "correlations_updated",
+                    "correlations_deleted",
+                    "links_created",
+                )
+            ]
+        )
+    )
+
+
 app.add_typer(correlate_app, name="correlate")
 
 @export_app.command("correlations")
@@ -967,5 +1087,7 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
+
+
 
 

@@ -41,3 +41,18 @@ def test_workflow_samgov_smoke_accepts_days_alias(monkeypatch):
 
     assert result.exit_code == 0, result.stdout
     assert captured.get("ingest_days") == 9
+
+
+def test_workflow_usaspending_default_min_events_keywords_is_two(monkeypatch):
+    captured = {}
+
+    def fake_run_usaspending_workflow(**kwargs):
+        captured.update(kwargs)
+        return {"status": "ok", "source": "USAspending"}
+
+    monkeypatch.setattr("backend.services.workflow.run_usaspending_workflow", fake_run_usaspending_workflow)
+
+    result = runner.invoke(cli_module.app, ["workflow", "usaspending", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("min_events_keywords") == 2

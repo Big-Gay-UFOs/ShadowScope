@@ -1,4 +1,4 @@
-"""SAM.gov Get Opportunities Public API connector for ShadowScope."""
+﻿"""SAM.gov Get Opportunities Public API connector for ShadowScope."""
 from __future__ import annotations
 
 import hashlib
@@ -12,6 +12,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import requests
 from pydantic import BaseModel, Field
+
+from backend.connectors.samgov_context import extract_sam_context_fields, merge_sam_context_fields
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +313,7 @@ def normalize_opportunities(records: Iterable[Dict[str, Any]]) -> List[Dict[str,
 
         source_url = _normalize_source_url(notice_id, _clean_str(record.get("uiLink")))
 
-        # Preserve full payload, but copy awardee identifiers into canonical keys if present
+        # Preserve full payload, but copy awardee identifiers into canonical keys if present.
         raw_json: Dict[str, Any] = dict(record)
         award = raw_json.get("award")
         if isinstance(award, dict):
@@ -323,6 +325,11 @@ def normalize_opportunities(records: Iterable[Dict[str, Any]]) -> List[Dict[str,
                     raw_json["Recipient Name"] = a_name
                 if a_uei and not raw_json.get("Recipient UEI"):
                     raw_json["Recipient UEI"] = a_uei
+
+        # SAM context contract: promote a focused set of high-value fields for
+        # research pivots (agency path, notice metadata, NAICS/set-aside, dates).
+        sam_ctx = extract_sam_context_fields(raw_json)
+        raw_json = merge_sam_context_fields(raw_json, sam_ctx)
 
         events.append(
             {
@@ -358,3 +365,4 @@ __all__ = [
     "fetch_opportunities_page",
     "normalize_opportunities",
 ]
+

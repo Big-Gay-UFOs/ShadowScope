@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import OperationalError
 
+from backend.connectors.samgov_context import extract_sam_context_fields
 from backend.db.models import (
     AnalysisRun,
     Correlation,
@@ -19,6 +20,10 @@ from backend.db.models import (
     get_session_factory,
 )
 from backend.services.entities import _extract_identity
+
+
+def _top_counter_rows(counter: Counter[str], key_name: str, limit: int = 10) -> list[dict[str, Any]]:
+    return [{key_name: k, "count": int(v)} for k, v in counter.most_common(int(limit))]
 
 
 def doctor_status(
@@ -75,7 +80,7 @@ def doctor_status(
             )
 
             # --- Correlations by lane (use correlation_key prefixes; include both source and '*' forms) ---
-            lane_prefixes = ["kw_pair", "same_keyword", "same_uei", "same_entity"]
+            lane_prefixes = ["kw_pair", "same_keyword", "same_uei", "same_entity", "same_sam_naics"]
             lane_counts: dict[str, int] = {}
             for lane in lane_prefixes:
                 if source:
@@ -93,7 +98,7 @@ def doctor_status(
                     ),
                 )
 
-            # --- Sample recent events for keyword/entity diagnostics ---
+            # --- Sample recent events for keyword/entity/context diagnostics ---
             q = (
                 select(Event.id, Event.keywords, Event.entity_id, Event.raw_json, Event.source)
                 .where(*ev_where)
@@ -110,6 +115,30 @@ def doctor_status(
             events_with_name_signal = 0
             events_with_name_signal_linked = 0
             kw_counter: Counter[str] = Counter()
+
+            sam_context_scanned_events = 0
+            sam_context_depth_total = 0
+            events_with_research_context = 0
+            events_with_core_procurement_context = 0
+            sam_context_field_counts: Counter[str] = Counter()
+            sam_notice_type_counter: Counter[str] = Counter()
+            sam_naics_counter: Counter[str] = Counter()
+            sam_set_aside_counter: Counter[str] = Counter()
+
+            sam_context_fields = [
+                "sam_agency_path_code",
+                "sam_notice_type",
+                "sam_solicitation_number",
+                "sam_naics_code",
+                "sam_set_aside_code",
+                "sam_response_deadline",
+            ]
+            sam_core_fields = [
+                "sam_notice_type",
+                "sam_naics_code",
+                "sam_set_aside_code",
+                "sam_solicitation_number",
+            ]
 
             for _eid, keywords, _entity_id, raw_json, row_source in rows:
                 kws: list[str] = []
@@ -148,6 +177,37 @@ def doctor_status(
                     if _entity_id is not None:
                         events_with_name_signal_linked += 1
 
+                row_is_sam = (row_source == "SAM.gov") or (source == "SAM.gov")
+                if row_is_sam:
+                    ctx = extract_sam_context_fields(raw_json if isinstance(raw_json, dict) else {})
+                    sam_context_scanned_events += 1
+
+                    present_count = 0
+                    for field_name in sam_context_fields:
+                        if ctx.get(field_name):
+                            present_count += 1
+                            sam_context_field_counts[field_name] += 1
+                    sam_context_depth_total += present_count
+
+                    core_present_count = 0
+                    for field_name in sam_core_fields:
+                        if ctx.get(field_name):
+                            core_present_count += 1
+                    if present_count >= 3:
+                        events_with_research_context += 1
+                    if core_present_count >= 2:
+                        events_with_core_procurement_context += 1
+
+                    notice_type = ctx.get("sam_notice_type")
+                    if notice_type:
+                        sam_notice_type_counter[str(notice_type)] += 1
+                    naics_code = ctx.get("sam_naics_code")
+                    if naics_code:
+                        sam_naics_counter[str(naics_code)] += 1
+                    set_aside_code = ctx.get("sam_set_aside_code")
+                    if set_aside_code:
+                        sam_set_aside_counter[str(set_aside_code)] += 1
+
             unique_keywords = len(kw_counter)
             top_keywords = [{"keyword": k, "count": int(v)} for k, v in kw_counter.most_common(10)]
             coverage_pct = round((events_with_keywords / scanned_events) * 100.0, 1) if scanned_events else 0.0
@@ -161,6 +221,28 @@ def doctor_status(
                 if events_with_name_signal
                 else 0.0
             )
+
+            if sam_context_scanned_events:
+                avg_context_fields_per_event = round(sam_context_depth_total / sam_context_scanned_events, 2)
+                research_context_coverage_pct = round(
+                    (events_with_research_context / sam_context_scanned_events) * 100.0, 1
+                )
+                core_procurement_context_coverage_pct = round(
+                    (events_with_core_procurement_context / sam_context_scanned_events) * 100.0, 1
+                )
+                sam_context_coverage_by_field = {
+                    k: round((sam_context_field_counts.get(k, 0) / sam_context_scanned_events) * 100.0, 1)
+                    for k in sam_context_fields
+                }
+            else:
+                avg_context_fields_per_event = 0.0
+                research_context_coverage_pct = 0.0
+                core_procurement_context_coverage_pct = 0.0
+                sam_context_coverage_by_field = {k: 0.0 for k in sam_context_fields}
+
+            top_notice_types = _top_counter_rows(sam_notice_type_counter, "notice_type", limit=10)
+            top_naics_codes = _top_counter_rows(sam_naics_counter, "naics_code", limit=10)
+            top_set_aside_codes = _top_counter_rows(sam_set_aside_counter, "set_aside_code", limit=10)
 
             # --- Last runs ---
             ingest_q = select(IngestRun).order_by(IngestRun.id.desc())
@@ -213,7 +295,7 @@ def doctor_status(
             hints.append("kw_pair correlations require keywords. Run ontology apply first, then rebuild keyword-pairs.")
         else:
             hints.append(
-                f'No kw_pair correlations found. Try: ss correlate rebuild-keyword-pairs --window-days {window_days} --source "{hint_source}" --min-events 3'
+                f'No kw_pair correlations found. Try: ss correlate rebuild-keyword-pairs --window-days {window_days} --source "{hint_source}" --min-events 2'
             )
             if scanned_events and (events_keywords_gt_max / scanned_events) >= 0.2:
                 hints.append(
@@ -231,6 +313,24 @@ def doctor_status(
         hints.append(
             "Low identity-based entity linkage in sampled events. Inspect recipient_id/UEI/CAGE fields in raw_json and rerun entity linking."
         )
+
+    sam_mode = (source == "SAM.gov") or (source is None and sam_context_scanned_events > 0)
+    if sam_mode and sam_context_scanned_events > 0:
+        if research_context_coverage_pct < 60.0 or avg_context_fields_per_event < 2.5:
+            hints.append(
+                f"SAM.gov context depth is below calibrated target (research_context={research_context_coverage_pct}%, avg_fields={avg_context_fields_per_event}). This reduces research usefulness for lead triage. Next: ss workflow samgov --skip-ingest --days {window_days} --window-days {window_days} --ontology .\\examples\\ontology_sam_procurement_starter.json"
+            )
+
+        if core_procurement_context_coverage_pct < 60.0:
+            hints.append(
+                f'SAM.gov core procurement context coverage is {core_procurement_context_coverage_pct}% (<60%). This weakens notice-stage and scope interpretation. Next: ss doctor status --source "SAM.gov" --days {window_days} --json'
+            )
+
+        naics_pct = sam_context_coverage_by_field.get("sam_naics_code", 0.0)
+        if naics_pct < 60.0:
+            hints.append(
+                f'SAM.gov NAICS coverage is {naics_pct}% (<60%). This reduces industry clustering trust for same_sam_naics. Next: ss correlate rebuild-sam-naics --window-days {window_days} --source "SAM.gov" --min-events 2 --max-events 200'
+            )
 
     if lead_snapshot is None:
         hints.append(f'No lead snapshots found. Try: ss leads snapshot --source "{hint_source}" --min-score 1 --limit 200')
@@ -265,6 +365,18 @@ def doctor_status(
             "top_keywords": top_keywords,
             "events_keywords_gt_max": int(events_keywords_gt_max),
             "max_keywords_per_event": int(max_keywords_per_event),
+        },
+        "sam_context": {
+            "scanned_events": int(sam_context_scanned_events),
+            "events_with_research_context": int(events_with_research_context),
+            "research_context_coverage_pct": float(research_context_coverage_pct),
+            "events_with_core_procurement_context": int(events_with_core_procurement_context),
+            "core_procurement_context_coverage_pct": float(core_procurement_context_coverage_pct),
+            "avg_context_fields_per_event": float(avg_context_fields_per_event),
+            "coverage_by_field_pct": sam_context_coverage_by_field,
+            "top_notice_types": top_notice_types,
+            "top_naics_codes": top_naics_codes,
+            "top_set_aside_codes": top_set_aside_codes,
         },
         "correlations": {"by_lane": lane_counts},
         "last_runs": {

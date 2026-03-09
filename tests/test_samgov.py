@@ -13,6 +13,15 @@ def test_normalize_opportunities_handles_date_formats_and_missing_fields():
             "postedDate": "2018-05-04",
             "title": "Historic Office Renovation",
             "uiLink": "https://beta.sam.gov/opp/N1/view",
+            "noticeType": "Sources Sought",
+            "solicitationNumber": "DOE-RFP-001",
+            "naicsCode": "541330",
+            "naicsDescription": "Engineering Services",
+            "typeOfSetAside": "SBA",
+            "typeOfSetAsideDescription": "Total Small Business Set-Aside",
+            "responseDeadLine": "2026-03-15",
+            "fullParentPathName": "Department of Energy.Office of Science",
+            "fullParentPathCode": "DOE.SCI",
             "placeOfPerformance": {
                 "streetAddress": "517 E Wisconsin Ave",
                 "city": {"name": "Milwaukee"},
@@ -80,3 +89,12 @@ def test_normalize_opportunities_handles_date_formats_and_missing_fields():
     # Awardee identifiers copied into canonical keys for later entity-linking
     assert events[0]["raw_json"].get("Recipient Name") == "ACME INC"
     assert events[0]["raw_json"].get("Recipient UEI") == "UEI123"
+
+    # SAM context contract fields are normalized into canonical sam_* keys.
+    raw0 = events[0]["raw_json"]
+    assert raw0.get("sam_notice_type") == "sources sought"
+    assert raw0.get("sam_solicitation_number") == "DOE-RFP-001"
+    assert raw0.get("sam_naics_code") == "541330"
+    assert raw0.get("sam_set_aside_code") == "SBA"
+    assert raw0.get("sam_agency_path_code") == "DOE.SCI"
+    assert raw0.get("sam_response_deadline", "").startswith("2026-03-15")
