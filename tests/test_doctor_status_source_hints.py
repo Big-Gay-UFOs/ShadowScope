@@ -248,3 +248,49 @@ def test_doctor_status_reports_sam_context_depth_metrics(tmp_path):
     assert top_naics
     assert top_naics[0]["naics_code"] == "541330"
     assert top_naics[0]["count"] == 2
+
+
+def test_doctor_status_sam_context_hints_are_actionable(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'doctor_sam_context_hints.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add(
+            Event(
+                category="procurement",
+                source="SAM.gov",
+                occurred_at=now,
+                created_at=now,
+                snippet="Minimal SAM context",
+                raw_json={
+                    "fullParentPathCode": "DOE.FIELD",
+                },
+                hash="doctor_ctx_hint_1",
+                keywords=["sam_procurement_starter:solicitation"],
+                clauses=[],
+            )
+        )
+        db.commit()
+
+    res = doctor_status(
+        database_url=db_url,
+        days=30,
+        source="SAM.gov",
+        scan_limit=100,
+        max_keywords_per_event=10,
+    )
+
+    joined = "\n".join(res["hints"])
+    assert "SAM.gov context depth is below calibrated target" in joined
+    assert "This reduces research usefulness for lead triage" in joined
+    assert (
+        "ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology "
+        ".\\examples\\ontology_sam_procurement_starter.json"
+    ) in joined
+    assert 'ss doctor status --source "SAM.gov" --days 30 --json' in joined
+    assert "same_sam_naics" in joined
+    assert (
+        'ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200'
+    ) in joined

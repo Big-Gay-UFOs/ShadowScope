@@ -1,4 +1,4 @@
-﻿"""Typer-based command line interface for ShadowScope."""
+"""Typer-based command line interface for ShadowScope."""
 from __future__ import annotations
 
 import json
@@ -45,6 +45,30 @@ def main_callback() -> None:
     configure_logging()
     ensure_runtime_directories()
 
+
+def _parse_threshold_overrides(raw: Optional[List[str]], allowed: Optional[set[str]] = None) -> dict[str, float]:
+    overrides: dict[str, float] = {}
+    for item in raw or []:
+        token = str(item).strip()
+        if not token:
+            continue
+        if "=" not in token:
+            raise typer.BadParameter(
+                f"Invalid --threshold value '{token}'. Use key=value (for example: sam_naics_code_coverage_pct_min=60)."
+            )
+        key, value_raw = token.split("=", 1)
+        key = key.strip()
+        value_raw = value_raw.strip()
+        if not key:
+            raise typer.BadParameter(f"Invalid --threshold value '{token}': missing key.")
+        if allowed is not None and key not in allowed:
+            allowed_list = ", ".join(sorted(allowed))
+            raise typer.BadParameter(f"Unknown threshold key '{key}'. Allowed keys: {allowed_list}")
+        try:
+            overrides[key] = float(value_raw)
+        except ValueError as exc:
+            raise typer.BadParameter(f"Invalid numeric threshold for '{key}': '{value_raw}'") from exc
+    return overrides
 
 @db_app.command("init")
 def db_init(database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command.")):
@@ -802,13 +826,15 @@ def workflow_samgov_smoke(
     require_nonzero: bool = typer.Option(
         True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required non-zero checks fail"
     ),
+    threshold: Optional[List[str]] = typer.Option(None, "--threshold", help="Threshold override key=value (repeat)."),
     skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (offline fixture replay)"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
     json_out: bool = typer.Option(False, "--json", help="Print full JSON payload (default=str for paths)"),
 ):
-    from backend.services.workflow import run_samgov_smoke_workflow
+    from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_smoke_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     res = run_samgov_smoke_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -834,6 +860,7 @@ def workflow_samgov_smoke(
         database_url=database_url,
         require_nonzero=require_nonzero,
         skip_ingest=skip_ingest,
+        threshold_overrides=threshold_overrides,
     )
 
     if json_out:
@@ -846,11 +873,21 @@ def workflow_samgov_smoke(
             typer.echo(f"Smoke summary: {Path(artifacts.get('smoke_summary_json')).resolve()}")
         if artifacts.get("doctor_status_json"):
             typer.echo(f"Doctor status: {Path(artifacts.get('doctor_status_json')).resolve()}")
+        thresholds_used = res.get("thresholds") or {}
+        if thresholds_used:
+            typer.echo(f"Threshold contract: {thresholds_used}")
         for chk in res.get("checks", []):
-            marker = "OK" if chk.get("ok") else "FAIL"
+            status = str(chk.get("status") or ("pass" if chk.get("ok") else "fail")).upper()
             req = "" if chk.get("required", True) else " (info)"
-            typer.echo(f"- [{marker}] {chk.get('name')}{req} actual={chk.get('actual')} expected={chk.get('expected')}")
-
+            observed = chk.get("observed", chk.get("actual"))
+            typer.echo(
+                f"- [{status}] {chk.get('name')}{req} observed={observed} expected={chk.get('expected')}"
+            )
+            if not chk.get("ok"):
+                if chk.get("why"):
+                    typer.echo(f"  why: {chk.get('why')}")
+                if chk.get("hint"):
+                    typer.echo(f"  next: {chk.get('hint')}")
         entities_diag = (res.get("baseline") or {}).get("entity_coverage") or {}
         typer.echo(
             "Entity coverage baseline: "

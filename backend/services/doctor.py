@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -316,14 +316,20 @@ def doctor_status(
 
     sam_mode = (source == "SAM.gov") or (source is None and sam_context_scanned_events > 0)
     if sam_mode and sam_context_scanned_events > 0:
-        if events_with_research_context == 0:
+        if research_context_coverage_pct < 60.0 or avg_context_fields_per_event < 2.5:
             hints.append(
-                "SAM context depth is low in sampled events. Verify SAM normalization and inspect canonical sam_* fields in raw_json."
+                f"SAM.gov context depth is below calibrated target (research_context={research_context_coverage_pct}%, avg_fields={avg_context_fields_per_event}). This reduces research usefulness for lead triage. Next: ss workflow samgov --skip-ingest --days {window_days} --window-days {window_days} --ontology .\\examples\\ontology_sam_procurement_starter.json"
             )
-        naics_pct = sam_context_coverage_by_field.get("sam_naics_code", 0.0)
-        if naics_pct < 30.0:
+
+        if core_procurement_context_coverage_pct < 60.0:
             hints.append(
-                "SAM NAICS coverage in sampled events is low. Verify upstream fields and review sam_naics_code extraction in normalization."
+                f'SAM.gov core procurement context coverage is {core_procurement_context_coverage_pct}% (<60%). This weakens notice-stage and scope interpretation. Next: ss doctor status --source "SAM.gov" --days {window_days} --json'
+            )
+
+        naics_pct = sam_context_coverage_by_field.get("sam_naics_code", 0.0)
+        if naics_pct < 60.0:
+            hints.append(
+                f'SAM.gov NAICS coverage is {naics_pct}% (<60%). This reduces industry clustering trust for same_sam_naics. Next: ss correlate rebuild-sam-naics --window-days {window_days} --source "SAM.gov" --min-events 2 --max-events 200'
             )
 
     if lead_snapshot is None:

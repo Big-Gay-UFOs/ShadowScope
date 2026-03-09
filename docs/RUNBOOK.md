@@ -1,90 +1,80 @@
-﻿# ShadowScope Runbook
+# ShadowScope Runbook
 
-This runbook defines the SAM-first operator flow for the current sprint.
+This runbook captures the SAM-only operator flow for the current sprint.
+
+## Sprint boundaries
+- Active scope: SAM.gov threshold calibration and diagnostics trust hardening.
+- USAspending: maintenance mode only (`doctor` health checks).
+- Out of scope: SAM<->USAspending linkage and keyword/term expansion.
 
 ## Prereqs
-- Docker services running (Postgres/API as needed):
-  - `docker compose up -d`
-- Local env configured:
-  - `DATABASE_URL`
-  - `SAM_API_KEY` (for live SAM ingest)
-- CLI available:
-  - `ss --help`
+- `docker compose up -d`
+- Local env configured: `DATABASE_URL`
+- Live SAM runs require local `SAM_API_KEY`
+- CLI available: `ss --help`
 
-## SAM-first bounded workflow
+## 1) Bounded SAM smoke run
 
-### 1) Bounded SAM workflow
-Use a controlled operator slice to keep runs reproducible.
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
 
-- `ss workflow samgov --days 30 --pages 2 --limit 50 --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30`
+Artifacts are written under:
+- `data/exports/smoke/samgov/<timestamp>/`
 
-What this runs:
-- ingest -> ontology -> entities -> correlations (`same_entity`, `same_uei`, `same_keyword`, `kw_pair`, `same_sam_naics`) -> lead snapshot -> exports
+## 2) Diagnostics review (SAM.gov)
 
-### 2) Smoke bundle validation
-Run smoke checks and save artifacts for auditability.
+- `ss doctor status --source "SAM.gov" --days 30 --json`
 
-- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30`
-- JSON output variant:
-  - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+Review these fields first:
+- `events_window`
+- `events_with_keywords`
+- `same_keyword`, `kw_pair`, `same_sam_naics`
+- `events_with_research_context`
+- `events_with_core_procurement_context`
+- `avg_context_fields_per_event`
+- `coverage_by_field_pct.sam_notice_type`
+- `coverage_by_field_pct.sam_solicitation_number`
+- `coverage_by_field_pct.sam_naics_code`
 
-Expected required checks include:
-- `events_window_nonzero`
-- `events_with_keywords_nonzero`
-- `keyword_or_kw_pair_lane_nonzero`
-- `sam_research_context_nonzero`
-- `snapshot_items_nonzero`
+## 3) Calibrated threshold defaults
 
-### 3) Diagnostics review
-Review source-scoped status and context depth.
+`samgov-smoke` now enforces:
+- `events_window >= 3`
+- `events_with_keywords_coverage_pct >= 60%`
+- `events_with_entity_coverage_pct >= 60%`
+- `keyword_signal_total(same_keyword + kw_pair) >= 3`
+- `events_with_research_context >= 2`
+- `research_context_coverage_pct >= 60%`
+- `events_with_core_procurement_context >= 2`
+- `core_procurement_context_coverage_pct >= 60%`
+- `avg_context_fields_per_event >= 2.5`
+- `sam_notice_type_coverage_pct >= 70%`
+- `sam_solicitation_number_coverage_pct >= 70%`
+- `sam_naics_code_coverage_pct >= 60%`
+- `same_sam_naics >= 1`
+- `snapshot_items >= 1`
 
-- `ss doctor status --source "SAM.gov" --days 30`
-- JSON payload for full detail:
-  - `ss doctor status --source "SAM.gov" --days 30 --json`
+Each check includes `expected`, `observed`, pass/fail status, and a next command hint.
 
-Focus fields:
-- keyword coverage and lane counts
-- entity coverage diagnostics
-- SAM context diagnostics (`events_with_research_context`, `coverage_by_field_pct`, top notice/NAICS/set-aside)
+## 4) Threshold tuning loop
 
-### 4) Repeatable SAM tuning loop
-After ontology/context edits, re-run offline from existing data first.
+Use repeatable threshold overrides when you want stricter local gates:
 
-1. Re-run workflow without ingest:
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
+
+If smoke fails, run the suggested next command from the failing check.
+
+Standard offline rebuild loop:
 - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_starter.json`
-
-2. Rebuild SAM correlations explicitly (including new NAICS lane):
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-- `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+- `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200`
 
-3. Refresh ranked outputs:
-- `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "sam context tuning pass"`
+## 5) Fixture verification (offline)
 
-4. Export review artifacts:
-- `ss export lead-snapshot --snapshot-id <ID> --out .\data\exports\`
-- `ss export kw-pairs --min-event-count 2 --limit 200 --out .\data\exports\`
-- `ss export entities --out .\data\exports\`
+- `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
 
-## Context field contract (SAM normalization)
-The SAM ingest normalization persists canonical context fields in `events.raw_json`:
-- agency path: `sam_agency_path_name`, `sam_agency_path_code`
-- notice metadata: `sam_notice_type`, `sam_notice_type_code`, `sam_solicitation_number`, `sam_classification_code`
-- procurement classification: `sam_naics_code`, `sam_naics_description`, `sam_set_aside_code`, `sam_set_aside_description`
-- key dates: `sam_posted_date`, `sam_response_deadline`, `sam_archive_date`
-- region pivots: `sam_place_state_code`, `sam_place_country_code`
+## 6) USAspending maintenance check
 
-## Maintenance mode: USAspending
-USAspending remains available but is not the primary sprint focus.
-
-Quick maintenance health check:
 - `ss doctor status --source USAspending --days 30`
 
-## Troubleshooting
-- Missing SAM key: ingest/workflow can skip when `SAM_API_KEY` is unset.
-- Low context depth in doctor output:
-  - inspect `sam_*` fields in `events.raw_json`
-  - rerun bounded ingest and workflow
-- Empty NAICS lane:
-  - confirm `sam_naics_code` extraction coverage in doctor JSON
-  - lower `--min-events` only after reviewing noise impact
+No USAspending feature/linkage expansion is part of this sprint.

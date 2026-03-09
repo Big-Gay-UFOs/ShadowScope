@@ -1,136 +1,74 @@
-﻿# ShadowScope Roadmap
+# ShadowScope Roadmap
 
-<!-- ROADMAP:CURRENT_USASPENDING_BEGIN -->
+_Last updated: 2026-03-09_
 
-## Iteration 1: USAspending MVP closeout (completed)
+## Current sprint
 
-Goal achieved: USAspending is runnable end-to-end by a non-developer with reviewable outputs.
+### Theme
+SAM-only Threshold Calibration + Operator Trust Hardening
 
-### Completed highlights
-- Guardrails + CI baseline (PR template, lint/test gates)
-- Operator UX hardening (`ss doctor status`)
-- Exports + explainability fields
-- One-command USAspending workflow (`ss workflow usaspending`)
+### Scope
+- Calibrate SAM smoke/doctor thresholds from bounded SAM runs.
+- Enforce thresholds in `ss workflow samgov-smoke` with deterministic fixture tests.
+- Improve SAM.gov operator-facing failure hints (what failed, why it matters, next command).
+- Keep CI-facing checks offline/fixture-based.
 
-## Iteration 2: SAM.gov research context hardening (current)
+### Explicit boundaries
+- USAspending is maintenance mode for this sprint.
+- No SAM<->USAspending linkage/join/correlation work.
+- No keyword/term expansion for SAM or USAspending.
 
-Current theme:
-- SAM-first reliability and research context depth on bounded operator windows
-- fixture-based/offline-safe validation for SAM signal quality and diagnostics
-- USAspending in maintenance mode for this sprint
+### Completed in this sprint
+- [x] Captured bounded SAM smoke calibration bundles and extracted metric ranges.
+- [x] Implemented calibrated SAM smoke threshold contract with default gates.
+- [x] Added threshold-aware smoke output fields: expected threshold, observed value, pass/fail status, actionable hint.
+- [x] Added repeatable threshold override entrypoint (`--threshold key=value`, repeatable).
+- [x] Added fixture tests for threshold pass and deterministic fail behavior (context-depth + `same_sam_naics`).
+- [x] Hardened SAM doctor hints with source-specific, command-ready guidance.
+- [x] Kept USAspending unchanged except maintenance-safe health check paths.
 
-### Current status (2026-03-09)
-- [x] SAM context field contract implemented in normalization (`sam_*` canonical fields in `raw_json`)
-- [x] SAM workflow now rebuilds a new correlation lane: `same_sam_naics`
-- [x] SAM doctor diagnostics expanded with context-depth metrics (`events_with_research_context`, coverage-by-field, top notice/NAICS/set-aside)
-- [x] SAM smoke workflow now enforces non-zero research context checks and records SAM context baseline in bundle JSON
-- [x] SAM starter ontology tuned for high-precision procurement indicators (context-scoped, low-noise)
-- [x] Added fixture-based regression tests for SAM context extraction/persistence, non-zero correlation utility, and anti-noise guardrails
-- [x] Full local pytest suite passes with SAM-first changes
-- [x] USAspending left stable in maintenance mode (no new primary-sprint expansion)
+### Calibration snapshot (bounded SAM runs)
+Bundles:
+- `data/exports/smoke/samgov/20260309_112458`
+- `data/exports/smoke/samgov/20260309_112520`
+- `data/exports/smoke/samgov/20260309_115814`
 
-### Next sprint priorities
-- [ ] Capture additional live SAM smoke bundles and calibrate thresholds for `same_sam_naics`
-- [ ] Add cross-source join candidates (SAM opportunities to USAspending downstream signals)
-- [ ] Evaluate signal-strength ranking upgrades for keyword/kw-pair lanes
-- [ ] Resume USAspending ontology expansion only after SAM context thresholds stabilize
+Observed ranges:
+- `events_window`: `50..53`
+- `events_with_keywords`: `50..53`
+- `same_keyword`: `9..9`
+- `kw_pair`: `30..30`
+- `same_sam_naics`: `6..7`
+- `events_with_research_context`: `50..53`
+- `events_with_core_procurement_context`: `50..53`
+- `avg_context_fields_per_event`: `5.22..5.23`
+- `coverage_by_field_pct.sam_notice_type`: `100.0..100.0`
+- `coverage_by_field_pct.sam_solicitation_number`: `100.0..100.0`
+- `coverage_by_field_pct.sam_naics_code`: `90.6..92.0`
 
-### Proposed next sprint plan (detailed)
-**Theme:** SAM Cross-Source Validation and Threshold Calibration
+### Calibrated default threshold contract
+- `events_window >= 3`
+- `events_with_keywords_coverage_pct >= 60%`
+- `events_with_entity_coverage_pct >= 60%`
+- `keyword_signal_total >= 3`
+- `events_with_research_context >= 2`
+- `research_context_coverage_pct >= 60%`
+- `events_with_core_procurement_context >= 2`
+- `core_procurement_context_coverage_pct >= 60%`
+- `avg_context_fields_per_event >= 2.5`
+- `sam_notice_type_coverage_pct >= 70%`
+- `sam_solicitation_number_coverage_pct >= 70%`
+- `sam_naics_code_coverage_pct >= 60%`
+- `same_sam_naics >= 1`
+- `snapshot_items >= 1`
 
-**Planned work packages:**
-- WP1: baseline calibration
-  - capture at least 2 additional bounded SAM smoke bundles (`--days 30 --pages 2 --limit 50`)
-  - derive tighter non-zero thresholds for context depth + `same_sam_naics`
-- WP2: linkage experiment
-  - implement one reviewable SAM->USAspending candidate linkage export/report using existing normalized fields
-  - keep scope additive and fixture-testable (no live API dependency in tests)
-- WP3: quality + operator ergonomics
-  - refine doctor/smoke hints from observed operator friction
-  - document escalation/tuning commands for threshold misses
+## Operator validation commands
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+- `ss doctor status --source "SAM.gov" --days 30 --json`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
+- `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
 
-**Exit criteria for proposed sprint:**
-- calibrated SAM smoke thresholds validated on multiple runs
-- deterministic fixture proof for cross-source candidate linkage utility
-- full pytest remains green; no required live API in CI-facing checks
-
-### Definition of done for this pass
-From a clean Windows PowerShell session, operators can run bounded SAM workflows and reliably produce:
-- non-zero SAM keyword/correlation signal under documented defaults
-- non-zero SAM research-context diagnostics in `doctor` and smoke bundles
-- repeatable fixture-based regression coverage with no live API dependency in CI-facing tests
-
-<!-- ROADMAP:CURRENT_USASPENDING_END -->
-
-
-Last updated: 2026-03-09
-
-## Done
-- M0 plumbing: Compose + migrations + idempotent ingest
-- M3 investigator signal: ontology tagging + scoring + lead snapshots
-- M4 baseline: entity/UEI/keyword correlations + API filtering + exports baseline
-- M4.1 FOIA extension: seeded ingest + FOIA ontology + kw_pair + v2 default scoring + runbook
-
-## Next
-### M4.2 Workflow polish
-- Export helpers (top leads / kw_pair to JSON/CSV)
-- Improve entity linking coverage/fallbacks
-- Document runbook parameters (Days/MaxRecords/MinScore/ScanLimit)
-
-### M5 Multi-source
-- Expand SAM.gov repeatability from smoke checks to stronger thresholds
-- Add cross-source joins and correlations (USAspending <-> SAM.gov)
-
-
-
-<!-- BEGIN SHADOWSCOPE-AUDIT-ROADMAP-2026-02-24 -->
-
-## Audit-derived expanded checklist (2026-02-24)
-
-This section expands ROADMAP items with detailed, checklist-driven tasks discovered during a repo audit.
-See `docs/AUDIT_BACKLOG_2026-02-24.md` for full reasoning + implementation notes.
-
-### M4.2 Workflow polish (expanded)
-- [ ] Export helpers:
-  - [ ] top leads snapshot export (JSON/CSV)
-  - [ ] top kw_pair clusters export (JSON/CSV)
-  - [ ] lead deltas export (JSON/CSV)
-- [ ] Ontology application quality:
-  - [ ] include `raw_json` (safely stringified) in tagger input so rules can match it
-  - [ ] fix ontology validation fidelity (default_fields handling)
-  - [ ] optionally add ontology lint tool
-- [ ] Scoring alignment:
-  - [ ] make `/api/leads` default to v2
-  - [ ] preserve v1 via explicit `scoring_version` param or legacy route
-- [ ] API filtering usability:
-  - [ ] add core filters to `/api/events` (source, date range, entity_id, keyword)
-  - [ ] add filters to `/api/leads` (min_score, scoring_version, include_explanations)
-  - [ ] add correlation filters (min_event_count, min_score_signal)
-
-### M4.3 Relationship matrix: kw_pair count ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ signal
-- [ ] Replace kw_pair `score=count` with a signal score:
-  - [ ] Phase 1: PMI/NPMI or lift w/ smoothing + min counts + max df filters
-  - [ ] Phase 2: log-odds / Fisher exact / Bayesian shrinkage for investigator-grade ranking
-- [ ] Add ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“cluster explainÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â exports:
-  - [ ] member events + co-terms + top clauses (aggregated)
-  - [ ] (after schema enrichment) top agencies/PSC/NAICS breakdown per cluster
-- [ ] Add new correlation lanes once schema supports it:
-  - [ ] same_award_id / same_contract_id / same_doc_id
-  - [ ] same_agency
-  - [ ] same_PSC / same_NAICS
-  - [ ] same_place_region (state/country)
-
-### M4.4 Schema enrichment for richer lanes + filters
-- [ ] Promote high-value USAspending fields to first-class columns (award id, agencies, PSC/NAICS, UEI, place region, amounts, action_date)
-- [ ] Update OpenSearch mapping + reindex tool to index new fields
-- [ ] Update API filters to use these fields
-
-### M5 Multi-source (unchanged, but now with prerequisites)
-- [ ] SAM.gov ingestion/enrichment
-- [ ] Cross-source joins and correlations
-- [ ] Leverage schema-enriched lanes for cross-source linkage
-
-<!-- END SHADOWSCOPE-AUDIT-ROADMAP-2026-02-24 -->
-
-
-
+## Deferred (explicitly out of scope this sprint)
+- SAM<->USAspending linkage/candidate join surfaces.
+- USAspending ontology expansion and term-pack growth.
+- Keyword/term expansion for SAM starter ontology (defer to dedicated precision/recall sprint).

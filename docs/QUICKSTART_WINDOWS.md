@@ -1,10 +1,9 @@
-﻿# ShadowScope Windows Quick Start
+# ShadowScope Windows Quick Start
 
 ## Prerequisites
 - Windows PowerShell 5+ or PowerShell 7
-- Git
-- PostgreSQL available to your configured `DATABASE_URL`
-- Optional for live SAM: `SAM_API_KEY`
+- PostgreSQL reachable from `DATABASE_URL`
+- Optional for live SAM ingest: `SAM_API_KEY`
 
 ## One-time bootstrap
 
@@ -12,59 +11,49 @@
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
 ```
 
-Bootstrap sets up `.venv`, installs deps, initializes DB, runs tests, and starts API.
+## Current sprint scope (important)
+- SAM.gov threshold calibration and operator diagnostics hardening only.
+- USAspending is maintenance mode.
+- No SAM<->USAspending linkage in this sprint.
+- No keyword/term expansion in this sprint.
 
-## SAM-first operator quick path
+## Fast operator path (SAM-only)
 
-### 1) Load SAM env for this shell
-
-Recommended helper:
+### 1) Load env
 - `powershell -NoProfile -ExecutionPolicy Bypass -File .\examples\powershell\set-shadow-env.ps1`
 
-In current shell:
-- `Set-ExecutionPolicy -Scope Process Bypass -Force`
-- `.\examples\powershell\set-shadow-env.ps1`
+### 2) Bounded SAM smoke
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
 
-### 2) Run bounded SAM workflow
+### 3) Review diagnostics
+- `ss doctor status --source "SAM.gov" --days 30 --json`
 
-- `ss workflow samgov --days 30 --pages 2 --limit 50 --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30`
+### 4) Understand default threshold gates
+`samgov-smoke` enforces:
+- `events_window >= 3`
+- `events_with_keywords_coverage_pct >= 60%`
+- `events_with_entity_coverage_pct >= 60%`
+- `keyword_signal_total >= 3`
+- `events_with_research_context >= 2`
+- `research_context_coverage_pct >= 60%`
+- `events_with_core_procurement_context >= 2`
+- `core_procurement_context_coverage_pct >= 60%`
+- `avg_context_fields_per_event >= 2.5`
+- `sam_notice_type_coverage_pct >= 70%`
+- `sam_solicitation_number_coverage_pct >= 70%`
+- `sam_naics_code_coverage_pct >= 60%`
+- `same_sam_naics >= 1`
+- `snapshot_items >= 1`
 
-### 3) Validate smoke bundle
+Each check prints expected threshold, observed value, pass/fail, and next command.
 
-- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30`
-- JSON output:
-  - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+### 5) Threshold tuning loop
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_starter.json`
+- `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 
-### 4) Review diagnostics
+### 6) Fixture verification (offline)
+- `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
 
-- `ss doctor status --source "SAM.gov" --days 30`
-- full payload:
-  - `ss doctor status --source "SAM.gov" --days 30 --json`
-
-Target checks for healthy SAM research flow:
-- `events_window > 0`
-- `events_with_keywords > 0`
-- `same_keyword > 0 OR kw_pair > 0`
-- `events_with_research_context > 0`
-
-### 5) Repeatable SAM tuning loop (offline-friendly)
-
-1. Re-run without ingest:
-   - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_starter.json`
-2. Rebuild correlation lanes:
-   - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-   - `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-   - `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
-3. Refresh leads:
-   - `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "sam context tuning pass"`
-
-## Maintenance mode: USAspending
-USAspending remains supported but is not the sprint primary.
-
-Quick health check:
+## USAspending maintenance check
 - `ss doctor status --source USAspending --days 30`
-
-## Notes
-- SAM workflow commands accept `--ingest-days` and `--days`.
-- Correlation rebuild commands use `--window-days` (not `--days`).
-- Smoke artifacts are stored under `data/exports/smoke/samgov/<timestamp>/`.

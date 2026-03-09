@@ -1,4 +1,4 @@
-﻿import json
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -410,9 +410,12 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary_payload["smoke_passed"] is True
     check_names = {c.get("name") for c in summary_payload.get("checks", [])}
-    assert "events_window_nonzero" in check_names
-    assert "sam_research_context_nonzero" in check_names
-    assert "snapshot_items_nonzero" in check_names
+    assert "events_window_threshold" in check_names
+    assert "sam_research_context_events_threshold" in check_names
+    assert "snapshot_items_threshold" in check_names
+
+    assert summary_payload.get("thresholds")
+    assert summary_payload.get("failed_required_checks") == []
 
     baseline = summary_payload.get("baseline", {})
     entity_cov = baseline.get("entity_coverage", {})
@@ -423,7 +426,59 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert sam_ctx.get("events_with_research_context", 0) > 0
     assert baseline.get("correlations_by_lane", {}).get("same_sam_naics", 0) > 0
 
+    checks_by_name = {item.get("name"): item for item in summary_payload.get("checks", [])}
+    assert checks_by_name["sam_research_context_coverage_threshold"]["status"] == "pass"
+    assert checks_by_name["same_sam_naics_lane_threshold"]["status"] == "pass"
 
 
 
 
+
+
+
+def test_samgov_smoke_threshold_contract_fails_with_context_and_naics_misses(tmp_path: Path):
+    db_path = tmp_path / "sam_smoke_fail.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_smoke_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        bundle_root=tmp_path / "smoke_artifacts_fail",
+        require_nonzero=True,
+        threshold_overrides={
+            "events_with_research_context_min": 4.0,
+            "same_sam_naics_lane_min": 2.0,
+        },
+    )
+
+    assert res["status"] == "failed"
+    assert res["smoke_passed"] is False
+
+    failed_by_name = {item.get("name"): item for item in res.get("failed_required_checks", [])}
+    assert "sam_research_context_events_threshold" in failed_by_name
+    assert "same_sam_naics_lane_threshold" in failed_by_name
+
+    context_fail = failed_by_name["sam_research_context_events_threshold"]
+    assert context_fail["expected"] == ">= 4"
+    assert float(context_fail["observed"]) < 4.0
+    assert "SAM.gov" in context_fail["why"]
+    assert 'ss doctor status --source "SAM.gov"' in context_fail["hint"]
+
+    naics_fail = failed_by_name["same_sam_naics_lane_threshold"]
+    assert naics_fail["expected"] == ">= 2"
+    assert int((naics_fail.get("actual") or {}).get("same_sam_naics", 0)) < 2
+    assert "rebuild-sam-naics" in naics_fail["hint"]

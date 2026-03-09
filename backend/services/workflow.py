@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
@@ -26,6 +26,81 @@ def _safe_int(value: Any, default: int = 0) -> int:
     except Exception:
         return int(default)
 
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+DEFAULT_SAM_SMOKE_THRESHOLDS: dict[str, float] = {
+    # Keep this low enough for deterministic fixture tests, but above trivial non-zero.
+    "events_window_min": 3.0,
+    "events_with_keywords_coverage_pct_min": 60.0,
+    "events_with_entity_coverage_pct_min": 60.0,
+    "keyword_signal_total_min": 3.0,
+    "events_with_research_context_min": 2.0,
+    "research_context_coverage_pct_min": 60.0,
+    "events_with_core_procurement_context_min": 2.0,
+    "core_procurement_context_coverage_pct_min": 60.0,
+    "avg_context_fields_per_event_min": 2.5,
+    "sam_notice_type_coverage_pct_min": 70.0,
+    "sam_solicitation_number_coverage_pct_min": 70.0,
+    "sam_naics_code_coverage_pct_min": 60.0,
+    "same_sam_naics_lane_min": 1.0,
+    "snapshot_items_min": 1.0,
+}
+
+
+def _resolve_sam_smoke_thresholds(overrides: Optional[dict[str, Any]]) -> dict[str, float]:
+    resolved = dict(DEFAULT_SAM_SMOKE_THRESHOLDS)
+    for key, value in (overrides or {}).items():
+        if key not in resolved:
+            continue
+        parsed = _safe_float(value, default=resolved[key])
+        if key.endswith("_pct_min"):
+            parsed = max(0.0, min(100.0, parsed))
+        else:
+            parsed = max(0.0, parsed)
+        resolved[key] = parsed
+    return resolved
+
+
+def _format_threshold_value(value: float) -> str:
+    if abs(value - int(value)) < 1e-9:
+        return str(int(value))
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def _threshold_check(
+    *,
+    name: str,
+    observed: Any,
+    threshold: float,
+    comparator: str = ">=",
+    required: bool = True,
+    unit: str = "",
+    why: str,
+    hint: str,
+    actual: Any = None,
+) -> dict[str, Any]:
+    observed_num = _safe_float(observed, default=0.0)
+    ok = observed_num >= threshold if comparator == ">=" else False
+    status = "pass" if ok else ("fail" if required else "info")
+    expected = f"{comparator} {_format_threshold_value(threshold)}{unit}"
+    return {
+        "name": name,
+        "required": bool(required),
+        "ok": bool(ok),
+        "status": status,
+        "observed": observed,
+        "actual": observed if actual is None else actual,
+        "threshold": threshold,
+        "expected": expected,
+        "why": why,
+        "hint": hint,
+    }
 
 def _normalize_for_json(value: Any) -> Any:
     if isinstance(value, Path):
@@ -426,6 +501,7 @@ def run_samgov_smoke_workflow(
     database_url: Optional[str] = None,
     require_nonzero: bool = True,
     skip_ingest: bool = False,
+    threshold_overrides: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Run SAM.gov end-to-end workflow and persist a smoke artifact bundle."""
     ensure_runtime_directories()
@@ -471,6 +547,7 @@ def run_samgov_smoke_workflow(
         or _safe_int((ingest or {}).get("inserted")) > 0
         or _safe_int((ingest or {}).get("normalized")) > 0
     )
+    thresholds = _resolve_sam_smoke_thresholds(threshold_overrides)
 
     doc = doctor_status(
         days=int(window_days),
@@ -485,7 +562,45 @@ def run_samgov_smoke_workflow(
     entities_diag = doc.get("entities") or {}
     lane_counts = ((doc.get("correlations") or {}).get("by_lane")) or {}
     sam_ctx = doc.get("sam_context") or {}
+    coverage_by_field_pct = sam_ctx.get("coverage_by_field_pct") or {}
     snapshot_items = _safe_int((workflow_res.get("snapshot") or {}).get("items"))
+
+    events_window = _safe_int(counts.get("events_window"))
+    events_with_keywords = _safe_int(kw.get("events_with_keywords"))
+    events_with_entity = _safe_int(counts.get("events_with_entity_window"))
+    same_keyword_lane = _safe_int(lane_counts.get("same_keyword"))
+    kw_pair_lane = _safe_int(lane_counts.get("kw_pair"))
+    same_sam_naics_lane = _safe_int(lane_counts.get("same_sam_naics"))
+    keyword_signal_total = same_keyword_lane + kw_pair_lane
+
+    events_with_research_context = _safe_int(sam_ctx.get("events_with_research_context"))
+    research_context_coverage_pct = _safe_float(sam_ctx.get("research_context_coverage_pct"))
+    events_with_core_procurement_context = _safe_int(sam_ctx.get("events_with_core_procurement_context"))
+    core_procurement_context_coverage_pct = _safe_float(sam_ctx.get("core_procurement_context_coverage_pct"))
+    avg_context_fields_per_event = _safe_float(sam_ctx.get("avg_context_fields_per_event"))
+
+    sam_notice_type_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_notice_type"))
+    sam_solicitation_number_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_solicitation_number"))
+    sam_naics_code_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_naics_code"))
+
+    keywords_coverage_pct = round((events_with_keywords / events_window) * 100.0, 1) if events_window else 0.0
+    entity_coverage_pct = round((events_with_entity / events_window) * 100.0, 1) if events_window else 0.0
+
+    smoke_tune_cmd = (
+        f"ss workflow samgov-smoke --days {int(window_days)} --pages {max(int(pages), 2)} "
+        f"--limit {max(_safe_int(max_records, 50), 50)} --window-days {int(window_days)} --json"
+    )
+    doctor_cmd = f'ss doctor status --source "SAM.gov" --days {int(window_days)} --json'
+    rebuild_keywords_cmd = (
+        f'ss correlate rebuild-keyword-pairs --window-days {int(window_days)} --source "SAM.gov" '
+        f"--min-events {int(min_events_keywords)} --max-events {int(max_events_keywords)}"
+    )
+    rebuild_entities_cmd = f'ss entities link --source "SAM.gov" --days {int(window_days)}'
+    rebuild_naics_cmd = (
+        f'ss correlate rebuild-sam-naics --window-days {int(window_days)} --source "SAM.gov" '
+        f"--min-events {int(min_events_keywords)} --max-events {int(max_events_keywords)}"
+    )
+    rerun_snapshot_cmd = f'ss leads snapshot --source "SAM.gov" --min-score {int(min_score)} --limit {int(snapshot_limit)}'
 
     checks: list[dict[str, Any]] = []
     checks.append(
@@ -493,8 +608,12 @@ def run_samgov_smoke_workflow(
             "name": "doctor_db_ok",
             "required": True,
             "ok": bool(db_ok),
+            "status": "pass" if db_ok else "fail",
+            "observed": (doc.get("db") or {}).get("status"),
             "actual": (doc.get("db") or {}).get("status"),
             "expected": "ok",
+            "why": "SAM.gov smoke gates require doctor diagnostics to read current window metrics.",
+            "hint": doctor_cmd,
         }
     )
 
@@ -504,16 +623,28 @@ def run_samgov_smoke_workflow(
                 "name": "ingest_nonzero",
                 "required": False,
                 "ok": True,
+                "status": "info",
+                "observed": "skipped",
                 "actual": "skipped",
                 "expected": "skip_ingest=True",
+                "why": "Ingest was intentionally skipped for offline replay.",
+                "hint": smoke_tune_cmd,
             }
         )
     else:
+        ingest_ok = bool(ingest_nonzero) and status != "skipped"
         checks.append(
             {
                 "name": "ingest_nonzero",
                 "required": True,
-                "ok": bool(ingest_nonzero) and status != "skipped",
+                "ok": ingest_ok,
+                "status": "pass" if ingest_ok else "fail",
+                "observed": {
+                    "status": (ingest or {}).get("status"),
+                    "fetched": _safe_int((ingest or {}).get("fetched")),
+                    "inserted": _safe_int((ingest or {}).get("inserted")),
+                    "normalized": _safe_int((ingest or {}).get("normalized")),
+                },
                 "actual": {
                     "status": (ingest or {}).get("status"),
                     "fetched": _safe_int((ingest or {}).get("fetched")),
@@ -521,70 +652,141 @@ def run_samgov_smoke_workflow(
                     "normalized": _safe_int((ingest or {}).get("normalized")),
                 },
                 "expected": "fetched>0 OR inserted>0 OR normalized>0",
+                "why": "Fresh SAM.gov ingest keeps smoke checks tied to current market movement.",
+                "hint": smoke_tune_cmd,
             }
         )
 
     checks.extend(
         [
-            {
-                "name": "events_window_nonzero",
-                "required": True,
-                "ok": _safe_int(counts.get("events_window")) > 0,
-                "actual": _safe_int(counts.get("events_window")),
-                "expected": "> 0",
-            },
-            {
-                "name": "events_with_keywords_nonzero",
-                "required": True,
-                "ok": _safe_int(kw.get("events_with_keywords")) > 0,
-                "actual": _safe_int(kw.get("events_with_keywords")),
-                "expected": "> 0",
-            },
-            {
-                "name": "events_with_entity_nonzero",
-                "required": True,
-                "ok": _safe_int(counts.get("events_with_entity_window")) > 0,
-                "actual": _safe_int(counts.get("events_with_entity_window")),
-                "expected": "> 0",
-            },
-            {
-                "name": "keyword_or_kw_pair_lane_nonzero",
-                "required": True,
-                "ok": (
-                    _safe_int(lane_counts.get("same_keyword")) > 0
-                    or _safe_int(lane_counts.get("kw_pair")) > 0
-                ),
-                "actual": {
-                    "same_keyword": _safe_int(lane_counts.get("same_keyword")),
-                    "kw_pair": _safe_int(lane_counts.get("kw_pair")),
+            _threshold_check(
+                name="events_window_threshold",
+                observed=events_window,
+                threshold=thresholds["events_window_min"],
+                why="Too few SAM.gov events in-window weakens research confidence and lane stability.",
+                hint=smoke_tune_cmd,
+            ),
+            _threshold_check(
+                name="events_with_keywords_coverage_threshold",
+                observed=keywords_coverage_pct,
+                threshold=thresholds["events_with_keywords_coverage_pct_min"],
+                unit="%",
+                actual={
+                    "events_with_keywords": events_with_keywords,
+                    "events_window": events_window,
+                    "coverage_pct": keywords_coverage_pct,
                 },
-                "expected": "same_keyword>0 OR kw_pair>0",
-            },
-            {
-                "name": "sam_research_context_nonzero",
-                "required": True,
-                "ok": _safe_int(sam_ctx.get("events_with_research_context")) > 0,
-                "actual": _safe_int(sam_ctx.get("events_with_research_context")),
-                "expected": "> 0",
-            },
-            {
-                "name": "same_sam_naics_lane_nonzero",
-                "required": False,
-                "ok": _safe_int(lane_counts.get("same_sam_naics")) > 0,
-                "actual": _safe_int(lane_counts.get("same_sam_naics")),
-                "expected": "> 0",
-            },
-            {
-                "name": "snapshot_items_nonzero",
-                "required": True,
-                "ok": snapshot_items > 0,
-                "actual": snapshot_items,
-                "expected": "> 0",
-            },
+                why="Low keyword coverage reduces thematic signal quality for SAM.gov research pivots.",
+                hint=doctor_cmd,
+            ),
+            _threshold_check(
+                name="events_with_entity_coverage_threshold",
+                observed=entity_coverage_pct,
+                threshold=thresholds["events_with_entity_coverage_pct_min"],
+                unit="%",
+                actual={
+                    "events_with_entity_window": events_with_entity,
+                    "events_window": events_window,
+                    "coverage_pct": entity_coverage_pct,
+                },
+                why="Low entity linkage coverage weakens recipient-level SAM.gov targeting and triage.",
+                hint=rebuild_entities_cmd,
+            ),
+            _threshold_check(
+                name="keyword_or_kw_pair_signal_threshold",
+                observed=keyword_signal_total,
+                threshold=thresholds["keyword_signal_total_min"],
+                actual={
+                    "same_keyword": same_keyword_lane,
+                    "kw_pair": kw_pair_lane,
+                    "signal_total": keyword_signal_total,
+                },
+                why="Weak keyword lanes reduce confidence that related SAM.gov opportunities are clustering.",
+                hint=rebuild_keywords_cmd,
+            ),
+            _threshold_check(
+                name="sam_research_context_events_threshold",
+                observed=events_with_research_context,
+                threshold=thresholds["events_with_research_context_min"],
+                why="Research-context event depth supports fast analyst pivots inside SAM.gov notices.",
+                hint=doctor_cmd,
+            ),
+            _threshold_check(
+                name="sam_research_context_coverage_threshold",
+                observed=research_context_coverage_pct,
+                threshold=thresholds["research_context_coverage_pct_min"],
+                unit="%",
+                why="Low SAM.gov research-context coverage limits usefulness of downstream lead prioritization.",
+                hint=doctor_cmd,
+            ),
+            _threshold_check(
+                name="sam_core_procurement_context_events_threshold",
+                observed=events_with_core_procurement_context,
+                threshold=thresholds["events_with_core_procurement_context_min"],
+                why="Core procurement context counts drive high-signal filtering for SAM.gov opportunities.",
+                hint=doctor_cmd,
+            ),
+            _threshold_check(
+                name="sam_core_procurement_context_coverage_threshold",
+                observed=core_procurement_context_coverage_pct,
+                threshold=thresholds["core_procurement_context_coverage_pct_min"],
+                unit="%",
+                why="Core procurement context coverage indicates whether notices are usable for operator triage.",
+                hint=doctor_cmd,
+            ),
+            _threshold_check(
+                name="sam_avg_context_fields_threshold",
+                observed=avg_context_fields_per_event,
+                threshold=thresholds["avg_context_fields_per_event_min"],
+                why="Average SAM.gov context depth tracks how actionable each event is for research.",
+                hint=doctor_cmd,
+            ),
+            _threshold_check(
+                name="sam_notice_type_coverage_threshold",
+                observed=sam_notice_type_coverage_pct,
+                threshold=thresholds["sam_notice_type_coverage_pct_min"],
+                unit="%",
+                why="Notice type coverage is required for reliable procurement-stage interpretation.",
+                hint=doctor_cmd,
+            ),
+            _threshold_check(
+                name="sam_solicitation_number_coverage_threshold",
+                observed=sam_solicitation_number_coverage_pct,
+                threshold=thresholds["sam_solicitation_number_coverage_pct_min"],
+                unit="%",
+                why="Solicitation number coverage is required for stable dedupe and follow-up targeting.",
+                hint=doctor_cmd,
+            ),
+            _threshold_check(
+                name="sam_naics_coverage_threshold",
+                observed=sam_naics_code_coverage_pct,
+                threshold=thresholds["sam_naics_code_coverage_pct_min"],
+                unit="%",
+                why="NAICS coverage is required for industry scoping and same_sam_naics lane trust.",
+                hint=doctor_cmd,
+            ),
+            _threshold_check(
+                name="same_sam_naics_lane_threshold",
+                observed=same_sam_naics_lane,
+                threshold=thresholds["same_sam_naics_lane_min"],
+                actual={
+                    "same_sam_naics": same_sam_naics_lane,
+                },
+                why="The same_sam_naics lane validates industry-based clustering that analysts rely on.",
+                hint=rebuild_naics_cmd,
+            ),
+            _threshold_check(
+                name="snapshot_items_threshold",
+                observed=snapshot_items,
+                threshold=thresholds["snapshot_items_min"],
+                why="Lead snapshots must contain actionable SAM.gov rows for operator review.",
+                hint=rerun_snapshot_cmd,
+            ),
         ]
     )
 
-    smoke_passed = all(bool(c.get("ok")) for c in checks if bool(c.get("required", True)))
+    failed_required_checks = [c for c in checks if bool(c.get("required", True)) and not bool(c.get("ok"))]
+    smoke_passed = len(failed_required_checks) == 0
 
     baseline = {
         "captured_at": now.isoformat(),
@@ -625,6 +827,7 @@ def run_samgov_smoke_workflow(
             "avg_context_fields_per_event": sam_ctx.get("avg_context_fields_per_event"),
             "events_with_core_procurement_context": _safe_int(sam_ctx.get("events_with_core_procurement_context")),
             "core_procurement_context_coverage_pct": sam_ctx.get("core_procurement_context_coverage_pct"),
+            "coverage_by_field_pct": sam_ctx.get("coverage_by_field_pct") or {},
             "top_notice_types": sam_ctx.get("top_notice_types") or [],
             "top_naics_codes": sam_ctx.get("top_naics_codes") or [],
             "top_set_aside_codes": sam_ctx.get("top_set_aside_codes") or [],
@@ -645,6 +848,8 @@ def run_samgov_smoke_workflow(
             "source": "SAM.gov",
             "smoke_passed": smoke_passed,
             "require_nonzero": bool(require_nonzero),
+            "thresholds": thresholds,
+            "failed_required_checks": failed_required_checks,
             "checks": checks,
             "baseline": baseline,
             "artifacts": {
@@ -664,6 +869,8 @@ def run_samgov_smoke_workflow(
         "workflow": workflow_res,
         "doctor": doc,
         "checks": checks,
+        "failed_required_checks": failed_required_checks,
+        "thresholds": thresholds,
         "baseline": baseline,
         "artifacts": {
             "workflow_result_json": workflow_json,
