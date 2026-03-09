@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
@@ -181,6 +181,15 @@ def _run_source_workflow(
             dry_run=False,
             database_url=database_url,
         )
+        if source == "SAM.gov":
+            corr["same_sam_naics"] = correlate.rebuild_sam_naics_correlations(
+                window_days=int(window_days),
+                source=source,
+                min_events=int(min_events_keywords),
+                max_events=int(max_events_keywords),
+                dry_run=False,
+                database_url=database_url,
+            )
         res["correlations"] = corr
 
     snapshot_id: Optional[int] = None
@@ -475,6 +484,7 @@ def run_samgov_smoke_workflow(
     kw = doc.get("keywords") or {}
     entities_diag = doc.get("entities") or {}
     lane_counts = ((doc.get("correlations") or {}).get("by_lane")) or {}
+    sam_ctx = doc.get("sam_context") or {}
     snapshot_items = _safe_int((workflow_res.get("snapshot") or {}).get("items"))
 
     checks: list[dict[str, Any]] = []
@@ -551,6 +561,20 @@ def run_samgov_smoke_workflow(
                 "expected": "same_keyword>0 OR kw_pair>0",
             },
             {
+                "name": "sam_research_context_nonzero",
+                "required": True,
+                "ok": _safe_int(sam_ctx.get("events_with_research_context")) > 0,
+                "actual": _safe_int(sam_ctx.get("events_with_research_context")),
+                "expected": "> 0",
+            },
+            {
+                "name": "same_sam_naics_lane_nonzero",
+                "required": False,
+                "ok": _safe_int(lane_counts.get("same_sam_naics")) > 0,
+                "actual": _safe_int(lane_counts.get("same_sam_naics")),
+                "expected": "> 0",
+            },
+            {
                 "name": "snapshot_items_nonzero",
                 "required": True,
                 "ok": snapshot_items > 0,
@@ -592,6 +616,18 @@ def run_samgov_smoke_workflow(
             "same_uei": _safe_int(lane_counts.get("same_uei")),
             "same_keyword": _safe_int(lane_counts.get("same_keyword")),
             "kw_pair": _safe_int(lane_counts.get("kw_pair")),
+            "same_sam_naics": _safe_int(lane_counts.get("same_sam_naics")),
+        },
+        "sam_context": {
+            "scanned_events": _safe_int(sam_ctx.get("scanned_events")),
+            "events_with_research_context": _safe_int(sam_ctx.get("events_with_research_context")),
+            "research_context_coverage_pct": sam_ctx.get("research_context_coverage_pct"),
+            "avg_context_fields_per_event": sam_ctx.get("avg_context_fields_per_event"),
+            "events_with_core_procurement_context": _safe_int(sam_ctx.get("events_with_core_procurement_context")),
+            "core_procurement_context_coverage_pct": sam_ctx.get("core_procurement_context_coverage_pct"),
+            "top_notice_types": sam_ctx.get("top_notice_types") or [],
+            "top_naics_codes": sam_ctx.get("top_naics_codes") or [],
+            "top_set_aside_codes": sam_ctx.get("top_set_aside_codes") or [],
         },
         "snapshot_items": snapshot_items,
     }
@@ -643,3 +679,7 @@ __all__ = [
     "run_samgov_workflow",
     "run_samgov_smoke_workflow",
 ]
+
+
+
+

@@ -1,4 +1,4 @@
-# ShadowScope
+﻿# ShadowScope
 
 
 ## Quickstart
@@ -9,18 +9,18 @@
 
 **ShadowScope** is a small data pipeline + API that turns public U.S. federal procurement/spending feeds into a
 single, queryable dataset of **events** (things that happened) and **entities** (who they happened to).
-The goal is to help you spot patterns ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â recurring agencies, vendors, UEIs/DUNS, and keyword themes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â and produce
-reviewable ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“leadsÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â without manually bouncing between multiple government sites.
+The goal is to help you spot patterns ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â recurring agencies, vendors, UEIs/DUNS, and keyword themes ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â and produce
+reviewable ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œleadsÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â without manually bouncing between multiple government sites.
 
-## What itÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢s for
+## What itÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢s for
 
 - Ingest public datasets (e.g., solicitations and awards) into a database
 - Keep a **raw snapshot** trail for debugging/reproducibility
-- Normalize records into ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“eventsÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â you can filter/search/export
+- Normalize records into ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œeventsÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â you can filter/search/export
 - Optionally enrich events by:
   - linking organizations/entities (e.g., via UEI/DUNS-style identifiers when present)
   - tagging events using an ontology/keyword list
-  - computing simple ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“correlation lanesÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â (e.g., shared keywords, same entity/identifier)
+  - computing simple ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œcorrelation lanesÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â (e.g., shared keywords, same entity/identifier)
 
 You can drive the workflow via the `ss` CLI and/or the backend API.
 
@@ -30,18 +30,18 @@ You can drive the workflow via the `ss` CLI and/or the backend API.
 - **Raw snapshot**: The original JSON responses saved under `data/raw/<source>/<YYYYMMDD>/...` (useful for audits/debugging).
 - **Event**: A normalized record in the DB (an opportunity, an award, etc.).
 - **Entity**: A real-world org/vendor/agency that events can link to.
-- **Correlation lane**: A lightweight way of saying ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“these things are relatedÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â (shared keywords, same UEI, etc.).
+- **Correlation lane**: A lightweight way of saying ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œthese things are relatedÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â (shared keywords, same UEI, etc.).
 - **Lead snapshot**: A ranked/reviewable output built from events + correlations.
 
 ## Hypothetical example
 
-Imagine youÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢re doing business development for a small IT services firm and you care about ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“zero trustÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â work.
+Imagine youÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢re doing business development for a small IT services firm and you care about ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œzero trustÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â work.
 
 Every morning you want to answer:
 
-- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“Did any new solicitations drop that match our focus areas?ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â
-- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“Has this agency funded similar work recently?ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â
-- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“Is the likely incumbent vendor identifiable from prior awards?ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â
+- ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œDid any new solicitations drop that match our focus areas?ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â
+- ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œHas this agency funded similar work recently?ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â
+- ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œIs the likely incumbent vendor identifiable from prior awards?ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â
 
 With ShadowScope you could:
 
@@ -51,7 +51,7 @@ With ShadowScope you could:
    - recent awards from the same agency,
    - the same vendor/entity (when identifiers are available),
    - similar notices that share key phrases.
-4. Export a lead snapshot to share internally (CSV/JSON) with a clear ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“why this looks relevantÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â trail
+4. Export a lead snapshot to share internally (CSV/JSON) with a clear ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œwhy this looks relevantÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â trail
    (shared keywords/entities/correlations).
 
 Instead of manual searching across multiple sites, you get a reproducible dataset and explainable links.
@@ -67,7 +67,7 @@ ShadowScope currently focuses on public U.S. government datasets such as:
 
 ## Quickstart (local)
 
-> Commands can evolve ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â use `ss --help` and `ss doctor status` for ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“what to run nextÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â in your current version.
+> Commands can evolve ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â use `ss --help` and `ss doctor status` for ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œwhat to run nextÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â in your current version.
 
 1. Configure your database connection:
    - `DATABASE_URL` in your environment or a local `.env` (gitignored)
@@ -79,22 +79,22 @@ ShadowScope currently focuses on public U.S. government datasets such as:
    - `ss ingest usaspending --pages 1 --limit 25`
    - `ss ingest samgov --days 7 --pages 1 --limit 25` (requires `SAM_API_KEY`)
 
-4. If youÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢re using ontology/correlation features, follow the hints from:
+4. If youÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢re using ontology/correlation features, follow the hints from:
    - `ss doctor status --source "SAM.gov" --days 7`
 
 ### Configuration notes
 
 Common environment variables:
 
-- `DATABASE_URL` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â database connection string
-- `SAM_API_KEY` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â SAM.gov public API key (required for SAM.gov ingestion)
-- `SAM_API_BASE_URL` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â optional SAM.gov endpoint override
+- `DATABASE_URL` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â database connection string
+- `SAM_API_KEY` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â SAM.gov public API key (required for SAM.gov ingestion)
+- `SAM_API_BASE_URL` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â optional SAM.gov endpoint override
   If blank/whitespace, ShadowScope falls back to the default `/prod` URL.
 
 PowerShell reminder:
 
 - `SAM_API_KEY` is session-scoped if you set it via `$env:SAM_API_KEY = "..."`.
-  If you open a new terminal, youÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ll need to set it again (or use a local `.env`).
+  If you open a new terminal, youÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ll need to set it again (or use a local `.env`).
 
 <!-- SHADOWSCOPE:OVERVIEW:END -->
 
@@ -106,52 +106,48 @@ _Last updated: 2026-03-09_
 
 ### Sprint goal
 
-Keep SAM.gov operational and close USAspending ontology quality gaps: repeatable bounded workflows with source-scoped non-zero outputs and reviewable artifacts.
+SAM.gov Research Context Hardening (SAM-first): improve context depth, signal quality, and operator diagnostics using fixture-tested/offline-safe changes.
 
 ### Quick status summary (plain English)
 
-- **Done:** SAM.gov base URL behavior is safe (defaults to `/prod`; blank overrides are treated as unset).
-- **Done:** Ingest runs no longer get stuck as `running` if interrupted; they finalize as `aborted`.
-- **Done:** SAM.gov HTTP retries are env-tunable (`SAM_API_MAX_RETRIES`, `SAM_API_BACKOFF_BASE`, `SAM_API_TIMEOUT_SECONDS`) and honor `Retry-After` on HTTP 429.
-- **Done:** `ss doctor status` includes source-aware next-step hints and entity coverage diagnostics for SAM.gov workflows.
-- **Done:** SAM.gov entity-linking fallback is in place, and recipient identity now matches before parent-path fallback when both are present.
-- **Done:** Conservative starter ontology added at `examples/ontology_sam_procurement_starter.json`.
-- **Done:** `ss workflow samgov` now provides a first-class SAM end-to-end wrapper.
-- **Done:** `ss workflow samgov-smoke` now runs ingest -> entities -> ontology -> correlations -> snapshot -> doctor and writes a timestamped artifact bundle (`workflow_result.json`, `doctor_status.json`, `smoke_summary.json`, exports).
-- **Done:** SAM.gov smoke baseline is healthy on the validated 30-day operator slice (`events_window=50`, `with_keywords=50`, `same_keyword=7`, `kw_pair=14`, entity coverage 100%).
-- **Active sprint work:** USAspending ontology tuning remains the quality gap (`events_window=200`, `with_keywords=29`, `same_keyword=5`, `kw_pair=0` at strict defaults; `kw_pair=1` when keyword min-events is 2).
-- **Next:** raise USAspending keyword coverage + correlation usefulness with focused ontology updates and fixture-based regression guardrails.
+- **Done:** SAM.gov normalization now persists a focused `sam_*` context contract in `raw_json` (agency path, notice metadata, solicitation ID, NAICS, set-aside, key dates, place pivots).
+- **Done:** SAM workflow correlation rebuild now adds a SAM context lane: `same_sam_naics`.
+- **Done:** `ss doctor status --source "SAM.gov"` now reports SAM context-depth diagnostics (coverage-by-field, research-context coverage, top notice types/NAICS/set-asides).
+- **Done:** `ss workflow samgov-smoke` now checks SAM context depth (`sam_research_context_nonzero`) and records SAM context baseline metrics in smoke bundles.
+- **Done:** `examples/ontology_sam_procurement_starter.json` was tuned for higher precision (context-scoped procurement indicators; broad noisy single-word rules removed).
+- **Done:** New fixture-based tests cover SAM context extraction/persistence, SAM NAICS correlation utility, SAM context diagnostics, and SAM ontology over-tagging guardrails.
+- **Maintenance mode:** USAspending remains available and stable, but SAM.gov is the primary sprint focus.
 
 ### Checklist
 
 #### Completed
 
-- [x] SAM.gov connector hardening (base URL, retry/backoff, run finalization)
-- [x] Source-aware doctor hints + entity coverage diagnostics
-- [x] Conservative SAM starter ontology
-- [x] SAM workflow wrapper: `ss workflow samgov`
-- [x] Repeatable smoke bundle path: `ss workflow samgov-smoke`
-- [x] Merge PR #74
+- [x] SAM context gap audit + focused field contract
+- [x] SAM normalization updates for reliable context persistence
+- [x] SAM correlation enhancement (`same_sam_naics`)
+- [x] SAM smoke/doctor context diagnostics hardening
+- [x] SAM ontology tuning pass (high precision, low-noise bias)
+- [x] Fixture-based regression coverage for SAM context/signal/guardrails
+- [x] Docs refresh to SAM-first operator flow
 
-#### Next up
+#### Next up (out of scope this sprint)
 
-- [ ] Re-run a live USAspending 30-day slice and measure coverage delta vs the 14.5% baseline
-- [ ] Archive two clean SAM live-key smoke bundles and tighten source-scoped thresholds from observed baselines
-- [ ] Continue USAspending ontology precision tuning for remaining untagged clusters (no broad single-word rules)
-- [ ] Evaluate kw_pair signal scoring upgrades after lane volume stabilizes
+- [ ] Cross-source (SAM <-> USAspending) linkage lanes
+- [ ] Live-key threshold tightening for `same_sam_naics` after more operator bundles
+- [ ] USAspending ontology expansion beyond maintenance-mode fixes
+- [ ] kw_pair signal-model upgrades (PMI/log-odds/etc.)
 
 #### Known issues / risks
 
 - **Key scope:** `SAM_API_KEY` set via `$env:SAM_API_KEY = ...` is per terminal session unless persisted in local `.env`.
-- **Rate limiting (HTTP 429):** mitigated via backoff + `Retry-After`, but still possible under heavier usage.
-- **Ontology quality:** SAM and USAspending starter ontologies are intentionally conservative and require domain tuning over time.
-- **Repo admin checks:** branch-protection/required-check verification remains an admin-side validation item.
+- **Rate limiting (HTTP 429):** mitigated via retries/backoff + `Retry-After`, but still possible under heavier usage.
+- **Signal volume sensitivity:** lane counts can vary by window size and feed mix; keep bounded windows and validate with smoke bundles.
 
 ### How to help (when reporting issues)
 
 Attach:
 - last ~200 lines of `logs/ingest.log` (if present)
-- the latest raw snapshot JSON under `data/raw/<source>/<YYYYMMDD>/...`
+- the latest raw snapshot JSON under `data/raw/sam/<YYYYMMDD>/...`
 - the smoke bundle directory generated by `ss workflow samgov-smoke`
 
 <!-- SHADOWSCOPE:SPRINT:END -->
@@ -241,26 +237,27 @@ Do not use `lead_snapshots_total > 0` as a SAM.gov-specific success check. That 
 <!-- SHADOWSCOPE:DEMO:END -->
 
 
-Typical workflow (USAspending tuning loop):
+Typical workflow (SAM.gov tuning loop):
 
-1) Run bounded workflow (defaults include `--min-events-keywords 2` for practical keyword lanes)
-- `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\examples\ontology_usaspending_starter.json --window-days 30`
+1) Run bounded SAM workflow
+- `ss workflow samgov --days 30 --pages 2 --limit 50 --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30`
 
-2) Check source-scoped quality metrics
+2) Validate smoke bundle + non-zero checks
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+
+3) Review SAM context/signal diagnostics
+- `ss doctor status --source "SAM.gov" --days 30 --json`
+- Target checks: `events_window > 0`, `events_with_keywords > 0`, `same_keyword > 0 OR kw_pair > 0`, `events_with_research_context > 0`
+
+4) Repeatable SAM tuning loop after ontology/context edits
+- `ss workflow samgov --skip-ingest --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30 --days 30`
+- `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+- `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
+- `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "sam context tuning pass"`
+
+5) Optional maintenance-mode USAspending check
 - `ss doctor status --source USAspending --days 30`
-- Target checks: `events_window > 0`, `events_with_keywords > 0`, `same_keyword > 0`, `kw_pair > 0`
-
-3) Inspect untagged rows and recurring term clusters
-- `psql -U postgres -d shadowscope -v window_days=30 -v row_limit=50 -f .\tools\diagnose_untagged_usaspending.sql`
-
-4) Tune ontology rules, then rebuild keyword lanes and snapshot
-- `ss correlate rebuild-keywords --window-days 30 --source USAspending --min-events 2 --max-events 200`
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 200 --max-keywords-per-event 10`
-- `ss leads snapshot --source USAspending --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "usa tuning pass"`
-
-5) Export review artifacts
-- `ss export lead-snapshot --snapshot-id <ID> --out .\data\exports\`
-- `ss export kw-pairs --min-event-count 2 --limit 200 --out .\data\exports\`
 
 More detail: see `docs/RUNBOOK.md`.
 
@@ -269,7 +266,7 @@ More detail: see `docs/RUNBOOK.md`.
 ## Status
 
 - SAM.gov baseline is healthy and repeatable; use `ss workflow samgov` / `ss workflow samgov-smoke` for ongoing smoke checks.
-- USAspending ontology usefulness is the active sprint gap; run `ss workflow usaspending --ontology .\\examples\\ontology_usaspending_starter.json` and validate with `ss doctor status --source USAspending --days 30`.
+- USAspending is in maintenance mode this sprint; keep lightweight health checks with `ss doctor status --source USAspending --days 30`.
 - Roadmap/checklist: see `ROADMAP.md` (authoritative tracker).
 
 ### Notes
@@ -318,18 +315,20 @@ Windows execution policy (one-time):
 <!-- BEGIN SHADOWSCOPE-AUDIT-2026-02-24 -->
 ## Audit Notes & Implementation Checklist (2026-02-24)
 
-This repo now has an audit-derived implementation plan + checklist so we donÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢t lose detail as we execute M4.2 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ M5.
+This repo now has an audit-derived implementation plan + checklist so we donÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢t lose detail as we execute M4.2 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ M5.
 
 **Top priorities (P0/P1)**
 - **Event schema enrichment**: promote high-value USAspending fields (agency/PSC/NAICS/award-id/UEI/etc.) to first-class columns so we can build richer correlation lanes and better investigator filters.
 - **Ontology: enable `raw_json` tagging** by safely stringifying `raw_json` and passing it into the tagger (so ontology rules targeting `raw_json` actually fire).
 - **Scoring alignment**: make **v2** scoring the default everywhere (API + snapshots) while keeping v1 available explicitly.
-- **kw_pair signal upgrade**: promote kw_pair from ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“countÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â to ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“signalÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â (PMI/log-odds/Fisher/Bayesian shrinkage path) + add explainability exports.
+- **kw_pair signal upgrade**: promote kw_pair from ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œcountÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â to ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œsignalÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â (PMI/log-odds/Fisher/Bayesian shrinkage path) + add explainability exports.
 - **API filtering improvements**: add investigator-friendly query params to events/leads/correlations.
 
 Full details + checklists live here:
 - `docs/AUDIT_BACKLOG_2026-02-24.md`
 
 <!-- END SHADOWSCOPE-AUDIT-2026-02-24 -->
+
+
 
 

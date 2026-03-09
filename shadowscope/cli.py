@@ -1,4 +1,4 @@
-"""Typer-based command line interface for ShadowScope."""
+﻿"""Typer-based command line interface for ShadowScope."""
 from __future__ import annotations
 
 import json
@@ -389,6 +389,7 @@ def doctor_status_cli(
     entities_diag = res.get("entities", {})
     kw = res.get("keywords", {})
     corr = res.get("correlations", {})
+    sam_ctx = res.get("sam_context", {})
     last = res.get("last_runs", {})
     hints = res.get("hints", [])
 
@@ -428,6 +429,40 @@ def doctor_status_cli(
         typer.echo("Top keywords (sample):")
         for item in top[:10]:
             typer.echo(f"- {item.get('keyword')}: {item.get('count')}")
+
+    if sam_ctx and int(sam_ctx.get("scanned_events") or 0) > 0:
+        typer.echo(
+            "SAM context (sample): "
+            f"scanned={sam_ctx.get('scanned_events')} "
+            f"research_context={sam_ctx.get('events_with_research_context')} "
+            f"research_context_pct={sam_ctx.get('research_context_coverage_pct')} "
+            f"avg_fields={sam_ctx.get('avg_context_fields_per_event')}"
+        )
+        cov = sam_ctx.get("coverage_by_field_pct") or {}
+        if cov:
+            ordered_keys = [
+                "sam_notice_type",
+                "sam_naics_code",
+                "sam_set_aside_code",
+                "sam_solicitation_number",
+                "sam_agency_path_code",
+                "sam_response_deadline",
+            ]
+            cov_parts = [f"{k}={cov.get(k)}" for k in ordered_keys if k in cov]
+            if cov_parts:
+                typer.echo("SAM context coverage pct: " + " ".join(cov_parts))
+
+        top_notice_types = sam_ctx.get("top_notice_types") or []
+        if top_notice_types:
+            typer.echo("Top SAM notice types (sample):")
+            for item in top_notice_types[:10]:
+                typer.echo(f"- {item.get('notice_type')}: {item.get('count')}")
+
+        top_naics = sam_ctx.get("top_naics_codes") or []
+        if top_naics:
+            typer.echo("Top SAM NAICS (sample):")
+            for item in top_naics[:10]:
+                typer.echo(f"- {item.get('naics_code')}: {item.get('count')}")
 
     if last.get("ingest"):
         i = last["ingest"]
@@ -482,7 +517,9 @@ def _echo_workflow_summary(label: str, res: dict) -> None:
     if res.get("correlations"):
         c = res["correlations"]
         typer.echo("Correlations:")
-        for k in ("same_entity", "same_uei", "same_keyword", "kw_pair"):
+        preferred_order = ["same_entity", "same_uei", "same_keyword", "kw_pair", "same_sam_naics"]
+        ordered_lanes = preferred_order + sorted([k for k in c.keys() if k not in preferred_order])
+        for k in ordered_lanes:
             if k in c:
                 typer.echo(
                     f"- {k}: "
@@ -500,6 +537,7 @@ def _echo_workflow_summary(label: str, res: dict) -> None:
                                 "eligible_keywords",
                                 "eligible_entities",
                                 "eligible_ueis",
+                                "eligible_naics",
                             )
                         ]
                     )
@@ -944,6 +982,51 @@ def correlate_rebuild_keyword_pairs(
         )
     )
 
+
+@correlate_app.command("rebuild-sam-naics")
+def correlate_rebuild_sam_naics(
+    window_days: int = typer.Option(30, "--window-days", help="Lookback window (days)"),
+    source: str = typer.Option("SAM.gov", "--source", help="Event source (blank for all)"),
+    min_events: int = typer.Option(2, "--min-events", help="Minimum events per NAICS code"),
+    max_events: int = typer.Option(200, "--max-events", help="Skip NAICS codes matching more than this many events"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute only; do not write to DB"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+):
+    from backend.correlate import correlate
+
+    res = correlate.rebuild_sam_naics_correlations(
+        window_days=window_days,
+        source=source if source else None,
+        min_events=min_events,
+        max_events=max_events,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+    typer.echo(
+        "SAM NAICS correlation rebuild: "
+        + " ".join(
+            [
+                f"{k}={v}"
+                for k, v in res.items()
+                if k
+                in (
+                    "dry_run",
+                    "source",
+                    "window_days",
+                    "min_events",
+                    "max_events",
+                    "naics_seen",
+                    "eligible_naics",
+                    "correlations_created",
+                    "correlations_updated",
+                    "correlations_deleted",
+                    "links_created",
+                )
+            ]
+        )
+    )
+
+
 app.add_typer(correlate_app, name="correlate")
 
 @export_app.command("correlations")
@@ -967,3 +1050,7 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
+
+
+
+

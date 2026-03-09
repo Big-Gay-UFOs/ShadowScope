@@ -1,13 +1,13 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.connectors.samgov_context import extract_sam_context_fields
 from backend.db.models import Correlation, CorrelationLink, Entity, Event, get_session_factory
-from typing import List
 
 
 def not_implemented() -> None:
@@ -663,3 +663,188 @@ def rebuild_keyword_pair_correlations(
         }
     finally:
         db.close()
+
+
+def rebuild_sam_naics_correlations(
+    *,
+    window_days: int = 30,
+    source: Optional[str] = "SAM.gov",
+    min_events: int = 2,
+    max_events: int = 200,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Idempotent rebuild (SAM NAICS lane) using correlation_key:
+      key format: same_sam_naics|<source>|<window_days>|naics:<code>
+
+    Uses canonical SAM context fields persisted in Event.raw_json.
+    """
+    window_days = int(window_days)
+    min_events = int(min_events)
+    max_events = int(max_events)
+
+    if window_days <= 0:
+        raise ValueError("window_days must be > 0")
+    if min_events < 2:
+        raise ValueError("min_events must be >= 2")
+    if max_events < min_events:
+        raise ValueError("max_events must be >= min_events")
+
+    lane = "same_sam_naics"
+    src_key = source if source else "*"
+    key_prefix = f"{lane}|{src_key}|{window_days}|naics:"
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=window_days)
+
+    SessionFactory = get_session_factory(database_url)
+    db: Session = SessionFactory()
+    ts = func.coalesce(Event.occurred_at, Event.created_at)
+
+    try:
+        q = db.query(Event).filter(ts >= since)
+        if source:
+            q = q.filter(Event.source == source)
+        rows = q.order_by(Event.id.asc()).all()
+
+        naics_to_event_ids: Dict[str, List[int]] = {}
+        naics_to_desc_counts: Dict[str, Dict[str, int]] = {}
+
+        for ev in rows:
+            raw = ev.raw_json if isinstance(ev.raw_json, dict) else {}
+            ctx = extract_sam_context_fields(raw)
+            naics = ctx.get("sam_naics_code")
+            if not naics:
+                continue
+            naics_code = str(naics).strip().upper()
+            if not naics_code:
+                continue
+
+            naics_to_event_ids.setdefault(naics_code, []).append(int(ev.id))
+
+            naics_desc = ctx.get("sam_naics_description")
+            if naics_desc:
+                desc_text = str(naics_desc).strip()
+                if desc_text:
+                    desc_counts = naics_to_desc_counts.setdefault(naics_code, {})
+                    desc_counts[desc_text] = desc_counts.get(desc_text, 0) + 1
+
+        eligible: Dict[str, List[int]] = {}
+        for naics_code, ids in naics_to_event_ids.items():
+            uniq = sorted(set(ids))
+            if len(uniq) >= min_events and len(uniq) <= max_events:
+                eligible[naics_code] = uniq
+
+        eligible_keys = set(f"{key_prefix}{naics_code}" for naics_code in eligible.keys())
+
+        existing = (
+            db.query(Correlation)
+            .filter(Correlation.correlation_key.like(f"{key_prefix}%"))
+            .all()
+        )
+        existing_by_key = {c.correlation_key: c for c in existing if c.correlation_key}
+
+        correlations_created = 0
+        correlations_updated = 0
+        correlations_deleted = 0
+        links_created = 0
+        links_deleted = 0
+
+        for naics_code, event_ids in eligible.items():
+            key = f"{key_prefix}{naics_code}"
+            cnt = len(event_ids)
+
+            desc_counts = naics_to_desc_counts.get(naics_code) or {}
+            top_desc = None
+            if desc_counts:
+                top_desc = sorted(desc_counts.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[0][0]
+
+            lanes_hit = {
+                "lane": lane,
+                "naics_code": naics_code,
+                "naics_description": top_desc,
+                "event_count": cnt,
+                "since": since.isoformat(),
+                "until": now.isoformat(),
+            }
+
+            summary_bits = [f"{cnt} events share SAM NAICS {naics_code}"]
+            if top_desc:
+                summary_bits.append(f"({top_desc})")
+            summary = " ".join(summary_bits)
+
+            if dry_run:
+                continue
+
+            c = existing_by_key.get(key)
+            if c is None:
+                c = Correlation(
+                    correlation_key=key,
+                    score=str(cnt),
+                    window_days=window_days,
+                    radius_km=0.0,
+                    lanes_hit=lanes_hit,
+                    summary=summary,
+                    rationale=(
+                        f"Grouped SAM events sharing NAICS={naics_code} within last {window_days} days "
+                        f"(min_events={min_events}, max_events={max_events})."
+                    ),
+                    created_at=now,
+                )
+                db.add(c)
+                db.flush()
+                correlations_created += 1
+            else:
+                c.score = str(cnt)
+                c.window_days = window_days
+                c.radius_km = 0.0
+                c.lanes_hit = lanes_hit
+                c.summary = summary
+                c.rationale = (
+                    f"Grouped SAM events sharing NAICS={naics_code} within last {window_days} days "
+                    f"(min_events={min_events}, max_events={max_events})."
+                )
+                c.created_at = now
+                correlations_updated += 1
+
+            links_deleted += (
+                db.query(CorrelationLink)
+                .filter(CorrelationLink.correlation_id == int(c.id))
+                .delete(synchronize_session=False)
+            )
+            for ev_id in event_ids:
+                db.add(CorrelationLink(correlation_id=int(c.id), event_id=int(ev_id)))
+            links_created += len(event_ids)
+
+        if not dry_run:
+            stale_keys = [k for k in existing_by_key.keys() if k not in eligible_keys]
+            if stale_keys:
+                correlations_deleted = (
+                    db.query(Correlation)
+                    .filter(Correlation.correlation_key.in_(stale_keys))
+                    .delete(synchronize_session=False)
+                )
+
+        if not dry_run:
+            db.commit()
+
+        return {
+            "status": "ok",
+            "dry_run": dry_run,
+            "source": source,
+            "window_days": window_days,
+            "min_events": min_events,
+            "max_events": max_events,
+            "since": since.isoformat(),
+            "naics_seen": len(naics_to_event_ids),
+            "eligible_naics": len(eligible),
+            "correlations_created": correlations_created,
+            "correlations_updated": correlations_updated,
+            "correlations_deleted": correlations_deleted,
+            "links_created": links_created,
+            "links_deleted": links_deleted,
+        }
+    finally:
+        db.close()
+

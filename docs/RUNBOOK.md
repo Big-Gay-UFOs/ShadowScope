@@ -1,226 +1,90 @@
-# ShadowScope Runbook
+﻿# ShadowScope Runbook
 
-This runbook documents the standard investigator workflow for ShadowScope using the CLI (`ss`).
+This runbook defines the SAM-first operator flow for the current sprint.
 
 ## Prereqs
-- Docker services running (Postgres, OpenSearch, API if needed):
+- Docker services running (Postgres/API as needed):
   - `docker compose up -d`
-- Environment:
-  - `DATABASE_URL` points at your Postgres DB (default in `.env` / runtime)
-- Validate CLI:
+- Local env configured:
+  - `DATABASE_URL`
+  - `SAM_API_KEY` (for live SAM ingest)
+- CLI available:
   - `ss --help`
 
-## Core workflow (recommended order)
+## SAM-first bounded workflow
 
-### 1) Ingest (USAspending)
-Pull a bounded slice of awards to avoid pulling the entire firehose.
+### 1) Bounded SAM workflow
+Use a controlled operator slice to keep runs reproducible.
 
-Example (30-day window, two pages of 100 each, keyword narrowing):
-- `ss ingest usaspending --days 30 --pages 2 --page-size 100 --keyword "DOE" --keyword "NNSA"`
+- `ss workflow samgov --days 30 --pages 2 --limit 50 --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30`
 
-Artifacts:
-- Raw snapshots: `data/raw/usaspending/YYYYMMDD/page_*.json`
+What this runs:
+- ingest -> ontology -> entities -> correlations (`same_entity`, `same_uei`, `same_keyword`, `kw_pair`, `same_sam_naics`) -> lead snapshot -> exports
 
-### 1b) Ingest (SAM.gov opportunities) (optional)
-Pull a bounded slice of SAM.gov opportunities (Get Opportunities v2).
+### 2) Smoke bundle validation
+Run smoke checks and save artifacts for auditability.
 
-Prereq:
-- `SAM_API_KEY` must be set locally (do not commit it).
-- Recommended in PowerShell (execution-policy safe):
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\examples\powershell\set-shadow-env.ps1`
-- Or in current PowerShell process:
-  - `Set-ExecutionPolicy -Scope Process Bypass -Force`
-  - `.\examples\powershell\set-shadow-env.ps1`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30`
+- JSON output variant:
+  - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
 
-Optional retry tuning in local `.env`:
-- `SAM_API_TIMEOUT_SECONDS=60`
-- `SAM_API_MAX_RETRIES=8`
-- `SAM_API_BACKOFF_BASE=0.75`
+Expected required checks include:
+- `events_window_nonzero`
+- `events_with_keywords_nonzero`
+- `keyword_or_kw_pair_lane_nonzero`
+- `sam_research_context_nonzero`
+- `snapshot_items_nonzero`
 
-Examples:
-- 30-day window, two pages:
-  - `ss ingest samgov --days 30 --pages 2 --limit 50`
-- Keyword narrowing (title search; union across repeats):
-  - `ss ingest samgov --days 30 --pages 2 --limit 100 --keyword "DOE" --keyword "NNSA"`
+### 3) Diagnostics review
+Review source-scoped status and context depth.
 
-Artifacts:
-- Raw snapshots: `data/raw/sam/YYYYMMDD/page_*.json` (or `kwN_page_*.json` when keywords are used)
+- `ss doctor status --source "SAM.gov" --days 30`
+- JSON payload for full detail:
+  - `ss doctor status --source "SAM.gov" --days 30 --json`
 
-Notes:
-- Downstream commands should use source name: `SAM.gov`
-  - Example: `ss doctor status --source "SAM.gov" --days 30`
+Focus fields:
+- keyword coverage and lane counts
+- entity coverage diagnostics
+- SAM context diagnostics (`events_with_research_context`, `coverage_by_field_pct`, top notice/NAICS/set-aside)
 
-### 2) Ontology tagging
-Apply ontology rules to populate `events.keywords` and `events.clauses`.
+### 4) Repeatable SAM tuning loop
+After ontology/context edits, re-run offline from existing data first.
 
-Recommended baseline for USAspending:
-- `ss ontology apply --path .\examples\ontology_usaspending_starter.json --days 30 --source USAspending`
+1. Re-run workflow without ingest:
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_starter.json`
 
-Optional FOIA-focused alternative:
-- `ss ontology apply --path .\ontology.foia.json --days 30 --source USAspending`
+2. Rebuild SAM correlations explicitly (including new NAICS lane):
+- `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+- `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
 
-### 3) Correlations
-Rebuild correlation lanes over a time window.
+3. Refresh ranked outputs:
+- `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "sam context tuning pass"`
 
-Entity/UEI lane:
-- `ss correlate rebuild --window-days 30 --source USAspending --min-events 2`
-
-Keyword lanes (recommended defaults for practical 30-day slices):
-- `ss correlate rebuild-keywords --window-days 30 --source USAspending --min-events 2 --max-events 200`
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 200 --max-keywords-per-event 10`
-
-Notes:
-- kw-pairs require events with >=2 keywords.
-- If lane counts are still zero, inspect untagged rows and tune ontology before broadening thresholds.
-
-### 4) Entity linking
-Link events to entities from recipient identifiers.
-
-Examples:
-- `ss entities link --source USAspending --days 30`
-- `ss entities link --source "SAM.gov" --days 30`
-
-### 5) Leads snapshot (ranking)
-Create a snapshot of the top-scoring leads using scoring v2 by default.
-
-Example:
-- `ss leads snapshot --source USAspending --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "daily snapshot"`
-
-### 6) Exports (artifacts)
-Lead snapshot export:
+4. Export review artifacts:
 - `ss export lead-snapshot --snapshot-id <ID> --out .\data\exports\`
-
-Lead deltas export:
-- `ss export lead-deltas --from <ID> --to <ID> --out .\data\exports\`
-
-kw-pairs export:
 - `ss export kw-pairs --min-event-count 2 --limit 200 --out .\data\exports\`
+- `ss export entities --out .\data\exports\`
 
-Correlations export (generic):
-- `ss export correlations --source USAspending --lane kw_pair --window-days 30 --limit 500`
+## Context field contract (SAM normalization)
+The SAM ingest normalization persists canonical context fields in `events.raw_json`:
+- agency path: `sam_agency_path_name`, `sam_agency_path_code`
+- notice metadata: `sam_notice_type`, `sam_notice_type_code`, `sam_solicitation_number`, `sam_classification_code`
+- procurement classification: `sam_naics_code`, `sam_naics_description`, `sam_set_aside_code`, `sam_set_aside_description`
+- key dates: `sam_posted_date`, `sam_response_deadline`, `sam_archive_date`
+- region pivots: `sam_place_state_code`, `sam_place_country_code`
 
-### USAspending tuning loop (operator path)
-Use this loop to improve keyword quality without adding broad/noisy rules.
+## Maintenance mode: USAspending
+USAspending remains available but is not the primary sprint focus.
 
-1. Run bounded workflow:
-- `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\examples\ontology_usaspending_starter.json --window-days 30`
-
-2. Check source-scoped metrics:
+Quick maintenance health check:
 - `ss doctor status --source USAspending --days 30`
-- Desired minimums: `events_window > 0`, `events_with_keywords > 0`, `same_keyword > 0`, `kw_pair > 0`
-
-3. Inspect untagged prevalence and samples:
-- `psql -U postgres -d shadowscope -v window_days=30 -v row_limit=50 -f .\tools\diagnose_untagged_usaspending.sql`
-
-4. Tune ontology (`examples/ontology_usaspending_starter.json`) using recurring untagged clusters.
-
-5. Rebuild keyword lanes + snapshot:
-- `ss correlate rebuild-keywords --window-days 30 --source USAspending --min-events 2 --max-events 200`
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 200 --max-keywords-per-event 10`
-- `ss leads snapshot --source USAspending --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "usa tuning pass"`
 
 ## Troubleshooting
-
-### No keyword pairs produced
-Symptoms:
-- `pairs_seen=0` or `eligible_pairs=0`
-
-Checks:
-- ensure ontology tagging produced keywords:
-  - verify events have >=2 keywords
-- widen window:
-  - `--window-days 90`
-- loosen thresholds:
-  - `--min-events 2`
-  - increase `--max-keywords-per-event`
-
-### USAspending rows remain untagged
-Use the schema-safe diagnostic query helper (works with JSON `keywords` column):
-
-```powershell
-psql -U postgres -d shadowscope -v window_days=30 -v row_limit=50 -f .\tools\diagnose_untagged_usaspending.sql
-```
-
-### Entity linking skips everything
-Symptoms:
-- `skipped_no_name` is high
-
-Checks:
-- inspect `events.raw_json` for identity fields (`Recipient UEI`, `Recipient DUNS Number`, `Recipient CAGE Code`, `recipient_id`, `fullParentPathCode`)
-- run `ss doctor status --source "SAM.gov" --days 30` and review entity coverage diagnostics
-- confirm ingest data has source-appropriate identity fields before linking
-
-## Dev workflow
-- Do not push directly to `origin/main`.
-- Always use: feature branch -> PR -> squash merge.
-- Optional: install a local pre-push hook to reduce accidental pushes to `origin/main` (not enforced by the repo).
-
-## PowerShell notes
-- Do not paste placeholders like `<ID>` or `<SNAPSHOT_ID>` into PowerShell; `<` and `>` are treated as operators.
-  - Use the numeric value directly (example: `--snapshot-id 2`).
-- If script execution is blocked, run:
-  - `Set-ExecutionPolicy -Scope Process Bypass -Force`
-- Correlation commands use `--window-days` (not `--days`):
-  - `ss correlate rebuild --window-days 30 ...`
-  - `ss correlate rebuild-keyword-pairs --window-days 30 ...`
-- SAM workflow commands accept both `--ingest-days` and `--days`.
-- USAspending raw snapshots are written as:
-  - `data/raw/usaspending/YYYYMMDD/page_*.json` (not `.jsonl`).
-
-### Optional local pre-push hook
-Git hooks are not versioned by default. If you want a local guardrail on your machine:
-
-- Create `.git/hooks/pre-push` that rejects pushes to `origin/main`.
-- Keep it local (do not commit it).
-
-## Doctor / Status
-
-Use this when the pipeline looks empty (no events, no keywords, no kw-pairs, no entities, etc.) or when you want a fast sanity check.
-
-Examples:
-
-- `ss doctor status --source USAspending --days 30`
-- `ss doctor status --source "SAM.gov" --days 30`
-- `ss doctor status --source "SAM.gov" --days 30 --json`
-
-What it reports:
-
-- DB connectivity (safe URL)
-- Counts: events, entities, correlations, lead snapshots
-- Entity coverage diagnostics (window linked percentage + sampled identity-signal linkage)
-- Correlations by lane (kw_pair, same_keyword, same_uei, same_entity)
-- Keyword coverage on a recent sample window + top keywords
-- Last ingest / ontology apply / lead snapshot metadata (when present)
-- Actionable hints (common failure causes + next commands to run)
-
-## Export: Entities
-
-Generate an entity list export plus an event->entity mapping export:
-
-- `ss export entities`
-- `ss export entities --out data/exports`
-
-Outputs:
-- Entities CSV/JSON
-- Event->Entity mapping CSV/JSON (includes recipient identifiers when present in `raw_json`)
-
-## Workflow wrappers (optional)
-
-One command to run end-to-end pipelines:
-
-- USAspending:
-  - `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\examples\ontology_usaspending_starter.json --window-days 30`
-- SAM.gov:
-  - `ss workflow samgov --days 30 --pages 2 --limit 50 --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30`
-- SAM.gov smoke bundle (repeatable validation artifacts + non-zero checks):
-  - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30`
-
-Notes:
-- Use `--skip-ingest` to run offline (no network calls).
-- Workflows run: ingest -> ontology -> entities -> correlations -> snapshot -> exports.
-- USA workflow defaults now target practical slices with `--min-events-keywords 2` (override when you need stricter grouping).
-- `samgov-smoke` additionally runs `doctor status` and writes a bundle with:
-  - `workflow_result.json`
-  - `doctor_status.json`
-  - `smoke_summary.json`
-- If `--out` is a file path (example: `.\reports\run.csv`), workflows generate per-artifact files (prefix + timestamp) to avoid overwriting.
+- Missing SAM key: ingest/workflow can skip when `SAM_API_KEY` is unset.
+- Low context depth in doctor output:
+  - inspect `sam_*` fields in `events.raw_json`
+  - rerun bounded ingest and workflow
+- Empty NAICS lane:
+  - confirm `sam_naics_code` extraction coverage in doctor JSON
+  - lower `--min-events` only after reviewing noise impact

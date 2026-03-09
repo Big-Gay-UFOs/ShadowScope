@@ -1,4 +1,4 @@
-import json
+﻿import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,10 +20,17 @@ def _seed_sam_events(db, now: datetime) -> None:
                 created_at=now,
                 doc_id="SAM-001",
                 source_url="https://sam.gov/opp/1",
-                snippet="Sources Sought RFP for construction generator upgrades with NAICS coverage",
+                snippet="Sources Sought RFP for engineering support with NAICS context",
                 raw_json={
                     "noticeId": "SAM-001",
-                    "title": "Sources Sought RFP Construction Generator",
+                    "title": "Sources Sought RFP Engineering Support",
+                    "noticeType": "Sources Sought",
+                    "solicitationNumber": "DOE-RFP-001",
+                    "naicsCode": "541330",
+                    "naicsDescription": "Engineering Services",
+                    "typeOfSetAside": "SBA",
+                    "typeOfSetAsideDescription": "Total Small Business Set-Aside",
+                    "responseDeadLine": "2026-03-15",
                     "fullParentPathName": "Department of Energy",
                     "fullParentPathCode": "DOE.HQ",
                     "Recipient Name": "Acme Federal",
@@ -38,10 +45,17 @@ def _seed_sam_events(db, now: datetime) -> None:
                 created_at=now,
                 doc_id="SAM-002",
                 source_url="https://sam.gov/opp/2",
-                snippet="Sources Sought RFP for construction generator services with NAICS references",
+                snippet="Sources Sought RFP for engineering sustainment with NAICS references",
                 raw_json={
                     "noticeId": "SAM-002",
-                    "title": "Sources Sought RFP Construction Services",
+                    "title": "Sources Sought RFP Engineering Sustainment",
+                    "noticeType": "Sources Sought",
+                    "solicitationNumber": "DOE-RFP-002",
+                    "naicsCode": "541330",
+                    "naicsDescription": "Engineering Services",
+                    "typeOfSetAside": "SBA",
+                    "typeOfSetAsideDescription": "Total Small Business Set-Aside",
+                    "responseDeadLine": "2026-03-16",
                     "fullParentPathName": "Department of Energy",
                     "fullParentPathCode": "DOE.HQ",
                     "Recipient Name": "Acme Federal",
@@ -56,10 +70,17 @@ def _seed_sam_events(db, now: datetime) -> None:
                 created_at=now,
                 doc_id="SAM-003",
                 source_url="https://sam.gov/opp/3",
-                snippet="Request for Proposal NAICS construction valve repair work",
+                snippet="Request for Proposal NAICS cybersecurity operations work",
                 raw_json={
                     "noticeId": "SAM-003",
-                    "title": "RFP Construction Valve Repair",
+                    "title": "RFP Cybersecurity Operations",
+                    "noticeType": "Solicitation",
+                    "solicitationNumber": "DOE-RFP-003",
+                    "naicsCode": "541512",
+                    "naicsDescription": "Computer Systems Design Services",
+                    "typeOfSetAside": "8A",
+                    "typeOfSetAsideDescription": "8(a) Set-Aside",
+                    "responseDeadLine": "2026-03-20",
                     "fullParentPathName": "Department of Energy",
                     "fullParentPathCode": "DOE.FIELD",
                     "Recipient Name": "Field Ops",
@@ -332,6 +353,7 @@ def test_samgov_workflow_fixture_runs_end_to_end(tmp_path: Path):
     assert res["correlations"]["same_entity"]["eligible_entities"] >= 1
     assert res["correlations"]["same_keyword"]["min_events"] == 2
     assert res["correlations"]["same_keyword"]["eligible_keywords"] >= 1
+    assert res["correlations"]["same_sam_naics"]["eligible_naics"] >= 1
     assert res["snapshot"]["items"] > 0
 
     ex = res["exports"]
@@ -389,9 +411,19 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert summary_payload["smoke_passed"] is True
     check_names = {c.get("name") for c in summary_payload.get("checks", [])}
     assert "events_window_nonzero" in check_names
+    assert "sam_research_context_nonzero" in check_names
     assert "snapshot_items_nonzero" in check_names
 
     baseline = summary_payload.get("baseline", {})
     entity_cov = baseline.get("entity_coverage", {})
     assert entity_cov.get("window_linked_coverage_pct") is not None
     assert baseline.get("counts", {}).get("events_window", 0) > 0
+
+    sam_ctx = baseline.get("sam_context", {})
+    assert sam_ctx.get("events_with_research_context", 0) > 0
+    assert baseline.get("correlations_by_lane", {}).get("same_sam_naics", 0) > 0
+
+
+
+
+
