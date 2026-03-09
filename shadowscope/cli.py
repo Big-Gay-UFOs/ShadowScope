@@ -28,6 +28,7 @@ leads_app = typer.Typer(help="Lead utilities")
 entities_app = typer.Typer(help="Entity utilities")
 doctor_app = typer.Typer(help="Operator diagnosis utilities")
 workflow_app = typer.Typer(help="One-command workflows")
+report_app = typer.Typer(help="Report generation utilities")
 
 app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
@@ -37,6 +38,7 @@ app.add_typer(leads_app, name="leads")
 app.add_typer(entities_app, name="entities")
 app.add_typer(doctor_app, name="doctor")
 app.add_typer(workflow_app, name="workflow")
+app.add_typer(report_app, name="report")
 
 
 @app.callback()
@@ -873,6 +875,8 @@ def workflow_samgov_smoke(
             typer.echo(f"Smoke summary: {Path(artifacts.get('smoke_summary_json')).resolve()}")
         if artifacts.get("doctor_status_json"):
             typer.echo(f"Doctor status: {Path(artifacts.get('doctor_status_json')).resolve()}")
+        if artifacts.get("report_html"):
+            typer.echo(f"Report HTML: {Path(artifacts.get('report_html')).resolve()}")
         thresholds_used = res.get("thresholds") or {}
         if thresholds_used:
             typer.echo(f"Threshold contract: {thresholds_used}")
@@ -900,6 +904,59 @@ def workflow_samgov_smoke(
     if require_nonzero and res.get("status") != "ok":
         raise typer.Exit(code=2)
 
+
+@report_app.command("samgov")
+def report_samgov(
+    bundle: str = typer.Option(..., "--bundle", help="Path to SAM workflow/smoke bundle directory"),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload"),
+):
+    from backend.services.reporting import generate_sam_report_from_bundle, resolve_bundle_directory
+
+    bundle_path = resolve_bundle_directory(Path(bundle).expanduser())
+    if not bundle_path.exists() or not bundle_path.is_dir():
+        typer.secho(f"Bundle directory not found: {bundle_path}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+
+    res = generate_sam_report_from_bundle(bundle_path)
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+
+    typer.echo(f"Report status: {res.get('status')}")
+    typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+    typer.echo(f"Report HTML: {Path(res.get('report_html')).resolve()}")
+
+
+@report_app.command("latest")
+def report_latest(
+    source: str = typer.Option("SAM.gov", "--source", help="Source to resolve latest bundle for"),
+    bundle_root: Optional[str] = typer.Option(
+        None,
+        "--bundle-root",
+        help="Optional bundle root (defaults to data/exports/smoke/samgov)",
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload"),
+):
+    from backend.services.reporting import find_latest_sam_smoke_bundle, generate_sam_report_from_bundle
+
+    normalized_source = source.strip().lower().replace(" ", "")
+    if normalized_source not in {"sam.gov", "samgov", "sam"}:
+        raise typer.BadParameter("Only source=SAM.gov is supported for this sprint.")
+
+    root_path = Path(bundle_root).expanduser() if bundle_root else None
+    latest = find_latest_sam_smoke_bundle(root_path)
+    if latest is None:
+        typer.secho("No SAM.gov smoke bundles found.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+
+    res = generate_sam_report_from_bundle(latest, workflow_type="samgov-smoke")
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+
+    typer.echo(f"Report status: {res.get('status')}")
+    typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+    typer.echo(f"Report HTML: {Path(res.get('report_html')).resolve()}")
 def run() -> None:
     app()
 
@@ -1087,6 +1144,7 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
+
 
 
 

@@ -403,12 +403,19 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     summary_path = Path(artifacts["smoke_summary_json"])
     doctor_path = Path(artifacts["doctor_status_json"])
     workflow_path = Path(artifacts["workflow_result_json"])
+    report_path = Path(artifacts["report_html"])
 
     assert summary_path.exists()
     assert doctor_path.exists()
     assert workflow_path.exists()
+    assert report_path.exists()
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert Path(summary_payload.get("artifacts", {}).get("report_html")).exists()
+    report_html = report_path.read_text(encoding="utf-8")
+    assert "SAM.gov Workflow Report" in report_html
+    assert "Top Keywords" in report_html
+    assert "Correlation Lanes" in report_html
     assert summary_payload["smoke_passed"] is True
     check_names = {c.get("name") for c in summary_payload.get("checks", [])}
     assert "events_window_threshold" in check_names
