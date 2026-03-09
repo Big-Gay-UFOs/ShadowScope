@@ -567,6 +567,7 @@ def run_samgov_smoke_workflow(
 
     events_window = _safe_int(counts.get("events_window"))
     events_with_keywords = _safe_int(kw.get("events_with_keywords"))
+    keywords_scanned_events = _safe_int(kw.get("scanned_events"))
     events_with_entity = _safe_int(counts.get("events_with_entity_window"))
     same_keyword_lane = _safe_int(lane_counts.get("same_keyword"))
     kw_pair_lane = _safe_int(lane_counts.get("kw_pair"))
@@ -583,7 +584,13 @@ def run_samgov_smoke_workflow(
     sam_solicitation_number_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_solicitation_number"))
     sam_naics_code_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_naics_code"))
 
-    keywords_coverage_pct = round((events_with_keywords / events_window) * 100.0, 1) if events_window else 0.0
+    raw_keywords_coverage = kw.get("coverage_pct")
+    if raw_keywords_coverage is None:
+        keywords_coverage_pct = (
+            round((events_with_keywords / keywords_scanned_events) * 100.0, 1) if keywords_scanned_events else 0.0
+        )
+    else:
+        keywords_coverage_pct = _safe_float(raw_keywords_coverage)
     entity_coverage_pct = round((events_with_entity / events_window) * 100.0, 1) if events_window else 0.0
 
     smoke_tune_cmd = (
@@ -673,7 +680,7 @@ def run_samgov_smoke_workflow(
                 unit="%",
                 actual={
                     "events_with_keywords": events_with_keywords,
-                    "events_window": events_window,
+                    "sample_scanned_events": keywords_scanned_events,
                     "coverage_pct": keywords_coverage_pct,
                 },
                 why="Low keyword coverage reduces thematic signal quality for SAM.gov research pivots.",
@@ -886,7 +893,3 @@ __all__ = [
     "run_samgov_workflow",
     "run_samgov_smoke_workflow",
 ]
-
-
-
-

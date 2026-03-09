@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.db.models import Event, ensure_schema, get_session_factory
+import backend.services.workflow as workflow_module
 from backend.services.workflow import (
     run_samgov_smoke_workflow,
     run_samgov_workflow,
@@ -482,3 +483,85 @@ def test_samgov_smoke_threshold_contract_fails_with_context_and_naics_misses(tmp
     assert naics_fail["expected"] == ">= 2"
     assert int((naics_fail.get("actual") or {}).get("same_sam_naics", 0)) < 2
     assert "rebuild-sam-naics" in naics_fail["hint"]
+
+def test_samgov_smoke_keyword_coverage_uses_sampled_population(tmp_path: Path, monkeypatch):
+    def fake_run_samgov_workflow(**_kwargs):
+        return {
+            "source": "SAM.gov",
+            "ingest": {"status": "success", "fetched": 10, "inserted": 10, "normalized": 10},
+            "snapshot": {"items": 10},
+            "exports": {},
+        }
+
+    def fake_doctor_status(**_kwargs):
+        return {
+            "db": {"status": "ok"},
+            "counts": {
+                "events_window": 1000,
+                "events_with_entity_window": 1000,
+                "lead_snapshots_total": 1,
+            },
+            "keywords": {
+                "scanned_events": 50,
+                "events_with_keywords": 50,
+                "coverage_pct": 100.0,
+                "unique_keywords": 2,
+            },
+            "entities": {
+                "window_linked_coverage_pct": 100.0,
+                "sample_scanned_events": 50,
+                "sample_events_with_identity_signal": 50,
+                "sample_events_with_identity_signal_linked": 50,
+                "sample_identity_signal_coverage_pct": 100.0,
+                "sample_events_with_name": 50,
+                "sample_events_with_name_linked": 50,
+                "sample_name_coverage_pct": 100.0,
+            },
+            "correlations": {
+                "by_lane": {
+                    "same_keyword": 2,
+                    "kw_pair": 2,
+                    "same_sam_naics": 2,
+                    "same_entity": 2,
+                    "same_uei": 0,
+                }
+            },
+            "sam_context": {
+                "scanned_events": 50,
+                "events_with_research_context": 50,
+                "research_context_coverage_pct": 100.0,
+                "events_with_core_procurement_context": 50,
+                "core_procurement_context_coverage_pct": 100.0,
+                "avg_context_fields_per_event": 3.2,
+                "coverage_by_field_pct": {
+                    "sam_notice_type": 100.0,
+                    "sam_solicitation_number": 100.0,
+                    "sam_naics_code": 100.0,
+                },
+                "top_notice_types": [],
+                "top_naics_codes": [],
+                "top_set_aside_codes": [],
+            },
+            "hints": [],
+        }
+
+    monkeypatch.setattr(workflow_module, "run_samgov_workflow", fake_run_samgov_workflow)
+    monkeypatch.setattr(workflow_module, "doctor_status", fake_doctor_status)
+
+    res = run_samgov_smoke_workflow(
+        bundle_root=tmp_path / "smoke_artifacts_sample_cov",
+        require_nonzero=True,
+        skip_ingest=False,
+    )
+
+    assert res["status"] == "ok"
+    checks_by_name = {item.get("name"): item for item in res.get("checks", [])}
+    kw_cov = checks_by_name["events_with_keywords_coverage_threshold"]
+
+    assert kw_cov["status"] == "pass"
+    assert kw_cov["observed"] == 100.0
+    assert kw_cov["actual"] == {
+        "events_with_keywords": 50,
+        "sample_scanned_events": 50,
+        "coverage_pct": 100.0,
+    }
