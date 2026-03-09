@@ -77,6 +77,26 @@ For a full payload:
 - `ss doctor status --source USAspending --days 30 --json`
 - `ss doctor status --source "SAM.gov" --days 30 --json`
 
+USAspending quality targets for a healthy operator slice:
+- `events_window > 0`
+- `events_with_keywords > 0`
+- `same_keyword > 0`
+- `kw_pair > 0`
+
+## USAspending tuning loop (recommended)
+
+1. Run bounded workflow (default keyword threshold is practical for slices):
+   - `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\examples\ontology_usaspending_starter.json --window-days 30`
+2. Check doctor metrics:
+   - `ss doctor status --source USAspending --days 30`
+3. Inspect untagged prevalence/samples:
+   - `psql -U postgres -d shadowscope -v window_days=30 -v row_limit=50 -f .\tools\diagnose_untagged_usaspending.sql`
+4. Rebuild keyword lanes after ontology edits:
+   - `ss correlate rebuild-keywords --window-days 30 --source USAspending --min-events 2 --max-events 200`
+   - `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 200 --max-keywords-per-event 10`
+5. Refresh snapshot/exports:
+   - `ss leads snapshot --source USAspending --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "usa tuning pass"`
+
 ## USAspending untagged diagnostics
 
 Inspect recent untagged USAspending rows with a schema-safe query helper:
@@ -110,6 +130,7 @@ One command to run end-to-end pipelines:
 Notes:
 - Use `--skip-ingest` to run offline (no network calls).
 - Workflows run: ingest -> ontology -> entities -> correlations -> snapshot -> exports.
+- USA workflow defaults use `--min-events-keywords 2` for practical keyword lane output.
 - `samgov-smoke` additionally captures `doctor status` and writes `workflow_result.json`, `doctor_status.json`, and `smoke_summary.json` in a timestamped bundle.
 - SAM workflow commands accept both `--ingest-days` and `--days`.
 - If `--out` is a file path (example: `.\reports\run.csv`), workflows generate per-artifact files (prefix + timestamp) to avoid overwriting.

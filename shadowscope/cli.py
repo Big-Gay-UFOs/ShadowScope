@@ -554,7 +554,7 @@ def workflow_usaspending(
     window_days: int = typer.Option(30, "--window-days", help="Correlations: lookback window (days)"),
     min_events_entity: int = typer.Option(2, "--min-events-entity", help="Correlations: min events for entity/UEI lanes"),
     min_events_keywords: int = typer.Option(
-        3, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"
+        2, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"
     ),
     max_events_keywords: int = typer.Option(
         200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"
@@ -967,5 +967,3 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
-
-

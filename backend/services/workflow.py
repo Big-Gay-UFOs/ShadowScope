@@ -248,7 +248,7 @@ def run_usaspending_workflow(
     entity_batch: int = 500,
     window_days: int = 30,
     min_events_entity: int = 2,
-    min_events_keywords: int = 3,
+    min_events_keywords: int = 2,
     max_events_keywords: int = 200,
     max_keywords_per_event: int = 10,
     min_score: int = 1,
@@ -643,4 +643,3 @@ __all__ = [
     "run_samgov_workflow",
     "run_samgov_smoke_workflow",
 ]
-

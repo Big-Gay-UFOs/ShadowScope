@@ -213,7 +213,7 @@ def doctor_status(
             hints.append("kw_pair correlations require keywords. Run ontology apply first, then rebuild keyword-pairs.")
         else:
             hints.append(
-                f'No kw_pair correlations found. Try: ss correlate rebuild-keyword-pairs --window-days {window_days} --source "{hint_source}" --min-events 3'
+                f'No kw_pair correlations found. Try: ss correlate rebuild-keyword-pairs --window-days {window_days} --source "{hint_source}" --min-events 2'
             )
             if scanned_events and (events_keywords_gt_max / scanned_events) >= 0.2:
                 hints.append(

@@ -102,7 +102,7 @@ PowerShell reminder:
 
 ## Sprint roadmap
 
-_Last updated: 2026-03-08_
+_Last updated: 2026-03-09_
 
 ### Sprint goal
 
@@ -118,8 +118,9 @@ Keep SAM.gov operational and close USAspending ontology quality gaps: repeatable
 - **Done:** Conservative starter ontology added at `examples/ontology_sam_procurement_starter.json`.
 - **Done:** `ss workflow samgov` now provides a first-class SAM end-to-end wrapper.
 - **Done:** `ss workflow samgov-smoke` now runs ingest -> entities -> ontology -> correlations -> snapshot -> doctor and writes a timestamped artifact bundle (`workflow_result.json`, `doctor_status.json`, `smoke_summary.json`, exports).
-- **Done:** PR #74 is merged to `main`.
-- **Next:** continue SAM live-key smoke baselining and tune USAspending ontology quality using untagged-row diagnostics.
+- **Done:** SAM.gov smoke baseline is healthy on the validated 30-day operator slice (`events_window=50`, `with_keywords=50`, `same_keyword=7`, `kw_pair=14`, entity coverage 100%).
+- **Active sprint work:** USAspending ontology tuning remains the quality gap (`events_window=200`, `with_keywords=29`, `same_keyword=5`, `kw_pair=0` at strict defaults; `kw_pair=1` when keyword min-events is 2).
+- **Next:** raise USAspending keyword coverage + correlation usefulness with focused ontology updates and fixture-based regression guardrails.
 
 ### Checklist
 
@@ -134,10 +135,10 @@ Keep SAM.gov operational and close USAspending ontology quality gaps: repeatable
 
 #### Next up
 
-- [ ] Execute a live SAM key smoke run from a clean Windows PowerShell session and archive the bundle
-- [ ] Confirm required source-scoped non-zero checks on live data (`events_window`, `events_with_keywords`, `events_with_entity_window`, `same_keyword|kw_pair`, snapshot items)
-- [ ] Capture baseline entity-coverage metrics from smoke output and tighten thresholds after two clean live runs
-- [ ] Add deterministic fixture regression coverage for both SAM and USAspending ontology/correlation behavior
+- [ ] Re-run a live USAspending 30-day slice and measure coverage delta vs the 14.5% baseline
+- [ ] Archive two clean SAM live-key smoke bundles and tighten source-scoped thresholds from observed baselines
+- [ ] Continue USAspending ontology precision tuning for remaining untagged clusters (no broad single-word rules)
+- [ ] Evaluate kw_pair signal scoring upgrades after lane volume stabilizes
 
 #### Known issues / risks
 
@@ -240,26 +241,25 @@ Do not use `lead_snapshots_total > 0` as a SAM.gov-specific success check. That 
 <!-- SHADOWSCOPE:DEMO:END -->
 
 
-Typical workflow:
+Typical workflow (USAspending tuning loop):
 
-1) Ingest a bounded slice of USAspending data
-- `ss ingest usaspending --days 30 --pages 2 --page-size 100 --keyword "DOE" --keyword "NNSA"`
+1) Run bounded workflow (defaults include `--min-events-keywords 2` for practical keyword lanes)
+- `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\examples\ontology_usaspending_starter.json --window-days 30`
 
-2) Apply ontology tagging
-- `ss ontology apply --path .\examples\ontology_usaspending_starter.json --days 30 --source USAspending`
-- Optional FOIA-focused alternative: `ss ontology apply --path .\ontology.foia.json --days 30 --source USAspending`
+2) Check source-scoped quality metrics
+- `ss doctor status --source USAspending --days 30`
+- Target checks: `events_window > 0`, `events_with_keywords > 0`, `same_keyword > 0`, `kw_pair > 0`
 
-3) Rebuild correlations (including keyword pairs)
-- `ss correlate rebuild --window-days 30 --source USAspending --min-events 2`
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 500 --max-keywords-per-event 50`
+3) Inspect untagged rows and recurring term clusters
+- `psql -U postgres -d shadowscope -v window_days=30 -v row_limit=50 -f .\tools\diagnose_untagged_usaspending.sql`
 
-4) Link entities
-- `ss entities link --source USAspending --days 30`
+4) Tune ontology rules, then rebuild keyword lanes and snapshot
+- `ss correlate rebuild-keywords --window-days 30 --source USAspending --min-events 2 --max-events 200`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 200 --max-keywords-per-event 10`
+- `ss leads snapshot --source USAspending --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "usa tuning pass"`
 
-5) Create a lead snapshot and export artifacts
-- `ss leads snapshot --source USAspending --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "snapshot"`
+5) Export review artifacts
 - `ss export lead-snapshot --snapshot-id <ID> --out .\data\exports\`
-- `ss export lead-deltas --from <ID1> --to <ID2> --out .\data\exports\`
 - `ss export kw-pairs --min-event-count 2 --limit 200 --out .\data\exports\`
 
 More detail: see `docs/RUNBOOK.md`.
@@ -268,9 +268,9 @@ More detail: see `docs/RUNBOOK.md`.
 
 ## Status
 
-- Current focus: keep SAM.gov live repeatability healthy and improve USAspending ontology usefulness (keyword coverage + keyword-correlation lanes).
+- SAM.gov baseline is healthy and repeatable; use `ss workflow samgov` / `ss workflow samgov-smoke` for ongoing smoke checks.
+- USAspending ontology usefulness is the active sprint gap; run `ss workflow usaspending --ontology .\\examples\\ontology_usaspending_starter.json` and validate with `ss doctor status --source USAspending --days 30`.
 - Roadmap/checklist: see `ROADMAP.md` (authoritative tracker).
-- SAM.gov and USAspending ingestion are both supported; use `ss workflow samgov` / `ss workflow samgov-smoke` for SAM, and `ss workflow usaspending --ontology .\\examples\\ontology_usaspending_starter.json` for USAspending baseline runs.
 
 ### Notes
 

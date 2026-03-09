@@ -6,6 +6,12 @@
 -- Notes:
 --   - events.keywords is JSON in this schema (not JSONB).
 --   - This script uses json_typeof/json_array_length and avoids jsonb_* functions.
+--
+-- Tuning loop:
+--   1) Run workflow + doctor for USAspending
+--   2) Run this diagnostic to inspect untagged prevalence and samples
+--   3) Tune ontology rules for recurring, high-precision patterns
+--   4) Re-run workflow/correlations and compare doctor metrics
 
 \if :{?window_days}
 \else
@@ -26,6 +32,12 @@ WITH recent AS (
     e.source_url,
     e.snippet,
     e.raw_json,
+    COALESCE(
+      NULLIF(TRIM(e.snippet), ''),
+      NULLIF(TRIM(e.raw_json->>'Description'), ''),
+      NULLIF(TRIM(e.raw_json->>'description'), ''),
+      ''
+    ) AS description_text,
     CASE
       WHEN e.keywords IS NULL THEN 0
       WHEN json_typeof(e.keywords) = 'array' THEN json_array_length(e.keywords)
@@ -54,6 +66,59 @@ WITH recent AS (
     e.source_url,
     e.snippet,
     e.raw_json,
+    LOWER(
+      COALESCE(
+        NULLIF(TRIM(e.snippet), ''),
+        NULLIF(TRIM(e.raw_json->>'Description'), ''),
+        NULLIF(TRIM(e.raw_json->>'description'), ''),
+        ''
+      )
+    ) AS description_lc,
+    CASE
+      WHEN e.keywords IS NULL THEN 0
+      WHEN json_typeof(e.keywords) = 'array' THEN json_array_length(e.keywords)
+      ELSE 0
+    END AS keyword_count
+  FROM events e
+  WHERE e.source = 'USAspending'
+    AND COALESCE(e.occurred_at, e.created_at) >= NOW() - (:window_days || ' days')::interval
+),
+untagged AS (
+  SELECT *
+  FROM recent
+  WHERE keyword_count = 0
+)
+SELECT
+  COUNT(*) AS untagged_window,
+  SUM(CASE WHEN description_lc ~ '\mservice(s)?\M' THEN 1 ELSE 0 END) AS has_service,
+  SUM(CASE WHEN description_lc ~ '\msupport\M' THEN 1 ELSE 0 END) AS has_support,
+  SUM(CASE WHEN description_lc ~ '\mmaintenance\M' THEN 1 ELSE 0 END) AS has_maintenance,
+  SUM(CASE WHEN description_lc ~ '\mtraining\M' THEN 1 ELSE 0 END) AS has_training,
+  SUM(CASE WHEN description_lc ~ '\msecurity\M' THEN 1 ELSE 0 END) AS has_security,
+  SUM(CASE WHEN description_lc ~ '\mlicen[cs]e(s)?\M' THEN 1 ELSE 0 END) AS has_license,
+  SUM(CASE WHEN description_lc ~ '\mcloud\M' THEN 1 ELSE 0 END) AS has_cloud,
+  SUM(CASE WHEN description_lc ~ '\msoftware\M' THEN 1 ELSE 0 END) AS has_software,
+  SUM(CASE WHEN description_lc ~ '\msoftware\M' AND description_lc ~ '\mmaintenance\M' THEN 1 ELSE 0 END) AS software_and_maintenance,
+  SUM(CASE WHEN description_lc ~ '\msoftware\M' AND description_lc ~ '\mlicen[cs]e(s)?\M' THEN 1 ELSE 0 END) AS software_and_license,
+  SUM(CASE WHEN description_lc ~ '\mcloud\M' AND description_lc ~ '\msupport\M' THEN 1 ELSE 0 END) AS cloud_and_support,
+  SUM(CASE WHEN description_lc ~ '\msecurity\M' AND description_lc ~ '\mtraining\M' THEN 1 ELSE 0 END) AS security_and_training
+FROM untagged;
+
+WITH recent AS (
+  SELECT
+    e.id,
+    e.created_at,
+    e.occurred_at,
+    e.doc_id,
+    e.source_url,
+    e.snippet,
+    e.raw_json,
+    COALESCE(
+      NULLIF(TRIM(e.snippet), ''),
+      NULLIF(TRIM(e.raw_json->>'Description'), ''),
+      NULLIF(TRIM(e.raw_json->>'description'), ''),
+      '<no description>'
+    ) AS description_text,
     CASE
       WHEN e.keywords IS NULL THEN 0
       WHEN json_typeof(e.keywords) = 'array' THEN json_array_length(e.keywords)
@@ -70,15 +135,15 @@ SELECT
   COALESCE(doc_id, raw_json->>'Award ID', raw_json->>'generated_unique_award_id') AS award_id,
   raw_json->>'Recipient Name' AS recipient_name,
   keyword_count,
-  LEFT(
-    COALESCE(
-      NULLIF(TRIM(snippet), ''),
-      NULLIF(TRIM(raw_json->>'Description'), ''),
-      NULLIF(TRIM(raw_json->>'description'), ''),
-      '<no description>'
-    ),
-    240
-  ) AS description_preview,
+  CASE WHEN LOWER(description_text) ~ '\mservice(s)?\M' THEN 1 ELSE 0 END AS has_service,
+  CASE WHEN LOWER(description_text) ~ '\msupport\M' THEN 1 ELSE 0 END AS has_support,
+  CASE WHEN LOWER(description_text) ~ '\mmaintenance\M' THEN 1 ELSE 0 END AS has_maintenance,
+  CASE WHEN LOWER(description_text) ~ '\mtraining\M' THEN 1 ELSE 0 END AS has_training,
+  CASE WHEN LOWER(description_text) ~ '\msecurity\M' THEN 1 ELSE 0 END AS has_security,
+  CASE WHEN LOWER(description_text) ~ '\mlicen[cs]e(s)?\M' THEN 1 ELSE 0 END AS has_license,
+  CASE WHEN LOWER(description_text) ~ '\mcloud\M' THEN 1 ELSE 0 END AS has_cloud,
+  CASE WHEN LOWER(description_text) ~ '\msoftware\M' THEN 1 ELSE 0 END AS has_software,
+  LEFT(description_text, 240) AS description_preview,
   source_url
 FROM recent
 WHERE keyword_count = 0

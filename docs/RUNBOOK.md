@@ -62,15 +62,16 @@ Optional FOIA-focused alternative:
 ### 3) Correlations
 Rebuild correlation lanes over a time window.
 
-All lanes:
+Entity/UEI lane:
 - `ss correlate rebuild --window-days 30 --source USAspending --min-events 2`
 
-Keyword pairs:
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 500 --max-keywords-per-event 50`
+Keyword lanes (recommended defaults for practical 30-day slices):
+- `ss correlate rebuild-keywords --window-days 30 --source USAspending --min-events 2 --max-events 200`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 200 --max-keywords-per-event 10`
 
 Notes:
 - kw-pairs require events with >=2 keywords.
-- If your dataset is small, lower `--min-events` to 2.
+- If lane counts are still zero, inspect untagged rows and tune ontology before broadening thresholds.
 
 ### 4) Entity linking
 Link events to entities from recipient identifiers.
@@ -97,6 +98,26 @@ kw-pairs export:
 
 Correlations export (generic):
 - `ss export correlations --source USAspending --lane kw_pair --window-days 30 --limit 500`
+
+### USAspending tuning loop (operator path)
+Use this loop to improve keyword quality without adding broad/noisy rules.
+
+1. Run bounded workflow:
+- `ss workflow usaspending --ingest-days 30 --pages 2 --page-size 100 --ontology .\examples\ontology_usaspending_starter.json --window-days 30`
+
+2. Check source-scoped metrics:
+- `ss doctor status --source USAspending --days 30`
+- Desired minimums: `events_window > 0`, `events_with_keywords > 0`, `same_keyword > 0`, `kw_pair > 0`
+
+3. Inspect untagged prevalence and samples:
+- `psql -U postgres -d shadowscope -v window_days=30 -v row_limit=50 -f .\tools\diagnose_untagged_usaspending.sql`
+
+4. Tune ontology (`examples/ontology_usaspending_starter.json`) using recurring untagged clusters.
+
+5. Rebuild keyword lanes + snapshot:
+- `ss correlate rebuild-keywords --window-days 30 --source USAspending --min-events 2 --max-events 200`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source USAspending --min-events 2 --max-events 200 --max-keywords-per-event 10`
+- `ss leads snapshot --source USAspending --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "usa tuning pass"`
 
 ## Troubleshooting
 
@@ -197,6 +218,7 @@ One command to run end-to-end pipelines:
 Notes:
 - Use `--skip-ingest` to run offline (no network calls).
 - Workflows run: ingest -> ontology -> entities -> correlations -> snapshot -> exports.
+- USA workflow defaults now target practical slices with `--min-events-keywords 2` (override when you need stricter grouping).
 - `samgov-smoke` additionally runs `doctor status` and writes a bundle with:
   - `workflow_result.json`
   - `doctor_status.json`

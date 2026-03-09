@@ -18,32 +18,34 @@ Current theme:
 - keep SAM.gov healthy and repeatable with source-scoped smoke artifacts
 - close USAspending ontology usefulness gaps on representative windows
 
-### Current status (2026-03-08)
+### Current status (2026-03-09)
 - [x] SAM.gov ingest hardening (base URL defaults, retry/backoff, run finalization)
 - [x] SAM-aware doctor hints + entity-coverage diagnostics
 - [x] SAM workflow wrapper + smoke artifact bundle (`ss workflow samgov`, `ss workflow samgov-smoke`)
 - [x] Live validation confirmed SAM ingest, entity linking, keyword coverage, correlation lanes, and lead snapshot health
-- [x] Added conservative USAspending starter ontology (`examples/ontology_usaspending_starter.json`)
-- [x] Added fixture regression coverage for non-zero USAspending keyword tagging + keyword-correlation lanes
-- [x] Added schema-safe diagnostic helper for recent untagged USAspending rows (`tools/diagnose_untagged_usaspending.sql`)
-- [x] Added SAM workflow `--days` alias ergonomics and aligned PowerShell guidance
+- [x] SAM baseline captured for 30-day operator slice (`events_window=50`, `with_keywords=50`, `same_keyword=7`, `kw_pair=14`, entity coverage 100%)`
+- [x] USAspending starter ontology tuned (v2 pass) for recurring untagged service/support/maintenance/training/security/license/cloud/software patterns
+- [x] USA workflow default keyword threshold calibrated to practical slices (`--min-events-keywords 2`)
+- [x] Added deterministic fixture coverage for USAspending keyword tagging, `same_keyword`, `kw_pair`, and over-tagging guardrails
+- [x] Expanded schema-safe untagged diagnostics with recurring-term prevalence columns (`tools/diagnose_untagged_usaspending.sql`)
+- [x] README/RUNBOOK/QUICKSTART/STATE refreshed with the USA tuning loop and exact operator commands
 
 ### Next sprint priorities
-- [ ] Run two clean SAM live-key smoke bundles and tighten non-zero thresholds from observed baselines
-- [ ] Tune USAspending starter ontology using sampled untagged rows (quality over keyword-count inflation)
-- [ ] Expand deterministic fixture coverage around USAspending ontology edge cases
-- [ ] Keep README/RUNBOOK/QUICKSTART/STATE aligned with validated operator flow
+- [ ] Re-run live USAspending 30-day slice and measure post-tuning coverage delta vs 14.5% baseline
+- [ ] Archive two clean SAM live-key smoke bundles and tighten threshold gates from observed baselines
+- [ ] Continue precision tuning for remaining untagged clusters without broad single-word rules
+- [ ] Evaluate `kw_pair` signal scoring upgrade path after lane volume stabilizes
 
 ### Definition of done for this pass
 From a clean Windows PowerShell session, operators can run bounded workflows and reliably produce:
 - SAM smoke bundles with required source-scoped non-zero checks
-- USAspending runs with non-zero keyword tagging and at least one keyword correlation lane (`same_keyword` and/or `kw_pair`)
+- USAspending runs with non-zero keyword tagging and non-zero keyword lanes for both `same_keyword` and `kw_pair` under documented workflow settings
 - a repeatable diagnostic path for inspecting remaining untagged USAspending events
 
 <!-- ROADMAP:CURRENT_USASPENDING_END -->
 
 
-Last updated: 2026-03-08
+Last updated: 2026-03-09
 
 ## Done
 - M0 plumbing: Compose + migrations + idempotent ingest
