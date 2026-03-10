@@ -57,7 +57,7 @@
         {
           "id": "doe_nnsa_material_handling_context",
           "type": "regex",
-          "pattern": "\\b(?:Restricted Data|RD|Formerly Restricted Data|FRD|Special Nuclear Material|SNM|transclassified foreign nuclear information|TFNI|Foreign Intelligence Information|FII|non-contract\\s+FII|Q\\s+clearance|Q\\s*\\+\\s*SEI|Office of Intelligence and Counterintelligence|OICI|DOE-INT)\\b.{0,180}\\b(?:handling|access|custody|transport|control|compliance|security|operations support|program support)\\b",
+          "pattern": "\\b(?:Restricted Data|Formerly Restricted Data|FRD|Special Nuclear Material|SNM|transclassified foreign nuclear information|TFNI|Foreign Intelligence Information|FII|non-contract\\s+FII|Q\\s+clearance|Q\\s*\\+\\s*SEI|Office of Intelligence and Counterintelligence|OICI|DOE-INT)\\b.{0,180}\\b(?:handling|access|custody|transport|control|compliance|security|operations support|program support)\\b",
           "fields": [
             "snippet",
             "raw_json"
