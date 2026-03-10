@@ -1,5 +1,52 @@
-# ShadowScope
+﻿# ShadowScope
 
+
+## Command Matrix (LLM-First)
+
+Use this section as the default operator/agent playbook.
+
+### 1) Environment + health
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\examples\powershell\set-shadow-env.ps1
+ss doctor status
+```
+
+### 2) Fast SAM smoke (default starter profile)
+
+```powershell
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter --json
+```
+
+### 3) DoD FOIA triage mode (recommended for relationship matrix work)
+
+```powershell
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia --json
+```
+
+### 4) Ontology profile map
+
+- `starter` -> `examples/ontology_sam_procurement_starter.json`
+- `dod_foia` -> `examples/ontology_sam_dod_foia_companion.json`
+- `starter_plus_dod_foia` -> `examples/ontology_sam_procurement_plus_dod_foia.json`
+- `--ontology <path>` always overrides `--ontology-profile`
+
+### 5) Offline rebuild loop (after ontology edits)
+
+```powershell
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia
+ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
+ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
+ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
+ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2
+```
+
+### 6) Verification commands
+
+```powershell
+.\.venv\Scripts\pytest.exe -q tests/test_example_ontologies.py tests/test_samgov_ontology_tuning.py
+.\.venv\Scripts\pytest.exe -q tests/test_workflow_cli_flags.py tests/test_workflow_wrapper.py
+```
 
 ## Quickstart
 
@@ -165,7 +212,7 @@ Diagnostics review:
 
 Threshold tuning loop (example override):
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_starter.json`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 
 Fixture test verification:
@@ -177,10 +224,12 @@ Fixture test verification:
 
 ## PowerShell demo walkthrough
 
-This repo includes two SAM.gov ontology options:
+This repo includes four SAM.gov ontology options:
 
-- **Starter (recommended):** `examples/ontology_sam_procurement_starter.json` (conservative baseline)
-- **Demo (smoke test):** `examples/ontology_sam_kwpair_demo.json` (broad signal to prove full pipeline wiring)
+- **Starter (default):** `examples/ontology_sam_procurement_starter.json` (structural baseline)
+- **DoD FOIA companion:** `examples/ontology_sam_dod_foia_companion.json` (DoD mission-intent packs + operational noise suppressors)
+- **Starter + DoD FOIA (recommended):** `examples/ontology_sam_procurement_plus_dod_foia.json` (combined practical profile)
+- **Demo (non-production):** `examples/ontology_sam_kwpair_demo.json` (broad smoke signal only)
 
 For PowerShell session setup, use:
 
@@ -214,7 +263,7 @@ If you want a single operator command instead of manual sequencing:
 
 ```powershell
 # Full SAM workflow (ingest -> ontology -> entities -> correlations -> snapshot -> exports)
-ss workflow samgov --days 30 --pages 2 --limit 50 --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30
+ss workflow samgov --days 30 --pages 2 --limit 50 --ontology-profile starter --window-days 30
 
 # Smoke workflow (same chain + doctor checks + artifact bundle)
 ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30
@@ -261,7 +310,7 @@ Do not use `lead_snapshots_total > 0` as a SAM.gov-specific success check. That 
 Typical workflow (SAM.gov tuning loop):
 
 1) Run bounded SAM workflow
-- `ss workflow samgov --days 30 --pages 2 --limit 50 --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30`
+- `ss workflow samgov --days 30 --pages 2 --limit 50 --ontology-profile starter --window-days 30`
 
 2) Validate smoke bundle + non-zero checks
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
@@ -271,7 +320,7 @@ Typical workflow (SAM.gov tuning loop):
 - Target checks: `events_window > 0`, `events_with_keywords > 0`, `same_keyword > 0 OR kw_pair > 0`, `events_with_research_context > 0`
 
 4) Repeatable SAM tuning loop after ontology/context edits
-- `ss workflow samgov --skip-ingest --ontology .\examples\ontology_sam_procurement_starter.json --window-days 30 --days 30`
+- `ss workflow samgov --skip-ingest --ontology-profile starter_plus_dod_foia --window-days 30 --days 30`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
@@ -318,7 +367,7 @@ Windows execution policy (one-time):
 
 ## Key FOIA sprint additions
 - Seeded ingest: `--keyword`, `--recipient`
-- FOIA ontology: `ontology.foia.json` (apply via `--path`)
+- FOIA ontology companion: `examples/ontology_sam_dod_foia_companion.json`
 - Correlation lanes include `kw_pair` (co-term clustering)
 - Default lead snapshots are **v2**
 - Operational noise handling (HRP/DACTS, NASA sponsoring agreement)
@@ -327,7 +376,7 @@ Windows execution policy (one-time):
 ## Resume points
 - `docs/STATE.md` (current state snapshot)
 - `ROADMAP.md` (milestones + next steps)
-- `ontology.foia.json` (FOIA ontology)
+- `examples/ontology_sam_dod_foia_companion.json` (DoD FOIA companion ontology)
 - `tools/runbook.ps1` (repeatable run)
 - `tools/diagnose_untagged_usaspending.sql` (schema-safe untagged USAspending diagnostics)
 
@@ -414,4 +463,6 @@ Retry tuning knobs for larger SAM windows:
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
+
+
 
