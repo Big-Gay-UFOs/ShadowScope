@@ -5,12 +5,12 @@ _Last updated: 2026-03-09_
 ## Current sprint
 
 ### Theme
-SAM Workflow Report Productization + Operator Trust Hardening
+SAM-only Threshold Calibration + Operator Trust Hardening
 
 ### Scope
-- Keep calibrated SAM smoke/doctor thresholds from bounded SAM runs.
-- Productize SAM smoke bundle review with a generated static `report.html`.
-- Expose lightweight report CLI entrypoints for bundle/latest review.
+- Calibrate SAM smoke/doctor thresholds from bounded SAM runs.
+- Enforce thresholds in `ss workflow samgov-smoke` with deterministic fixture tests.
+- Improve SAM.gov operator-facing failure hints (what failed, why it matters, next command).
 - Keep CI-facing checks offline/fixture-based.
 
 ### Explicit boundaries
@@ -26,10 +26,6 @@ SAM Workflow Report Productization + Operator Trust Hardening
 - [x] Added fixture tests for threshold pass and deterministic fail behavior (context-depth + `same_sam_naics`).
 - [x] Hardened SAM doctor hints with source-specific, command-ready guidance.
 - [x] Kept USAspending unchanged except maintenance-safe health check paths.
-- [x] Added `backend/services/reporting.py` for deterministic SAM workflow HTML rendering from bundle payloads.
-- [x] Extended `ss workflow samgov-smoke` artifact contract to include `report.html` in each bundle.
-- [x] Added lightweight report CLI surfaces: `ss report samgov --bundle ...` and `ss report latest --source "SAM.gov"`.
-- [x] Added regression coverage for report generation, bundle wiring, and report CLI behavior.
 
 ### Calibration snapshot (bounded SAM runs)
 Bundles:
@@ -67,14 +63,24 @@ Observed ranges:
 - `snapshot_items >= 1`
 
 ## Operator validation commands
-- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30`
-- `ss report latest --source "SAM.gov"`
-- `ss report samgov --bundle data\exports\smoke\samgov\<timestamp>`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
 - `ss doctor status --source "SAM.gov" --days 30 --json`
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
-- `.\.venv\Scripts\pytest.exe -q tests\test_reporting.py tests\test_report_cli.py tests\test_workflow_wrapper.py tests\test_workflow_cli_flags.py`
+- `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
 
 ## Deferred (explicitly out of scope this sprint)
 - SAM<->USAspending linkage/candidate join surfaces.
 - USAspending ontology expansion and term-pack growth.
 - Keyword/term expansion for SAM starter ontology (defer to dedicated precision/recall sprint).
+## Update: SAM Hardening (2026-03-09)
+
+Completed in this sprint:
+
+- [x] Added larger-run SAM validation workflow command: `ss workflow samgov-validate`
+- [x] Added normalized SAM bundle contract (`samgov.bundle.v1`) with stable relative paths
+- [x] Added machine-readable `bundle_manifest.json` and `results/workflow_summary.json`
+- [x] Added bundle HTML report at `report/bundle_report.html`
+- [x] Added source-aware diagnostics command: `ss diagnose samgov`
+- [x] Added bundle inspection command: `ss inspect bundle --path ...`
+- [x] Added retry/rate-limit request diagnostics surfaced from SAM ingest metadata
+- [x] Added regression tests for bundle normalization/report/diagnostics/validation metadata

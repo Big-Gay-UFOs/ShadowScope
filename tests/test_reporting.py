@@ -244,3 +244,26 @@ def test_find_latest_sam_smoke_bundle_returns_none_when_no_stamped_runs(tmp_path
 
     assert find_latest_sam_smoke_bundle(root) is None
 
+
+def test_generate_report_does_not_resolve_non_bundle_prefixed_parent_artifacts(tmp_path: Path):
+    root = tmp_path / "smoke" / "samgov"
+    bundle = root / "20260309_130000"
+    helper = root / "helper"
+
+    workflow, doctor, smoke, artifacts = _sample_payloads(bundle)
+
+    # Deliberately point at a parent-level helper path that is not bundle-prefixed.
+    artifacts["workflow_result_json"] = "helper/workflow_result.json"
+    smoke["artifacts"] = artifacts
+
+    helper.mkdir(parents=True, exist_ok=True)
+    _write_json(helper / "workflow_result.json", {"generated_at": "2026-03-09T12:00:00+00:00", "result": {"source": "SAM.gov"}})
+
+    _write_json(bundle / "workflow_result.json", {"generated_at": "2026-03-09T12:00:00+00:00", "result": workflow})
+    _write_json(bundle / "doctor_status.json", {"generated_at": "2026-03-09T12:00:00+00:00", "result": doctor})
+    _write_json(bundle / "smoke_summary.json", smoke)
+
+    res = generate_sam_report_from_bundle(bundle)
+    report_html = Path(res["report_html"]).read_text(encoding="utf-8")
+
+    assert re.search(r"<tr><td>workflow_result_json</td><td>.*?</td><td>no</td></tr>", report_html)

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from backend.correlate import correlate
-from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
-from backend.services.doctor import doctor_status
+from backend.services.doctor import doctor_status  # noqa: F401
 from backend.services.entities import link_entities_from_events
 from backend.services.export import export_events
 from backend.services.export_correlations import export_kw_pairs
@@ -15,7 +14,6 @@ from backend.services.export_entities import export_entities_bundle
 from backend.services.export_leads import export_lead_snapshot
 from backend.services.ingest import ingest_sam_opportunities, ingest_usaspending
 from backend.services.leads import create_lead_snapshot
-from backend.services.reporting import generate_sam_report
 from backend.services.tagging import apply_ontology_to_events
 
 _IngestFn = Callable[..., dict[str, Any]]
@@ -475,6 +473,7 @@ def run_samgov_workflow(
     )
 
 
+# Hardened SAM workflow wrappers (bundle normalization + larger-run validation mode)
 def run_samgov_smoke_workflow(
     *,
     ingest_days: int = 30,
@@ -503,16 +502,12 @@ def run_samgov_smoke_workflow(
     require_nonzero: bool = True,
     skip_ingest: bool = False,
     threshold_overrides: Optional[dict[str, Any]] = None,
+    validation_mode: str = "smoke",
+    workflow_type: str = "samgov-smoke",
 ) -> dict[str, Any]:
-    """Run SAM.gov end-to-end workflow and persist a smoke artifact bundle."""
-    ensure_runtime_directories()
-    now = datetime.now(timezone.utc)
-    stamp = now.strftime("%Y%m%d_%H%M%S")
-    root = Path(bundle_root).expanduser() if bundle_root else (EXPORTS_DIR / "smoke" / "samgov")
-    bundle_dir = root / stamp
-    bundle_dir.mkdir(parents=True, exist_ok=True)
+    from backend.services.sam_workflow_hardening import run_samgov_smoke_workflow_hardened
 
-    workflow_res = run_samgov_workflow(
+    return run_samgov_smoke_workflow_hardened(
         ingest_days=int(ingest_days),
         pages=int(pages),
         page_size=int(page_size),
@@ -534,401 +529,82 @@ def run_samgov_smoke_workflow(
         scan_limit=int(scan_limit),
         scoring_version=str(scoring_version),
         notes=notes,
-        output=bundle_dir / "exports" / "samgov_smoke.csv",
-        export_events_flag=True,
+        bundle_root=(Path(bundle_root).expanduser() if bundle_root else None),
         database_url=database_url,
+        require_nonzero=bool(require_nonzero),
         skip_ingest=bool(skip_ingest),
-        abort_on_ingest_skip=True,
+        threshold_overrides=threshold_overrides,
+        validation_mode=str(validation_mode),
+        workflow_type=str(workflow_type),
     )
 
-    status = workflow_res.get("status")
-    ingest = workflow_res.get("ingest") if isinstance(workflow_res, dict) else {}
-    ingest_nonzero = (
-        _safe_int((ingest or {}).get("fetched")) > 0
-        or _safe_int((ingest or {}).get("inserted")) > 0
-        or _safe_int((ingest or {}).get("normalized")) > 0
-    )
-    thresholds = _resolve_sam_smoke_thresholds(threshold_overrides)
 
-    doc = doctor_status(
-        days=int(window_days),
-        source="SAM.gov",
-        scan_limit=int(scan_limit),
+def run_samgov_validation_workflow(
+    *,
+    ingest_days: int = 30,
+    pages: int = 5,
+    page_size: int = 100,
+    max_records: Optional[int] = 250,
+    start_page: int = 1,
+    keywords: Optional[list[str]] = None,
+    api_key: Optional[str] = None,
+    ontology_path: Path = Path("examples/ontology_sam_procurement_starter.json"),
+    ontology_days: int = 30,
+    entity_days: int = 30,
+    entity_batch: int = 500,
+    window_days: int = 30,
+    min_events_entity: int = 2,
+    min_events_keywords: int = 2,
+    max_events_keywords: int = 200,
+    max_keywords_per_event: int = 10,
+    min_score: int = 1,
+    snapshot_limit: int = 200,
+    scan_limit: int = 5000,
+    scoring_version: str = "v2",
+    notes: Optional[str] = "samgov larger-run validation",
+    bundle_root: Optional[Path] = None,
+    database_url: Optional[str] = None,
+    require_nonzero: bool = True,
+    skip_ingest: bool = False,
+    threshold_overrides: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    from backend.services.sam_workflow_hardening import run_samgov_validation_workflow_hardened
+
+    return run_samgov_validation_workflow_hardened(
+        ingest_days=int(ingest_days),
+        pages=int(pages),
+        page_size=int(page_size),
+        max_records=max_records,
+        start_page=int(start_page),
+        keywords=keywords,
+        api_key=api_key,
+        ontology_path=Path(ontology_path),
+        ontology_days=int(ontology_days),
+        entity_days=int(entity_days),
+        entity_batch=int(entity_batch),
+        window_days=int(window_days),
+        min_events_entity=int(min_events_entity),
+        min_events_keywords=int(min_events_keywords),
+        max_events_keywords=int(max_events_keywords),
         max_keywords_per_event=int(max_keywords_per_event),
+        min_score=int(min_score),
+        snapshot_limit=int(snapshot_limit),
+        scan_limit=int(scan_limit),
+        scoring_version=str(scoring_version),
+        notes=notes,
+        bundle_root=(Path(bundle_root).expanduser() if bundle_root else None),
         database_url=database_url,
+        require_nonzero=bool(require_nonzero),
+        skip_ingest=bool(skip_ingest),
+        threshold_overrides=threshold_overrides,
     )
-    db_ok = ((doc.get("db") or {}).get("status") == "ok")
-    counts = doc.get("counts") or {}
-    kw = doc.get("keywords") or {}
-    entities_diag = doc.get("entities") or {}
-    lane_counts = ((doc.get("correlations") or {}).get("by_lane")) or {}
-    sam_ctx = doc.get("sam_context") or {}
-    coverage_by_field_pct = sam_ctx.get("coverage_by_field_pct") or {}
-    snapshot_items = _safe_int((workflow_res.get("snapshot") or {}).get("items"))
-
-    events_window = _safe_int(counts.get("events_window"))
-    events_with_keywords = _safe_int(kw.get("events_with_keywords"))
-    keywords_scanned_events = _safe_int(kw.get("scanned_events"))
-    events_with_entity = _safe_int(counts.get("events_with_entity_window"))
-    same_keyword_lane = _safe_int(lane_counts.get("same_keyword"))
-    kw_pair_lane = _safe_int(lane_counts.get("kw_pair"))
-    same_sam_naics_lane = _safe_int(lane_counts.get("same_sam_naics"))
-    keyword_signal_total = same_keyword_lane + kw_pair_lane
-
-    events_with_research_context = _safe_int(sam_ctx.get("events_with_research_context"))
-    research_context_coverage_pct = _safe_float(sam_ctx.get("research_context_coverage_pct"))
-    events_with_core_procurement_context = _safe_int(sam_ctx.get("events_with_core_procurement_context"))
-    core_procurement_context_coverage_pct = _safe_float(sam_ctx.get("core_procurement_context_coverage_pct"))
-    avg_context_fields_per_event = _safe_float(sam_ctx.get("avg_context_fields_per_event"))
-
-    sam_notice_type_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_notice_type"))
-    sam_solicitation_number_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_solicitation_number"))
-    sam_naics_code_coverage_pct = _safe_float(coverage_by_field_pct.get("sam_naics_code"))
-
-    raw_keywords_coverage = kw.get("coverage_pct")
-    if raw_keywords_coverage is None:
-        keywords_coverage_pct = (
-            round((events_with_keywords / keywords_scanned_events) * 100.0, 1) if keywords_scanned_events else 0.0
-        )
-    else:
-        keywords_coverage_pct = _safe_float(raw_keywords_coverage)
-    entity_coverage_pct = round((events_with_entity / events_window) * 100.0, 1) if events_window else 0.0
-
-    smoke_tune_cmd = (
-        f"ss workflow samgov-smoke --days {int(window_days)} --pages {max(int(pages), 2)} "
-        f"--limit {max(_safe_int(max_records, 50), 50)} --window-days {int(window_days)} --json"
-    )
-    doctor_cmd = f'ss doctor status --source "SAM.gov" --days {int(window_days)} --json'
-    rebuild_keywords_cmd = (
-        f'ss correlate rebuild-keyword-pairs --window-days {int(window_days)} --source "SAM.gov" '
-        f"--min-events {int(min_events_keywords)} --max-events {int(max_events_keywords)}"
-    )
-    rebuild_entities_cmd = f'ss entities link --source "SAM.gov" --days {int(window_days)}'
-    rebuild_naics_cmd = (
-        f'ss correlate rebuild-sam-naics --window-days {int(window_days)} --source "SAM.gov" '
-        f"--min-events {int(min_events_keywords)} --max-events {int(max_events_keywords)}"
-    )
-    rerun_snapshot_cmd = f'ss leads snapshot --source "SAM.gov" --min-score {int(min_score)} --limit {int(snapshot_limit)}'
-
-    checks: list[dict[str, Any]] = []
-    checks.append(
-        {
-            "name": "doctor_db_ok",
-            "required": True,
-            "ok": bool(db_ok),
-            "status": "pass" if db_ok else "fail",
-            "observed": (doc.get("db") or {}).get("status"),
-            "actual": (doc.get("db") or {}).get("status"),
-            "expected": "ok",
-            "why": "SAM.gov smoke gates require doctor diagnostics to read current window metrics.",
-            "hint": doctor_cmd,
-        }
-    )
-
-    if skip_ingest:
-        checks.append(
-            {
-                "name": "ingest_nonzero",
-                "required": False,
-                "ok": True,
-                "status": "info",
-                "observed": "skipped",
-                "actual": "skipped",
-                "expected": "skip_ingest=True",
-                "why": "Ingest was intentionally skipped for offline replay.",
-                "hint": smoke_tune_cmd,
-            }
-        )
-    else:
-        ingest_ok = bool(ingest_nonzero) and status != "skipped"
-        checks.append(
-            {
-                "name": "ingest_nonzero",
-                "required": True,
-                "ok": ingest_ok,
-                "status": "pass" if ingest_ok else "fail",
-                "observed": {
-                    "status": (ingest or {}).get("status"),
-                    "fetched": _safe_int((ingest or {}).get("fetched")),
-                    "inserted": _safe_int((ingest or {}).get("inserted")),
-                    "normalized": _safe_int((ingest or {}).get("normalized")),
-                },
-                "actual": {
-                    "status": (ingest or {}).get("status"),
-                    "fetched": _safe_int((ingest or {}).get("fetched")),
-                    "inserted": _safe_int((ingest or {}).get("inserted")),
-                    "normalized": _safe_int((ingest or {}).get("normalized")),
-                },
-                "expected": "fetched>0 OR inserted>0 OR normalized>0",
-                "why": "Fresh SAM.gov ingest keeps smoke checks tied to current market movement.",
-                "hint": smoke_tune_cmd,
-            }
-        )
-
-    checks.extend(
-        [
-            _threshold_check(
-                name="events_window_threshold",
-                observed=events_window,
-                threshold=thresholds["events_window_min"],
-                why="Too few SAM.gov events in-window weakens research confidence and lane stability.",
-                hint=smoke_tune_cmd,
-            ),
-            _threshold_check(
-                name="events_with_keywords_coverage_threshold",
-                observed=keywords_coverage_pct,
-                threshold=thresholds["events_with_keywords_coverage_pct_min"],
-                unit="%",
-                actual={
-                    "events_with_keywords": events_with_keywords,
-                    "sample_scanned_events": keywords_scanned_events,
-                    "coverage_pct": keywords_coverage_pct,
-                },
-                why="Low keyword coverage reduces thematic signal quality for SAM.gov research pivots.",
-                hint=doctor_cmd,
-            ),
-            _threshold_check(
-                name="events_with_entity_coverage_threshold",
-                observed=entity_coverage_pct,
-                threshold=thresholds["events_with_entity_coverage_pct_min"],
-                unit="%",
-                actual={
-                    "events_with_entity_window": events_with_entity,
-                    "events_window": events_window,
-                    "coverage_pct": entity_coverage_pct,
-                },
-                why="Low entity linkage coverage weakens recipient-level SAM.gov targeting and triage.",
-                hint=rebuild_entities_cmd,
-            ),
-            _threshold_check(
-                name="keyword_or_kw_pair_signal_threshold",
-                observed=keyword_signal_total,
-                threshold=thresholds["keyword_signal_total_min"],
-                actual={
-                    "same_keyword": same_keyword_lane,
-                    "kw_pair": kw_pair_lane,
-                    "signal_total": keyword_signal_total,
-                },
-                why="Weak keyword lanes reduce confidence that related SAM.gov opportunities are clustering.",
-                hint=rebuild_keywords_cmd,
-            ),
-            _threshold_check(
-                name="sam_research_context_events_threshold",
-                observed=events_with_research_context,
-                threshold=thresholds["events_with_research_context_min"],
-                why="Research-context event depth supports fast analyst pivots inside SAM.gov notices.",
-                hint=doctor_cmd,
-            ),
-            _threshold_check(
-                name="sam_research_context_coverage_threshold",
-                observed=research_context_coverage_pct,
-                threshold=thresholds["research_context_coverage_pct_min"],
-                unit="%",
-                why="Low SAM.gov research-context coverage limits usefulness of downstream lead prioritization.",
-                hint=doctor_cmd,
-            ),
-            _threshold_check(
-                name="sam_core_procurement_context_events_threshold",
-                observed=events_with_core_procurement_context,
-                threshold=thresholds["events_with_core_procurement_context_min"],
-                why="Core procurement context counts drive high-signal filtering for SAM.gov opportunities.",
-                hint=doctor_cmd,
-            ),
-            _threshold_check(
-                name="sam_core_procurement_context_coverage_threshold",
-                observed=core_procurement_context_coverage_pct,
-                threshold=thresholds["core_procurement_context_coverage_pct_min"],
-                unit="%",
-                why="Core procurement context coverage indicates whether notices are usable for operator triage.",
-                hint=doctor_cmd,
-            ),
-            _threshold_check(
-                name="sam_avg_context_fields_threshold",
-                observed=avg_context_fields_per_event,
-                threshold=thresholds["avg_context_fields_per_event_min"],
-                why="Average SAM.gov context depth tracks how actionable each event is for research.",
-                hint=doctor_cmd,
-            ),
-            _threshold_check(
-                name="sam_notice_type_coverage_threshold",
-                observed=sam_notice_type_coverage_pct,
-                threshold=thresholds["sam_notice_type_coverage_pct_min"],
-                unit="%",
-                why="Notice type coverage is required for reliable procurement-stage interpretation.",
-                hint=doctor_cmd,
-            ),
-            _threshold_check(
-                name="sam_solicitation_number_coverage_threshold",
-                observed=sam_solicitation_number_coverage_pct,
-                threshold=thresholds["sam_solicitation_number_coverage_pct_min"],
-                unit="%",
-                why="Solicitation number coverage is required for stable dedupe and follow-up targeting.",
-                hint=doctor_cmd,
-            ),
-            _threshold_check(
-                name="sam_naics_coverage_threshold",
-                observed=sam_naics_code_coverage_pct,
-                threshold=thresholds["sam_naics_code_coverage_pct_min"],
-                unit="%",
-                why="NAICS coverage is required for industry scoping and same_sam_naics lane trust.",
-                hint=doctor_cmd,
-            ),
-            _threshold_check(
-                name="same_sam_naics_lane_threshold",
-                observed=same_sam_naics_lane,
-                threshold=thresholds["same_sam_naics_lane_min"],
-                actual={
-                    "same_sam_naics": same_sam_naics_lane,
-                },
-                why="The same_sam_naics lane validates industry-based clustering that analysts rely on.",
-                hint=rebuild_naics_cmd,
-            ),
-            _threshold_check(
-                name="snapshot_items_threshold",
-                observed=snapshot_items,
-                threshold=thresholds["snapshot_items_min"],
-                why="Lead snapshots must contain actionable SAM.gov rows for operator review.",
-                hint=rerun_snapshot_cmd,
-            ),
-        ]
-    )
-
-    failed_required_checks = [c for c in checks if bool(c.get("required", True)) and not bool(c.get("ok"))]
-    smoke_passed = len(failed_required_checks) == 0
-
-    baseline = {
-        "captured_at": now.isoformat(),
-        "source": "SAM.gov",
-        "window_days": int(window_days),
-        "counts": {
-            "events_window": _safe_int(counts.get("events_window")),
-            "events_with_entity_window": _safe_int(counts.get("events_with_entity_window")),
-            "lead_snapshots_total": _safe_int(counts.get("lead_snapshots_total")),
-        },
-        "entity_coverage": {
-            "window_linked_coverage_pct": entities_diag.get("window_linked_coverage_pct"),
-            "sample_scanned_events": _safe_int(entities_diag.get("sample_scanned_events")),
-            "sample_events_with_identity_signal": _safe_int(entities_diag.get("sample_events_with_identity_signal")),
-            "sample_events_with_identity_signal_linked": _safe_int(entities_diag.get("sample_events_with_identity_signal_linked")),
-            "sample_identity_signal_coverage_pct": entities_diag.get("sample_identity_signal_coverage_pct"),
-            "sample_events_with_name": _safe_int(entities_diag.get("sample_events_with_name")),
-            "sample_events_with_name_linked": _safe_int(entities_diag.get("sample_events_with_name_linked")),
-            "sample_name_coverage_pct": entities_diag.get("sample_name_coverage_pct"),
-        },
-        "keyword_coverage": {
-            "scanned_events": _safe_int(kw.get("scanned_events")),
-            "events_with_keywords": _safe_int(kw.get("events_with_keywords")),
-            "coverage_pct": kw.get("coverage_pct"),
-            "unique_keywords": _safe_int(kw.get("unique_keywords")),
-        },
-        "correlations_by_lane": {
-            "same_entity": _safe_int(lane_counts.get("same_entity")),
-            "same_uei": _safe_int(lane_counts.get("same_uei")),
-            "same_keyword": _safe_int(lane_counts.get("same_keyword")),
-            "kw_pair": _safe_int(lane_counts.get("kw_pair")),
-            "same_sam_naics": _safe_int(lane_counts.get("same_sam_naics")),
-        },
-        "sam_context": {
-            "scanned_events": _safe_int(sam_ctx.get("scanned_events")),
-            "events_with_research_context": _safe_int(sam_ctx.get("events_with_research_context")),
-            "research_context_coverage_pct": sam_ctx.get("research_context_coverage_pct"),
-            "avg_context_fields_per_event": sam_ctx.get("avg_context_fields_per_event"),
-            "events_with_core_procurement_context": _safe_int(sam_ctx.get("events_with_core_procurement_context")),
-            "core_procurement_context_coverage_pct": sam_ctx.get("core_procurement_context_coverage_pct"),
-            "coverage_by_field_pct": sam_ctx.get("coverage_by_field_pct") or {},
-            "top_notice_types": sam_ctx.get("top_notice_types") or [],
-            "top_naics_codes": sam_ctx.get("top_naics_codes") or [],
-            "top_set_aside_codes": sam_ctx.get("top_set_aside_codes") or [],
-        },
-        "snapshot_items": snapshot_items,
-    }
-
-    workflow_json = bundle_dir / "workflow_result.json"
-    doctor_json = bundle_dir / "doctor_status.json"
-    summary_json = bundle_dir / "smoke_summary.json"
-
-    run_metadata = {
-        "source": "SAM.gov",
-        "workflow_type": "samgov-smoke",
-        "run_timestamp": now.isoformat(),
-        "ingest_days": int(ingest_days),
-        "pages": int(pages),
-        "page_size": int(page_size),
-        "max_records": max_records,
-        "start_page": int(start_page),
-        "window_days": int(window_days),
-        "min_events_entity": int(min_events_entity),
-        "min_events_keywords": int(min_events_keywords),
-        "max_events_keywords": int(max_events_keywords),
-        "max_keywords_per_event": int(max_keywords_per_event),
-        "entity_days": int(entity_days),
-        "min_score": int(min_score),
-        "snapshot_limit": int(snapshot_limit),
-        "scan_limit": int(scan_limit),
-        "scoring_version": str(scoring_version),
-        "skip_ingest": bool(skip_ingest),
-        "require_nonzero": bool(require_nonzero),
-    }
-
-    artifacts_payload = {
-        "workflow_result_json": workflow_json,
-        "doctor_status_json": doctor_json,
-        "smoke_summary_json": summary_json,
-        "exports": (workflow_res.get("exports") if isinstance(workflow_res, dict) else None),
-    }
-
-    summary_payload = {
-        "generated_at": now.isoformat(),
-        "source": "SAM.gov",
-        "smoke_passed": smoke_passed,
-        "require_nonzero": bool(require_nonzero),
-        "thresholds": thresholds,
-        "failed_required_checks": failed_required_checks,
-        "checks": checks,
-        "baseline": baseline,
-        "run_metadata": run_metadata,
-        "artifacts": artifacts_payload,
-    }
-
-    _write_json(workflow_json, {"generated_at": now.isoformat(), "result": workflow_res})
-    _write_json(doctor_json, {"generated_at": now.isoformat(), "result": doc})
-    _write_json(summary_json, summary_payload)
-
-    report_html = generate_sam_report(
-        bundle_dir=bundle_dir,
-        workflow_type="samgov-smoke",
-        source="SAM.gov",
-        generated_at=now.isoformat(),
-        run_metadata=run_metadata,
-        workflow_result=workflow_res if isinstance(workflow_res, dict) else {},
-        doctor_status_result=doc if isinstance(doc, dict) else {},
-        smoke_summary=summary_payload,
-        artifacts=artifacts_payload,
-    )
-
-    artifacts_payload["report_html"] = report_html
-    _write_json(summary_json, summary_payload)
-
-    smoke_status = "failed" if (require_nonzero and not smoke_passed) else "ok"
-
-    return {
-        "status": smoke_status,
-        "smoke_passed": bool(smoke_passed),
-        "bundle_dir": bundle_dir,
-        "workflow": workflow_res,
-        "doctor": doc,
-        "checks": checks,
-        "failed_required_checks": failed_required_checks,
-        "thresholds": thresholds,
-        "baseline": baseline,
-        "run_metadata": run_metadata,
-        "artifacts": artifacts_payload,
-    }
 
 
 __all__ = [
     "run_usaspending_workflow",
     "run_samgov_workflow",
     "run_samgov_smoke_workflow",
+    "run_samgov_validation_workflow",
 ]
+
 

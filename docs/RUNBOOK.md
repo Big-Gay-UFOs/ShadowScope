@@ -1,9 +1,9 @@
 # ShadowScope Runbook
 
-This runbook captures the SAM-first operator flow for the current sprint.
+This runbook captures the SAM-only operator flow for the current sprint.
 
 ## Sprint boundaries
-- Active scope: SAM.gov smoke/report productization and operator trust hardening.
+- Active scope: SAM.gov threshold calibration and diagnostics trust hardening.
 - USAspending: maintenance mode only (`doctor` health checks).
 - Out of scope: SAM<->USAspending linkage and keyword/term expansion.
 
@@ -13,42 +13,14 @@ This runbook captures the SAM-first operator flow for the current sprint.
 - Live SAM runs require local `SAM_API_KEY`
 - CLI available: `ss --help`
 
-## 1) Canonical SAM smoke run
+## 1) Bounded SAM smoke run
 
-- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
 
-Expected operator output includes:
-- `PASS` / `FAIL`
-- `Bundle dir`
-- `Smoke summary`
-- `Doctor status`
-- `Report HTML`
+Artifacts are written under:
+- `data/exports/smoke/samgov/<timestamp>/`
 
-## 2) Canonical review surface
-
-Open the generated report:
-- `ss report latest --source "SAM.gov"`
-- or `ss report samgov --bundle data\exports\smoke\samgov\<timestamp>`
-
-Bundle layout (current contract):
-- `smoke_summary.json`
-- `doctor_status.json`
-- `workflow_result.json`
-- `report.html`
-- `exports/` (lead snapshot, correlations, entities, event->entity, events when enabled)
-
-## 3) Report interpretation (what success looks like)
-
-A healthy run should show:
-- Header status `PASS`
-- Non-zero ingest summary (`fetched`/`inserted`/`normalized`)
-- Doctor summary with non-zero event/keyword/lane coverage
-- Top keyword table populated
-- Correlation lane table populated (including `same_keyword` or `kw_pair`)
-- Top lead rows present
-- Artifact links resolving inside the bundle
-
-## 4) Diagnostics drill-down (only when needed)
+## 2) Diagnostics review (SAM.gov)
 
 - `ss doctor status --source "SAM.gov" --days 30 --json`
 
@@ -63,9 +35,30 @@ Review these fields first:
 - `coverage_by_field_pct.sam_solicitation_number`
 - `coverage_by_field_pct.sam_naics_code`
 
-## 5) Threshold tuning loop
+## 3) Calibrated threshold defaults
+
+`samgov-smoke` now enforces:
+- `events_window >= 3`
+- `events_with_keywords_coverage_pct >= 60%`
+- `events_with_entity_coverage_pct >= 60%`
+- `keyword_signal_total(same_keyword + kw_pair) >= 3`
+- `events_with_research_context >= 2`
+- `research_context_coverage_pct >= 60%`
+- `events_with_core_procurement_context >= 2`
+- `core_procurement_context_coverage_pct >= 60%`
+- `avg_context_fields_per_event >= 2.5`
+- `sam_notice_type_coverage_pct >= 70%`
+- `sam_solicitation_number_coverage_pct >= 70%`
+- `sam_naics_code_coverage_pct >= 60%`
+- `same_sam_naics >= 1`
+- `snapshot_items >= 1`
+
+Each check includes `expected`, `observed`, pass/fail status, and a next command hint.
+
+## 4) Threshold tuning loop
 
 Use repeatable threshold overrides when you want stricter local gates:
+
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
 
 If smoke fails, run the suggested next command from the failing check.
@@ -76,12 +69,45 @@ Standard offline rebuild loop:
 - `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200`
 
-## 6) Fixture verification (offline)
+## 5) Fixture verification (offline)
 
-- `.\.venv\Scripts\pytest.exe -q tests\test_reporting.py tests\test_report_cli.py tests\test_workflow_wrapper.py tests\test_workflow_cli_flags.py`
+- `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
 
-## 7) USAspending maintenance check
+## 6) USAspending maintenance check
 
 - `ss doctor status --source USAspending --days 30`
 
 No USAspending feature/linkage expansion is part of this sprint.
+## SAM Larger-Run Validation Runbook (2026-03-09)
+
+Use this sequence for SAM operator validation:
+
+```powershell
+# Fast wiring check
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
+
+# Larger bounded validation pass
+ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
+
+# Diagnose sparse/degraded vs healthy outcomes
+ss diagnose samgov --days 30 --json
+
+# Inspect exact bundle contract for automation/scripting
+ss inspect bundle --path <bundle_dir> --json
+```
+
+Interpretation:
+
+- `status=ok`: required checks passed.
+- `status=warning`: partially useful/sparse/degraded but artifacts are available.
+- `status=failed`: required checks failed; treat as hard failure.
+
+Bundle contract (`samgov.bundle.v1`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries.
+
+Retry tuning for larger SAM windows:
+
+```powershell
+$env:SAM_API_TIMEOUT_SECONDS = "90"
+$env:SAM_API_MAX_RETRIES = "12"
+$env:SAM_API_BACKOFF_BASE = "1.25"
+```

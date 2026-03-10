@@ -1,4 +1,4 @@
-"""Typer-based command line interface for ShadowScope."""
+﻿"""Typer-based command line interface for ShadowScope."""
 from __future__ import annotations
 
 import json
@@ -27,6 +27,8 @@ ontology_app = typer.Typer(help="Ontology utilities")
 leads_app = typer.Typer(help="Lead utilities")
 entities_app = typer.Typer(help="Entity utilities")
 doctor_app = typer.Typer(help="Operator diagnosis utilities")
+diagnose_app = typer.Typer(help="Source-aware diagnostic utilities")
+inspect_app = typer.Typer(help="Bundle inspection utilities")
 workflow_app = typer.Typer(help="One-command workflows")
 report_app = typer.Typer(help="Report generation utilities")
 
@@ -37,6 +39,8 @@ app.add_typer(ontology_app, name="ontology")
 app.add_typer(leads_app, name="leads")
 app.add_typer(entities_app, name="entities")
 app.add_typer(doctor_app, name="doctor")
+app.add_typer(diagnose_app, name="diagnose")
+app.add_typer(inspect_app, name="inspect")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(report_app, name="report")
 
@@ -521,6 +525,93 @@ def doctor_status_cli(
             typer.echo(f"- {h}")
 
 
+
+@diagnose_app.command("samgov")
+def diagnose_samgov_cli(
+    days: int = typer.Option(30, "--days", help="Diagnostic lookback window"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="Max recent events to inspect"),
+    max_keywords_per_event: int = typer.Option(10, "--max-keywords-per-event", help="Pair-explosion heuristic threshold"),
+    bundle_path: Optional[str] = typer.Option(None, "--bundle", help="Optional SAM bundle directory to inspect"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload"),
+):
+    from backend.services.diagnostics import diagnose_samgov
+
+    res = diagnose_samgov(
+        days=int(days),
+        scan_limit=int(scan_limit),
+        max_keywords_per_event=int(max_keywords_per_event),
+        database_url=database_url,
+        bundle_path=(Path(bundle_path).expanduser() if bundle_path else None),
+    )
+
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+
+    typer.echo("SAM.gov Diagnose")
+    typer.echo(f"Classification: {res.get('classification')}")
+
+    doctor = res.get("doctor") or {}
+    counts = doctor.get("counts") or {}
+    typer.echo(
+        "Window counts: "
+        f"events_window={counts.get('events_window')} "
+        f"events_with_entity_window={counts.get('events_with_entity_window')} "
+        f"lead_snapshots_total={counts.get('lead_snapshots_total')}"
+    )
+
+    gaps = res.get("gaps") or {}
+    typer.echo(
+        "Gap metrics: "
+        f"untagged={gaps.get('untagged_events')} "
+        f"without_entities={gaps.get('events_without_entities')} "
+        f"without_lead_value={gaps.get('events_without_lead_value')} "
+        f"low_context={gaps.get('low_context_events')}"
+    )
+
+    bundle = res.get("bundle") or {}
+    if bundle.get("latest_bundle_dir"):
+        typer.echo(f"Latest bundle: {Path(bundle.get('latest_bundle_dir')).resolve()}")
+        typer.echo(
+            f"Bundle status: {bundle.get('bundle_status')} quality={bundle.get('bundle_quality')}"
+        )
+
+    retries = int(res.get("rate_limit_retries") or 0)
+    if retries > 0:
+        typer.echo(f"Rate-limit retries observed: {retries}")
+
+    recs = res.get("recommendations") or []
+    if recs:
+        typer.echo("Recommendations:")
+        for item in recs:
+            typer.echo(f"- {item}")
+
+
+@inspect_app.command("bundle")
+def inspect_bundle_cli(
+    path: str = typer.Option(..., "--path", help="Bundle directory path"),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload"),
+):
+    from backend.services.bundle import inspect_bundle
+
+    result = inspect_bundle(Path(path).expanduser())
+    if json_out:
+        typer.echo(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        return
+
+    typer.echo(f"Bundle dir: {Path(result.get('bundle_dir')).resolve()}")
+    typer.echo(f"Status: {result.get('status')}")
+
+    manifest_path = result.get("bundle_manifest_json")
+    if manifest_path:
+        typer.echo(f"Manifest: {Path(manifest_path).resolve()}")
+
+    missing = result.get("missing_files") or []
+    if missing:
+        typer.echo("Missing files:")
+        for item in missing:
+            typer.echo(f"- {item.get('id')}: {item.get('path')}")
 def _echo_workflow_summary(label: str, res: dict) -> None:
     typer.echo(f"Workflow complete: {label}")
     if res.get("ingest"):
@@ -785,6 +876,81 @@ def workflow_samgov(
     _echo_workflow_summary("SAM.gov", res)
 
 
+
+@workflow_app.command("samgov-validate")
+def workflow_samgov_validate(
+    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
+    pages: int = typer.Option(5, "--pages", help="Ingest: maximum API pages to request"),
+    page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
+    max_records: Optional[int] = typer.Option(250, "--max-records", "--limit", help="Ingest: total cap across pages"),
+    start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
+    keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    api_key: Optional[str] = typer.Option(None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."),
+    ontology_path: Path = typer.Option(Path("examples/ontology_sam_procurement_starter.json"), "--ontology", "-o", help="Ontology: path to SAM ontology JSON"),
+    ontology_days: int = typer.Option(30, "--ontology-days", help="Ontology: tag events in last N days"),
+    window_days: int = typer.Option(30, "--window-days", help="Correlation/doctor lookback window (days)"),
+    min_events_entity: int = typer.Option(2, "--min-events-entity", help="Correlations: min events for entity/UEI lanes"),
+    min_events_keywords: int = typer.Option(2, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"),
+    max_events_keywords: int = typer.Option(200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"),
+    max_keywords_per_event: int = typer.Option(10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"),
+    entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
+    min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
+    snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot/doctor scan window"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    notes: Optional[str] = typer.Option("samgov larger-run validation", "--notes", help="Snapshot: optional notes"),
+    bundle_root: Optional[str] = typer.Option(None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/validation/samgov)"),
+    require_nonzero: bool = typer.Option(True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required checks fail"),
+    threshold: Optional[List[str]] = typer.Option(None, "--threshold", help="Threshold override key=value (repeat)."),
+    skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (offline fixture replay)"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload (default=str for paths)"),
+):
+    from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_validation_workflow
+
+    bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
+    res = run_samgov_validation_workflow(
+        ingest_days=ingest_days,
+        pages=pages,
+        page_size=page_size,
+        max_records=max_records,
+        start_page=start_page,
+        keywords=keyword,
+        api_key=api_key,
+        ontology_path=ontology_path,
+        ontology_days=ontology_days,
+        entity_days=entity_days,
+        window_days=window_days,
+        min_events_entity=min_events_entity,
+        min_events_keywords=min_events_keywords,
+        max_events_keywords=max_events_keywords,
+        max_keywords_per_event=max_keywords_per_event,
+        min_score=min_score,
+        snapshot_limit=snapshot_limit,
+        scan_limit=scan_limit,
+        scoring_version=scoring_version,
+        notes=notes,
+        bundle_root=bundle_path,
+        database_url=database_url,
+        require_nonzero=require_nonzero,
+        skip_ingest=skip_ingest,
+        threshold_overrides=threshold_overrides,
+    )
+
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+    else:
+        typer.echo(f"SAM.gov larger-run validation: {str(res.get('status')).upper()}")
+        typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+        artifacts = res.get("artifacts") or {}
+        if artifacts.get("bundle_manifest_json"):
+            typer.echo(f"Bundle manifest: {Path(artifacts.get('bundle_manifest_json')).resolve()}")
+        if artifacts.get("report_html"):
+            typer.echo(f"Bundle report: {Path(artifacts.get('report_html')).resolve()}")
+
+    if require_nonzero and res.get("status") == "failed":
+        raise typer.Exit(code=2)
 @workflow_app.command("samgov-smoke")
 def workflow_samgov_smoke(
     ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
@@ -868,15 +1034,17 @@ def workflow_samgov_smoke(
     if json_out:
         typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
     else:
-        typer.echo(f"SAM.gov smoke workflow: {'PASS' if res.get('smoke_passed') else 'FAIL'}")
+        typer.echo(f"SAM.gov smoke workflow: {str(res.get('status')).upper()}")
         typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
         artifacts = res.get("artifacts") or {}
         if artifacts.get("smoke_summary_json"):
-            typer.echo(f"Smoke summary: {Path(artifacts.get('smoke_summary_json')).resolve()}")
+            typer.echo(f"Workflow summary: {Path(artifacts.get('smoke_summary_json')).resolve()}")
         if artifacts.get("doctor_status_json"):
             typer.echo(f"Doctor status: {Path(artifacts.get('doctor_status_json')).resolve()}")
+        if artifacts.get("bundle_manifest_json"):
+            typer.echo(f"Bundle manifest: {Path(artifacts.get('bundle_manifest_json')).resolve()}")
         if artifacts.get("report_html"):
-            typer.echo(f"Report HTML: {Path(artifacts.get('report_html')).resolve()}")
+            typer.echo(f"Bundle report: {Path(artifacts.get('report_html')).resolve()}")
         thresholds_used = res.get("thresholds") or {}
         if thresholds_used:
             typer.echo(f"Threshold contract: {thresholds_used}")
@@ -901,7 +1069,7 @@ def workflow_samgov_smoke(
             f"sample_identity_linked_pct={entities_diag.get('sample_identity_signal_coverage_pct')}"
         )
 
-    if require_nonzero and res.get("status") != "ok":
+    if require_nonzero and res.get("status") == "failed":
         raise typer.Exit(code=2)
 
 
@@ -1144,6 +1312,7 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
+
 
 
 

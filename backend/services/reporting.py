@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import html
 import json
@@ -674,12 +674,9 @@ def _resolve_path(base: Path, value: Any) -> Optional[Path]:
         return candidate
 
     # Some persisted payloads already include the bundle-dir prefix (for example:
-    # "<bundle_name>/workflow_result.json"), so resolve from parent in that case.
-    rooted_candidate = base.parent / raw
-    if rooted_candidate.exists():
-        return rooted_candidate
+    # "<bundle_name>/workflow_result.json"), so resolve from parent only in that case.
     if raw.parts and raw.parts[0] == base.name:
-        return rooted_candidate
+        return base.parent / raw
 
     return candidate
 
@@ -731,3 +728,4 @@ __all__ = [
     "load_sam_bundle_payload",
     "resolve_bundle_directory",
 ]
+

@@ -279,6 +279,15 @@ def ingest_sam_opportunities(
     normalized_total = 0
     inserted = 0
 
+    pages_attempted = 0
+    pages_with_data = 0
+    empty_pages = 0
+    requests_total = 0
+    requests_with_retries = 0
+    retry_attempts_total = 0
+    rate_limit_retries = 0
+    retry_sleep_seconds_total = 0.0
+
     snapshot_dir = RAW_SOURCES["sam"] / date.today().strftime("%Y%m%d")
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -334,6 +343,16 @@ def ingest_sam_opportunities(
                     title=term,
                 )
                 data = samgov.fetch_opportunities_page(session, filters, api_key=api_key)
+                pages_attempted += 1
+                requests_total += 1
+                req_meta = data.get("_shadow_request_meta") if isinstance(data, dict) else None
+                if isinstance(req_meta, dict):
+                    retries = int(req_meta.get("retries") or 0)
+                    retry_attempts_total += retries
+                    if retries > 0:
+                        requests_with_retries += 1
+                    rate_limit_retries += int(req_meta.get("rate_limit_retries") or 0)
+                    retry_sleep_seconds_total += float(req_meta.get("retry_sleep_seconds_total") or 0.0)
 
                 fname = f"page_{page}.json" if not term else f"kw{term_idx}_page_{page}.json"
                 raw_path = snapshot_dir / fname
@@ -342,6 +361,10 @@ def ingest_sam_opportunities(
                 results = data.get("opportunitiesData") or []
                 if not isinstance(results, list):
                     results = []
+                if len(results) > 0:
+                    pages_with_data += 1
+                else:
+                    empty_pages += 1
 
                 LOGGER.info("Fetched %d SAM.gov rows (page %d, offset %d)", len(results), page, offset)
 
@@ -402,6 +425,21 @@ def ingest_sam_opportunities(
         "snapshot_dir": snapshot_dir,
         "page_size": page_size,
         "max_total": max_total,
+        "paging": {
+            "terms_requested": len(terms),
+            "pages_requested_per_term": pages,
+            "pages_requested_total": pages * len(terms),
+            "pages_attempted": pages_attempted,
+            "pages_with_data": pages_with_data,
+            "empty_pages": empty_pages,
+        },
+        "request_diagnostics": {
+            "requests_total": requests_total,
+            "requests_with_retries": requests_with_retries,
+            "retry_attempts_total": retry_attempts_total,
+            "rate_limit_retries": rate_limit_retries,
+            "retry_sleep_seconds_total": round(float(retry_sleep_seconds_total), 3),
+        },
     }
 
 

@@ -1,4 +1,4 @@
-﻿"""SAM.gov Get Opportunities Public API connector for ShadowScope."""
+"""SAM.gov Get Opportunities Public API connector for ShadowScope."""
 from __future__ import annotations
 
 import hashlib
@@ -116,6 +116,9 @@ def _get_with_retries(
     max_retries: int = DEFAULT_MAX_RETRIES,
     backoff_base: float = DEFAULT_BACKOFF_BASE,
 ) -> requests.Response:
+    rate_limit_retries = 0
+    retry_sleep_seconds_total = 0.0
+
     for attempt in range(max_retries + 1):
         try:
             resp = session.get(url, params=params, timeout=timeout)
@@ -124,6 +127,16 @@ def _get_with_retries(
             if resp.status_code in (429, 500, 502, 503, 504):
                 raise requests.HTTPError(f"HTTP {resp.status_code}", response=resp)
 
+            meta = {
+                "attempts": int(attempt + 1),
+                "retries": int(attempt),
+                "rate_limit_retries": int(rate_limit_retries),
+                "retry_sleep_seconds_total": round(float(retry_sleep_seconds_total), 3),
+            }
+            try:
+                setattr(resp, "_shadow_retry_meta", meta)
+            except Exception:
+                pass
             return resp
 
         except requests.RequestException as exc:
@@ -132,11 +145,13 @@ def _get_with_retries(
             sleep_s = None
             resp = getattr(exc, "response", None)
             if resp is not None and getattr(resp, "status_code", None) == 429:
+                rate_limit_retries += 1
                 ra = _retry_after_seconds(resp)
                 if ra is not None:
                     sleep_s = ra
             if sleep_s is None:
                 sleep_s = min(60.0, backoff_base * (2**attempt)) + random.random()
+            retry_sleep_seconds_total += float(sleep_s)
             logger.warning(
                 "SAM.gov request failed (%s). Retry %d/%d in %.1fs",
                 type(exc).__name__,
@@ -147,7 +162,6 @@ def _get_with_retries(
             time.sleep(sleep_s)
 
     raise SamGovError("Unexpected retry loop termination")
-
 
 def fetch_opportunities_page(
     session: requests.Session,
@@ -168,6 +182,7 @@ def fetch_opportunities_page(
         params["title"] = filters.title
 
     resp = _get_with_retries(session, BASE_URL, params=params, timeout=timeout)
+    request_meta = getattr(resp, "_shadow_retry_meta", None)
     text = resp.text or ""
 
     # SAM docs describe 404 as "No Data found"
@@ -177,6 +192,7 @@ def fetch_opportunities_page(
             "limit": int(filters.limit),
             "offset": int(filters.offset),
             "opportunitiesData": [],
+            "_shadow_request_meta": request_meta if isinstance(request_meta, dict) else {},
         }
 
     lower = text.lower()
@@ -195,6 +211,9 @@ def fetch_opportunities_page(
         logger.error("SAM.gov response was not JSON: %s", text[:2000])
         raise SamGovError("SAM.gov returned a non-JSON response") from exc
 
+    if isinstance(payload, dict) and isinstance(request_meta, dict):
+        payload["_shadow_request_meta"] = dict(request_meta)
+
     # Sometimes upstreams return an error blob even with 200s
     if isinstance(payload, dict) and payload.get("error"):
         msg = str(payload.get("error"))
@@ -203,7 +222,6 @@ def fetch_opportunities_page(
         raise SamGovError(msg)
 
     return payload
-
 
 def _parse_posted_date(value: Optional[str]) -> Optional[datetime]:
     v = _clean_str(value)

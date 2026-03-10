@@ -6,6 +6,7 @@ from backend.db.models import Event, ensure_schema, get_session_factory
 import backend.services.workflow as workflow_module
 from backend.services.workflow import (
     run_samgov_smoke_workflow,
+    run_samgov_validation_workflow,
     run_samgov_workflow,
     run_usaspending_workflow,
 )
@@ -403,19 +404,16 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     summary_path = Path(artifacts["smoke_summary_json"])
     doctor_path = Path(artifacts["doctor_status_json"])
     workflow_path = Path(artifacts["workflow_result_json"])
+    manifest_path = Path(artifacts["bundle_manifest_json"])
     report_path = Path(artifacts["report_html"])
 
     assert summary_path.exists()
     assert doctor_path.exists()
     assert workflow_path.exists()
+    assert manifest_path.exists()
     assert report_path.exists()
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert Path(summary_payload.get("artifacts", {}).get("report_html")).exists()
-    report_html = report_path.read_text(encoding="utf-8")
-    assert "SAM.gov Workflow Report" in report_html
-    assert "Top Keywords" in report_html
-    assert "Correlation Lanes" in report_html
     assert summary_payload["smoke_passed"] is True
     check_names = {c.get("name") for c in summary_payload.get("checks", [])}
     assert "events_window_threshold" in check_names
@@ -424,6 +422,30 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
 
     assert summary_payload.get("thresholds")
     assert summary_payload.get("failed_required_checks") == []
+
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest_payload.get("bundle_version") == "samgov.bundle.v1"
+    assert manifest_payload.get("workflow_type") == "samgov-smoke"
+    generated_files = manifest_payload.get("generated_files") or {}
+    assert "workflow_result_json" in generated_files
+    assert "workflow_summary_json" in generated_files
+    assert "bundle_manifest_json" in generated_files
+    assert "report_html" in generated_files
+
+    exports = artifacts.get("exports") or {}
+    lead_export = exports.get("lead_snapshot") or {}
+    kw_export = exports.get("kw_pairs") or {}
+    entities_export = exports.get("entities") or {}
+    events_export = exports.get("events") or {}
+    assert Path(lead_export.get("csv")).name == "lead_snapshot.csv"
+    assert Path(kw_export.get("csv")).name == "keyword_pairs.csv"
+    assert Path(entities_export.get("entities_csv")).name == "entities.csv"
+    assert Path(entities_export.get("event_entities_csv")).name == "event_entities.csv"
+    assert Path(events_export.get("csv")).name == "events.csv"
+
+    report_html = report_path.read_text(encoding="utf-8")
+    assert "SAM.gov Workflow Bundle Report" in report_html
+    assert "workflow_type=samgov-smoke" in report_html
 
     baseline = summary_payload.get("baseline", {})
     entity_cov = baseline.get("entity_coverage", {})
@@ -444,6 +466,45 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
 
 
 
+
+def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
+    db_path = tmp_path / "sam_validation.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_validation_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        bundle_root=tmp_path / "validation_artifacts",
+        require_nonzero=True,
+    )
+
+    assert res.get("validation_mode") == "larger"
+    assert res.get("workflow_type") == "samgov-validation"
+    assert res.get("status") in {"ok", "warning"}
+
+    artifacts = res.get("artifacts") or {}
+    manifest_path = Path(artifacts.get("bundle_manifest_json"))
+    summary_path = Path(artifacts.get("smoke_summary_json"))
+    assert manifest_path.exists()
+    assert summary_path.exists()
+
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest_payload.get("validation_mode") == "larger"
+    assert manifest_payload.get("workflow_type") == "samgov-validation"
 def test_samgov_smoke_threshold_contract_fails_with_context_and_naics_misses(tmp_path: Path):
     db_path = tmp_path / "sam_smoke_fail.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
