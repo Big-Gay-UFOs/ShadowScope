@@ -147,3 +147,24 @@ def test_diagnose_samgov_reports_bundle_and_gap_metrics(tmp_path: Path):
     assert "events_without_lead_value" in gaps
     assert isinstance(diag.get("recommendations"), list)
 
+
+def test_diagnose_samgov_handles_db_query_failures_gracefully(tmp_path: Path):
+    # Intentionally avoid schema setup so raw diagnostics queries fail.
+    db_path = tmp_path / "diag_broken.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    diag = diagnose_samgov(
+        days=30,
+        scan_limit=200,
+        max_keywords_per_event=10,
+        database_url=db_url,
+        bundle_path=tmp_path / "missing_bundle",
+    )
+
+    assert diag.get("source") == "SAM.gov"
+    assert diag.get("classification") == "broken"
+    assert isinstance(diag.get("db_query_error"), str)
+    assert len(diag.get("db_query_error", "")) > 0
+
+    recommendations = diag.get("recommendations") or []
+    assert any("diagnostics query failed" in str(item).lower() for item in recommendations)

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -76,62 +76,67 @@ def diagnose_samgov(
     sample_doc_ids: list[str] = []
 
     latest_snapshot_id: Optional[int] = None
+    db_query_error: Optional[str] = None
+    rows: list[Any] = []
 
-    with SessionFactory() as db:
-        rows = db.execute(
-            select(Event.id, Event.doc_id, Event.keywords, Event.entity_id, Event.raw_json)
-            .where(event_ts >= since, Event.source == "SAM.gov")
-            .order_by(event_ts.desc())
-            .limit(int(scan_limit))
-        ).all()
+    try:
+        with SessionFactory() as db:
+            rows = db.execute(
+                select(Event.id, Event.doc_id, Event.keywords, Event.entity_id, Event.raw_json)
+                .where(event_ts >= since, Event.source == "SAM.gov")
+                .order_by(event_ts.desc())
+                .limit(int(scan_limit))
+            ).all()
 
-        for event_id, doc_id, keywords, entity_id, raw_json in rows:
-            eid = int(event_id)
-            kws = keywords if isinstance(keywords, list) else []
-            if len([k for k in kws if str(k).strip()]) == 0:
-                untagged_event_ids.append(eid)
-            if entity_id is None:
-                no_entity_event_ids.append(eid)
-
-            ctx = extract_sam_context_fields(raw_json if isinstance(raw_json, dict) else {})
-            present = 0
-            for key in (
-                "sam_notice_type",
-                "sam_naics_code",
-                "sam_set_aside_code",
-                "sam_solicitation_number",
-                "sam_agency_path_code",
-                "sam_response_deadline",
-            ):
-                if ctx.get(key):
-                    present += 1
-            if present < 3:
-                low_context_event_ids.append(eid)
-
-            if doc_id:
-                sample_doc_ids.append(str(doc_id))
-
-        latest_snapshot = db.execute(
-            select(LeadSnapshot)
-            .where(LeadSnapshot.source == "SAM.gov")
-            .order_by(LeadSnapshot.id.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-
-        if latest_snapshot is not None:
-            latest_snapshot_id = int(latest_snapshot.id)
-            covered_ids = set(
-                int(v)
-                for (v,) in db.execute(
-                    select(LeadSnapshotItem.event_id).where(LeadSnapshotItem.snapshot_id == int(latest_snapshot.id))
-                ).all()
-            )
-            for event_id, _doc_id, _keywords, _entity_id, _raw_json in rows:
+            for event_id, doc_id, keywords, entity_id, raw_json in rows:
                 eid = int(event_id)
-                if eid not in covered_ids:
-                    no_lead_value_event_ids.append(eid)
-        else:
-            no_lead_value_event_ids = [int(event_id) for event_id, *_rest in rows]
+                kws = keywords if isinstance(keywords, list) else []
+                if len([k for k in kws if str(k).strip()]) == 0:
+                    untagged_event_ids.append(eid)
+                if entity_id is None:
+                    no_entity_event_ids.append(eid)
+
+                ctx = extract_sam_context_fields(raw_json if isinstance(raw_json, dict) else {})
+                present = 0
+                for key in (
+                    "sam_notice_type",
+                    "sam_naics_code",
+                    "sam_set_aside_code",
+                    "sam_solicitation_number",
+                    "sam_agency_path_code",
+                    "sam_response_deadline",
+                ):
+                    if ctx.get(key):
+                        present += 1
+                if present < 3:
+                    low_context_event_ids.append(eid)
+
+                if doc_id:
+                    sample_doc_ids.append(str(doc_id))
+
+            latest_snapshot = db.execute(
+                select(LeadSnapshot)
+                .where(LeadSnapshot.source == "SAM.gov")
+                .order_by(LeadSnapshot.id.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+            if latest_snapshot is not None:
+                latest_snapshot_id = int(latest_snapshot.id)
+                covered_ids = set(
+                    int(v)
+                    for (v,) in db.execute(
+                        select(LeadSnapshotItem.event_id).where(LeadSnapshotItem.snapshot_id == int(latest_snapshot.id))
+                    ).all()
+                )
+                for event_id, _doc_id, _keywords, _entity_id, _raw_json in rows:
+                    eid = int(event_id)
+                    if eid not in covered_ids:
+                        no_lead_value_event_ids.append(eid)
+            else:
+                no_lead_value_event_ids = [int(event_id) for event_id, *_rest in rows]
+    except Exception as exc:
+        db_query_error = f"{type(exc).__name__}: {exc}"
 
     counts = doc.get("counts") or {}
     events_window = int(counts.get("events_window") or 0)
@@ -174,8 +179,12 @@ def diagnose_samgov(
         recommendations.append(
             "No SAM bundle found. Run ss workflow samgov-smoke --json or ss workflow samgov-validate --json to generate a normalized bundle."
         )
+    if db_query_error:
+        recommendations.append(
+            "SAM diagnostics query failed while inspecting events/snapshots. Verify DATABASE_URL and local schema health (for example: ss db init)."
+        )
 
-    if (doc.get("db") or {}).get("status") != "ok":
+    if (doc.get("db") or {}).get("status") != "ok" or db_query_error:
         classification = "broken"
     elif rate_limit_retries > 0:
         classification = "rate_limited_degraded"
@@ -213,6 +222,7 @@ def diagnose_samgov(
             "sample_no_lead_value_event_ids": no_lead_value_event_ids[:20],
         },
         "rate_limit_retries": rate_limit_retries,
+        "db_query_error": db_query_error,
         "recommendations": recommendations,
     }
 
