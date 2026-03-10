@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from backend.correlate import correlate
-from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
-from backend.services.doctor import doctor_status
+from backend.services.doctor import doctor_status  # noqa: F401
 from backend.services.entities import link_entities_from_events
 from backend.services.export import export_events
 from backend.services.export_correlations import export_kw_pairs
@@ -607,4 +606,5 @@ __all__ = [
     "run_samgov_smoke_workflow",
     "run_samgov_validation_workflow",
 ]
+
 
