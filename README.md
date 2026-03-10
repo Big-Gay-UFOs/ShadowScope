@@ -1,4 +1,4 @@
-﻿# ShadowScope
+# ShadowScope
 
 
 ## Command Matrix (LLM-First)
@@ -30,11 +30,13 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontol
 - `dod_foia` -> `examples/ontology_sam_dod_foia_companion.json`
 - `starter_plus_dod_foia` -> `examples/ontology_sam_procurement_plus_dod_foia.json`
 - `--ontology <path>` always overrides `--ontology-profile`
+- `dod_foia` now uses precision-first contextual rules (site/range anchors, operator+site pairs, hardened/subsurface pairs, DOE/NNSA secure-handling cues, undersea capability pairs) plus explicit UAP-lore suppressors in `operational_noise_terms`.
 
 ### 5) Offline rebuild loop (after ontology edits)
 
 ```powershell
 ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia
 ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
@@ -161,7 +163,7 @@ SAM-only Threshold Calibration + Operator Trust Hardening
 - In scope: deterministic/offline CI validation.
 - USAspending remains maintenance mode (health checks only).
 - Out of scope: SAM<->USAspending linkage/join/correlation work.
-- Out of scope: keyword/term expansion for SAM or USAspending (deferred to a dedicated later sprint).
+- Out of scope: broad/single-term expansion; only precision-first DoD companion expansion is in scope, with starter/default behavior unchanged.
 
 ### Calibration evidence (bounded SAM smoke)
 
@@ -213,6 +215,7 @@ Diagnostics review:
 Threshold tuning loop (example override):
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
 - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 
 Fixture test verification:
@@ -367,8 +370,9 @@ Windows execution policy (one-time):
 
 ## Key FOIA sprint additions
 - Seeded ingest: `--keyword`, `--recipient`
-- FOIA ontology companion: `examples/ontology_sam_dod_foia_companion.json`
+- FOIA ontology companion: `examples/ontology_sam_dod_foia_companion.json` (precision-first anchor+pair+exact-probe rules + suppressors)
 - Correlation lanes include `kw_pair` (co-term clustering)
+- Relationship matrix rationale: `same_keyword` captures repeated precision tags while `kw_pair` promotes anchor+pair co-occurrence evidence for triage confidence.
 - Default lead snapshots are **v2**
 - Operational noise handling (HRP/DACTS, NASA sponsoring agreement)
 - DOE/NNSA weapons complex pivots (SRS, Y-12, Pantex, KCNSC, CNS, SRNS)
@@ -463,6 +467,7 @@ Retry tuning knobs for larger SAM windows:
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
+
 
 
 
