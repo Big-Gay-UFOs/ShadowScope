@@ -10,6 +10,8 @@ def test_example_ontologies_validate():
     for name in [
         "ontology_sam_kwpair_demo.json",
         "ontology_sam_procurement_starter.json",
+        "ontology_sam_dod_foia_companion.json",
+        "ontology_sam_procurement_plus_dod_foia.json",
         "ontology_usaspending_starter.json",
     ]:
         path = Path("examples") / name

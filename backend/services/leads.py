@@ -18,6 +18,10 @@ from backend.db.models import (
 )
 
 
+_DOD_PACK_PREFIX = "sam_dod_"
+_FOIA_MATRIX_BONUS_CAP = 3
+
+
 def _norm_list(value: Any) -> list:
     if value is None:
         return []
@@ -26,6 +30,38 @@ def _norm_list(value: Any) -> list:
     if isinstance(value, list):
         return value
     return []
+
+
+def _dod_keyword_metrics(keywords: list[Any]) -> tuple[int, int]:
+    lane_ids: set[str] = set()
+    keyword_hits = 0
+    for item in keywords:
+        if not isinstance(item, str):
+            continue
+        pack, _, _rule = item.partition(":")
+        if not pack.startswith(_DOD_PACK_PREFIX):
+            continue
+        lane_ids.add(pack)
+        keyword_hits += 1
+    return len(lane_ids), keyword_hits
+
+
+def _foia_matrix_bonus(*, dod_lane_count: int, pair_count: int) -> int:
+    if dod_lane_count <= 0:
+        return 0
+    lane_component = min(int(dod_lane_count), 2)
+    pair_component = 1 if int(pair_count) > 0 else 0
+    return min(_FOIA_MATRIX_BONUS_CAP, lane_component + pair_component)
+
+
+def _foia_potential_tier(*, dod_lane_count: int, dod_keyword_hit_count: int, pair_count: int) -> str:
+    if dod_lane_count >= 3 and dod_keyword_hit_count >= 4 and pair_count >= 1:
+        return "high"
+    if dod_lane_count >= 2 and dod_keyword_hit_count >= 2:
+        return "medium"
+    if dod_lane_count >= 1 and dod_keyword_hit_count >= 2 and pair_count >= 1:
+        return "medium"
+    return "low"
 
 
 def compute_leads(
@@ -48,7 +84,9 @@ def compute_leads(
     pair_counts: Dict[int, int] = {}
     pair_strength: Dict[int, float] = {}
 
-    if str(scoring_version).lower().startswith("v2"):
+    is_v2 = str(scoring_version).lower().startswith("v2")
+
+    if is_v2:
         ids = [int(e.id) for e in rows]
         if ids:
             like_pat = f"kw_pair|{source}|%|pair:%" if source else "kw_pair|%|%|pair:%"
@@ -78,11 +116,11 @@ def compute_leads(
 
         kw_list = _norm_list(e.keywords)
         has_noise = any(isinstance(k, str) and k.startswith("operational_noise_terms:") or k == "operational_noise_terms:nasa_sponsoring_agreement_noise" for k in kw_list)
+        dod_lane_count, dod_keyword_hit_count = _dod_keyword_metrics(kw_list)
+        pair_n = pair_counts.get(int(e.id), 0)
+        strength = pair_strength.get(int(e.id), 0.0)
 
-        if str(scoring_version).lower().startswith("v2"):
-            pair_n = pair_counts.get(int(e.id), 0)
-            strength = pair_strength.get(int(e.id), 0.0)
-
+        if is_v2:
             pair_bonus = int(round(float(pair_bonus_multiplier) * float(strength)))
             if pair_bonus > int(pair_bonus_cap):
                 pair_bonus = int(pair_bonus_cap)
@@ -109,6 +147,25 @@ def compute_leads(
                 e.clauses,
                 has_entity=bool(e.entity_id),
             )
+
+        foia_matrix_bonus = 0
+        if is_v2:
+            foia_matrix_bonus = _foia_matrix_bonus(dod_lane_count=dod_lane_count, pair_count=pair_n)
+            if has_noise:
+                foia_matrix_bonus = min(int(foia_matrix_bonus), 1)
+            score = int(score) + int(foia_matrix_bonus)
+
+        details.setdefault("pair_count", int(pair_n))
+        details.setdefault("pair_strength", round(float(strength), 4))
+        details.setdefault("has_noise", bool(has_noise))
+        details["dod_lane_count"] = int(dod_lane_count)
+        details["dod_keyword_hit_count"] = int(dod_keyword_hit_count)
+        details["foia_matrix_bonus"] = int(foia_matrix_bonus)
+        details["foia_potential_tier"] = _foia_potential_tier(
+            dod_lane_count=int(dod_lane_count),
+            dod_keyword_hit_count=int(dod_keyword_hit_count),
+            pair_count=int(pair_n),
+        )
 
         if int(score) >= int(min_score):
             scored.append((int(score), e, details))
@@ -194,4 +251,3 @@ def create_lead_snapshot(
         }
     finally:
         db.close()
-
