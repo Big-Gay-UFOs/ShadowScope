@@ -78,3 +78,36 @@ Standard offline rebuild loop:
 - `ss doctor status --source USAspending --days 30`
 
 No USAspending feature/linkage expansion is part of this sprint.
+## SAM Larger-Run Validation Runbook (2026-03-09)
+
+Use this sequence for SAM operator validation:
+
+```powershell
+# Fast wiring check
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
+
+# Larger bounded validation pass
+ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
+
+# Diagnose sparse/degraded vs healthy outcomes
+ss diagnose samgov --days 30 --json
+
+# Inspect exact bundle contract for automation/scripting
+ss inspect bundle --path <bundle_dir> --json
+```
+
+Interpretation:
+
+- `status=ok`: required checks passed.
+- `status=warning`: partially useful/sparse/degraded but artifacts are available.
+- `status=failed`: required checks failed; treat as hard failure.
+
+Bundle contract (`samgov.bundle.v1`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries.
+
+Retry tuning for larger SAM windows:
+
+```powershell
+$env:SAM_API_TIMEOUT_SECONDS = "90"
+$env:SAM_API_MAX_RETRIES = "12"
+$env:SAM_API_BACKOFF_BASE = "1.25"
+```

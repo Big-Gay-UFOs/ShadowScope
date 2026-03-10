@@ -57,3 +57,31 @@ Each check prints expected threshold, observed value, pass/fail, and next comman
 
 ## USAspending maintenance check
 - `ss doctor status --source USAspending --days 30`
+## SAM Smoke vs Larger Validation (Windows)
+
+```powershell
+# 1) Small smoke
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
+
+# 2) Larger bounded validation
+ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
+
+# 3) Diagnose and inspect without psql
+ss diagnose samgov --days 30 --json
+ss inspect bundle --path <bundle_dir> --json
+```
+
+Key SAM bundle files:
+
+- `bundle_manifest.json`
+- `results/workflow_summary.json`
+- `results/workflow_result.json`
+- `results/doctor_status.json`
+- `report/bundle_report.html`
+- stable `exports/*.csv|json|jsonl`
+
+If larger runs are slow/rate-limited, tune:
+
+- `SAM_API_TIMEOUT_SECONDS`
+- `SAM_API_MAX_RETRIES`
+- `SAM_API_BACKOFF_BASE`

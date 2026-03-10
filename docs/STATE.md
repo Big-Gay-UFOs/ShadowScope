@@ -61,3 +61,31 @@ Observed ranges:
    - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 5. Fixture verification:
    - `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
+## SAM Hardening Snapshot (2026-03-09)
+
+### Validation modes
+
+- Smoke gate: `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+- Larger-run gate: `ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json`
+
+### Bundle contract
+
+SAM workflow bundles now use `samgov.bundle.v1` with:
+
+- `bundle_manifest.json`
+- `results/workflow_result.json`
+- `results/workflow_summary.json`
+- `results/doctor_status.json`
+- `report/bundle_report.html`
+- stable `exports/` artifact names (lead snapshot, keyword pairs, entities, event_entities, events)
+
+### Diagnostics
+
+- `ss diagnose samgov --days 30 --json`
+- `ss inspect bundle --path <bundle_dir> --json`
+
+### Retry tuning knobs
+
+- `SAM_API_TIMEOUT_SECONDS`
+- `SAM_API_MAX_RETRIES`
+- `SAM_API_BACKOFF_BASE`

@@ -7,6 +7,14 @@ from typing import Any, Callable, Optional
 
 from backend.correlate import correlate
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
+from backend.services.bundle import (
+    SAM_BUNDLE_RESULTS_DIR,
+    SAM_BUNDLE_VERSION,
+    flatten_bundle_files,
+    normalize_sam_exports,
+    render_sam_bundle_report,
+    write_bundle_manifest,
+)
 from backend.services.doctor import doctor_status
 from backend.services.entities import link_entities_from_events
 from backend.services.export import export_events
@@ -892,4 +900,138 @@ __all__ = [
     "run_usaspending_workflow",
     "run_samgov_workflow",
     "run_samgov_smoke_workflow",
+]
+
+# Hardened SAM workflow wrappers (bundle normalization + larger-run validation mode)
+def run_samgov_smoke_workflow(
+    *,
+    ingest_days: int = 30,
+    pages: int = 2,
+    page_size: int = 100,
+    max_records: Optional[int] = 50,
+    start_page: int = 1,
+    keywords: Optional[list[str]] = None,
+    api_key: Optional[str] = None,
+    ontology_path: Path = Path("examples/ontology_sam_procurement_starter.json"),
+    ontology_days: int = 30,
+    entity_days: int = 30,
+    entity_batch: int = 500,
+    window_days: int = 30,
+    min_events_entity: int = 2,
+    min_events_keywords: int = 2,
+    max_events_keywords: int = 200,
+    max_keywords_per_event: int = 10,
+    min_score: int = 1,
+    snapshot_limit: int = 200,
+    scan_limit: int = 5000,
+    scoring_version: str = "v2",
+    notes: Optional[str] = None,
+    bundle_root: Optional[Path] = None,
+    database_url: Optional[str] = None,
+    require_nonzero: bool = True,
+    skip_ingest: bool = False,
+    threshold_overrides: Optional[dict[str, Any]] = None,
+    validation_mode: str = "smoke",
+    workflow_type: str = "samgov-smoke",
+) -> dict[str, Any]:
+    from backend.services.sam_workflow_hardening import run_samgov_smoke_workflow_hardened
+
+    return run_samgov_smoke_workflow_hardened(
+        ingest_days=int(ingest_days),
+        pages=int(pages),
+        page_size=int(page_size),
+        max_records=max_records,
+        start_page=int(start_page),
+        keywords=keywords,
+        api_key=api_key,
+        ontology_path=Path(ontology_path),
+        ontology_days=int(ontology_days),
+        entity_days=int(entity_days),
+        entity_batch=int(entity_batch),
+        window_days=int(window_days),
+        min_events_entity=int(min_events_entity),
+        min_events_keywords=int(min_events_keywords),
+        max_events_keywords=int(max_events_keywords),
+        max_keywords_per_event=int(max_keywords_per_event),
+        min_score=int(min_score),
+        snapshot_limit=int(snapshot_limit),
+        scan_limit=int(scan_limit),
+        scoring_version=str(scoring_version),
+        notes=notes,
+        bundle_root=(Path(bundle_root).expanduser() if bundle_root else None),
+        database_url=database_url,
+        require_nonzero=bool(require_nonzero),
+        skip_ingest=bool(skip_ingest),
+        threshold_overrides=threshold_overrides,
+        validation_mode=str(validation_mode),
+        workflow_type=str(workflow_type),
+    )
+
+
+def run_samgov_validation_workflow(
+    *,
+    ingest_days: int = 30,
+    pages: int = 5,
+    page_size: int = 100,
+    max_records: Optional[int] = 250,
+    start_page: int = 1,
+    keywords: Optional[list[str]] = None,
+    api_key: Optional[str] = None,
+    ontology_path: Path = Path("examples/ontology_sam_procurement_starter.json"),
+    ontology_days: int = 30,
+    entity_days: int = 30,
+    entity_batch: int = 500,
+    window_days: int = 30,
+    min_events_entity: int = 2,
+    min_events_keywords: int = 2,
+    max_events_keywords: int = 200,
+    max_keywords_per_event: int = 10,
+    min_score: int = 1,
+    snapshot_limit: int = 200,
+    scan_limit: int = 5000,
+    scoring_version: str = "v2",
+    notes: Optional[str] = "samgov larger-run validation",
+    bundle_root: Optional[Path] = None,
+    database_url: Optional[str] = None,
+    require_nonzero: bool = True,
+    skip_ingest: bool = False,
+    threshold_overrides: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    from backend.services.sam_workflow_hardening import run_samgov_validation_workflow_hardened
+
+    return run_samgov_validation_workflow_hardened(
+        ingest_days=int(ingest_days),
+        pages=int(pages),
+        page_size=int(page_size),
+        max_records=max_records,
+        start_page=int(start_page),
+        keywords=keywords,
+        api_key=api_key,
+        ontology_path=Path(ontology_path),
+        ontology_days=int(ontology_days),
+        entity_days=int(entity_days),
+        entity_batch=int(entity_batch),
+        window_days=int(window_days),
+        min_events_entity=int(min_events_entity),
+        min_events_keywords=int(min_events_keywords),
+        max_events_keywords=int(max_events_keywords),
+        max_keywords_per_event=int(max_keywords_per_event),
+        min_score=int(min_score),
+        snapshot_limit=int(snapshot_limit),
+        scan_limit=int(scan_limit),
+        scoring_version=str(scoring_version),
+        notes=notes,
+        bundle_root=(Path(bundle_root).expanduser() if bundle_root else None),
+        database_url=database_url,
+        require_nonzero=bool(require_nonzero),
+        skip_ingest=bool(skip_ingest),
+        threshold_overrides=threshold_overrides,
+    )
+
+
+__all__ = [
+    "run_usaspending_workflow",
+    "run_samgov_workflow",
+    "run_samgov_smoke_workflow",
+    "run_samgov_validation_workflow",
 ]
