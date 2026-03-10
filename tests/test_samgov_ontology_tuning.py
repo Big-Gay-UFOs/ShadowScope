@@ -375,3 +375,45 @@ def test_sam_dod_companion_guardrail_blocks_entity_singletons_and_routes_lore_to
     lore_keywords = set(lore_noise.keywords or [])
     assert any(k.startswith("operational_noise_terms:") for k in lore_keywords)
     assert not any(k.startswith("sam_dod_") for k in lore_keywords)
+
+
+def test_sam_dod_companion_guardrail_avoids_rd_road_false_positive(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_ontology_rd_false_positive.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add(
+            Event(
+                category="opportunity",
+                source="SAM.gov",
+                hash="sam_dod_guard_rd_road",
+                created_at=now,
+                snippet=(
+                    "Road resurfacing on Main Rd with access control gate updates and transport routing support "
+                    "for municipal traffic operations."
+                ),
+                raw_json={
+                    "title": "Road and gate maintenance services",
+                },
+                keywords=[],
+                clauses=[],
+            )
+        )
+        db.commit()
+
+    apply_ontology_to_events(
+        ontology_path=DOD_COMPANION_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    with SessionFactory() as db:
+        row = db.query(Event).filter(Event.hash == "sam_dod_guard_rd_road").one()
+
+    keywords = set(row.keywords or [])
+    assert not any(k.startswith("sam_dod_program_protection_sap:") for k in keywords)
