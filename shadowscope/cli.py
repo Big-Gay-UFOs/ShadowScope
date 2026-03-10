@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from enum import Enum
 from pathlib import Path
 from typing import Optional, List
 
@@ -76,6 +77,28 @@ def _parse_threshold_overrides(raw: Optional[List[str]], allowed: Optional[set[s
             raise typer.BadParameter(f"Invalid numeric threshold for '{key}': '{value_raw}'") from exc
     return overrides
 
+
+class SamOntologyProfile(str, Enum):
+    starter = "starter"
+    dod_foia = "dod_foia"
+    starter_plus_dod_foia = "starter_plus_dod_foia"
+
+
+_SAM_ONTOLOGY_PROFILE_PATHS: dict[SamOntologyProfile, Path] = {
+    SamOntologyProfile.starter: Path("examples/ontology_sam_procurement_starter.json"),
+    SamOntologyProfile.dod_foia: Path("examples/ontology_sam_dod_foia_companion.json"),
+    SamOntologyProfile.starter_plus_dod_foia: Path("examples/ontology_sam_procurement_plus_dod_foia.json"),
+}
+
+
+def _resolve_sam_ontology_path(
+    *,
+    ontology_profile: SamOntologyProfile,
+    ontology_path: Optional[Path],
+) -> Path:
+    if ontology_path is not None:
+        return Path(ontology_path)
+    return _SAM_ONTOLOGY_PROFILE_PATHS[ontology_profile]
 @db_app.command("init")
 def db_init(database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command.")):
     status = sync_database(database_url)
@@ -790,11 +813,16 @@ def workflow_samgov(
     api_key: Optional[str] = typer.Option(
         None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."
     ),
-    ontology_path: Path = typer.Option(
-        Path("examples/ontology_sam_procurement_starter.json"),
+    ontology_profile: SamOntologyProfile = typer.Option(
+        SamOntologyProfile.starter,
+        "--ontology-profile",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia",
+    ),
+    ontology_path: Optional[Path] = typer.Option(
+        None,
         "--ontology",
         "-o",
-        help="Ontology: path to SAM ontology JSON",
+        help="Ontology: explicit path override for SAM ontology JSON",
     ),
     ontology_days: int = typer.Option(30, "--ontology-days", help="Ontology: tag events in last N days"),
     window_days: int = typer.Option(30, "--window-days", help="Correlations: lookback window (days)"),
@@ -828,6 +856,7 @@ def workflow_samgov(
     from backend.services.workflow import run_samgov_workflow
 
     export_path = Path(out).expanduser() if out else None
+    resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     res = run_samgov_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -836,7 +865,7 @@ def workflow_samgov(
         start_page=start_page,
         keywords=keyword,
         api_key=api_key,
-        ontology_path=ontology_path,
+        ontology_path=resolved_ontology_path,
         ontology_days=ontology_days,
         window_days=window_days,
         min_events_entity=min_events_entity,
@@ -886,7 +915,17 @@ def workflow_samgov_validate(
     start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
     keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
     api_key: Optional[str] = typer.Option(None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."),
-    ontology_path: Path = typer.Option(Path("examples/ontology_sam_procurement_starter.json"), "--ontology", "-o", help="Ontology: path to SAM ontology JSON"),
+    ontology_profile: SamOntologyProfile = typer.Option(
+        SamOntologyProfile.starter,
+        "--ontology-profile",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia",
+    ),
+    ontology_path: Optional[Path] = typer.Option(
+        None,
+        "--ontology",
+        "-o",
+        help="Ontology: explicit path override for SAM ontology JSON",
+    ),
     ontology_days: int = typer.Option(30, "--ontology-days", help="Ontology: tag events in last N days"),
     window_days: int = typer.Option(30, "--window-days", help="Correlation/doctor lookback window (days)"),
     min_events_entity: int = typer.Option(2, "--min-events-entity", help="Correlations: min events for entity/UEI lanes"),
@@ -910,6 +949,7 @@ def workflow_samgov_validate(
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
+    resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     res = run_samgov_validation_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -918,7 +958,7 @@ def workflow_samgov_validate(
         start_page=start_page,
         keywords=keyword,
         api_key=api_key,
-        ontology_path=ontology_path,
+        ontology_path=resolved_ontology_path,
         ontology_days=ontology_days,
         entity_days=entity_days,
         window_days=window_days,
@@ -964,11 +1004,16 @@ def workflow_samgov_smoke(
     api_key: Optional[str] = typer.Option(
         None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."
     ),
-    ontology_path: Path = typer.Option(
-        Path("examples/ontology_sam_procurement_starter.json"),
+    ontology_profile: SamOntologyProfile = typer.Option(
+        SamOntologyProfile.starter,
+        "--ontology-profile",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia",
+    ),
+    ontology_path: Optional[Path] = typer.Option(
+        None,
         "--ontology",
         "-o",
-        help="Ontology: path to SAM ontology JSON",
+        help="Ontology: explicit path override for SAM ontology JSON",
     ),
     ontology_days: int = typer.Option(30, "--ontology-days", help="Ontology: tag events in last N days"),
     window_days: int = typer.Option(30, "--window-days", help="Correlation/doctor lookback window (days)"),
@@ -1003,6 +1048,7 @@ def workflow_samgov_smoke(
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
+    resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     res = run_samgov_smoke_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -1011,7 +1057,7 @@ def workflow_samgov_smoke(
         start_page=start_page,
         keywords=keyword,
         api_key=api_key,
-        ontology_path=ontology_path,
+        ontology_path=resolved_ontology_path,
         ontology_days=ontology_days,
         entity_days=entity_days,
         window_days=window_days,

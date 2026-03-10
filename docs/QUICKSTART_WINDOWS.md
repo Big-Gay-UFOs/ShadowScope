@@ -17,6 +17,21 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
 - No SAM<->USAspending linkage in this sprint.
 - No keyword/term expansion in this sprint.
 
+## SAM ontology profiles (new)
+
+SAM workflow commands support `--ontology-profile`:
+- `starter` (default)
+- `dod_foia`
+- `starter_plus_dod_foia`
+
+Examples:
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia --json`
+
+Use `--ontology <path>` to explicitly override any profile mapping.
+
 ## Fast operator path (SAM-only)
 
 ### 1) Load env
@@ -49,14 +64,24 @@ Each check prints expected threshold, observed value, pass/fail, and next comman
 
 ### 5) Threshold tuning loop
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_starter.json`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 
 ### 6) Fixture verification (offline)
 - `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
 
+## Relationship matrix note
+
+DoD ontology keyword tags (`pack_id:rule_id`) feed existing lanes directly:
+- `same_keyword` for repeated DoD context tags
+- `kw_pair` for co-occurring DoD/context pair strength
+- `same_entity`, `same_uei`, `same_sam_naics` remain unchanged
+
+Lead score details now include FOIA matrix metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) for transparent triage.
+
 ## USAspending maintenance check
 - `ss doctor status --source USAspending --days 30`
+
 ## SAM Smoke vs Larger Validation (Windows)
 
 ```powershell
