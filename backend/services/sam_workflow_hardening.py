@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +13,6 @@ from backend.services.bundle import (
     render_sam_bundle_report,
     write_bundle_manifest,
 )
-from backend.services.doctor import doctor_status
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -789,3 +788,4 @@ __all__ = [
     "run_samgov_smoke_workflow_hardened",
     "run_samgov_validation_workflow_hardened",
 ]
+

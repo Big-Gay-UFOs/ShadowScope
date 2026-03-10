@@ -1,5 +1,4 @@
-﻿import json
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.db.models import Event, ensure_schema, get_session_factory
@@ -147,3 +146,4 @@ def test_diagnose_samgov_reports_bundle_and_gap_metrics(tmp_path: Path):
     assert "events_without_entities" in gaps
     assert "events_without_lead_value" in gaps
     assert isinstance(diag.get("recommendations"), list)
+
