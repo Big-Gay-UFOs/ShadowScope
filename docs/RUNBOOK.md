@@ -5,7 +5,7 @@ This runbook captures the SAM-only operator flow for the current sprint.
 ## Sprint boundaries
 - Active scope: SAM.gov threshold calibration and diagnostics trust hardening.
 - USAspending: maintenance mode only (`doctor` health checks).
-- Out of scope: SAM<->USAspending linkage and keyword/term expansion.
+- Out of scope: SAM<->USAspending linkage and broad single-term expansion; in-scope is precision-first DoD companion expansion with starter behavior unchanged.
 
 ## Prereqs
 - `docker compose up -d`
@@ -19,6 +19,7 @@ SAM workflow commands now support `--ontology-profile`:
 - `starter` (default): structural SAM starter ontology.
 - `dod_foia`: DoD FOIA companion packs only.
 - `starter_plus_dod_foia`: starter + DoD FOIA companion + operational noise suppressors.
+- `dod_foia` companion rules are precision-first: site/range anchors, operator+site pairs, hardened/subsurface infrastructure pairs, DOE/NNSA secure-handling cues, undersea capability pairs, and explicit lore suppressors.
 
 Examples:
 - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter`
@@ -99,6 +100,7 @@ No USAspending feature/linkage expansion is part of this sprint.
 DoD ontology keywords are emitted as `pack_id:rule_id` tags and flow directly into the existing correlation lanes:
 - `same_keyword`: repeated DoD pack/rule hits across events.
 - `kw_pair`: co-occurring DoD/context tags used for pair-strength support.
+- Rationale: `same_keyword` rewards repeated precise handles; `kw_pair` rewards anchor+pair co-occurrence so relationship strength is tied to context, not lore terms.
 - `same_entity`, `same_uei`, `same_sam_naics`: existing structural/entity lanes that stay unchanged.
 
 Lead scoring now exposes FOIA triage metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) so analysts can see lane diversity and pair-backed DoD context at a glance.
@@ -136,3 +138,4 @@ $env:SAM_API_TIMEOUT_SECONDS = "90"
 $env:SAM_API_MAX_RETRIES = "12"
 $env:SAM_API_BACKOFF_BASE = "1.25"
 ```
+
