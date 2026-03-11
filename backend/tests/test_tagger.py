@@ -1,4 +1,5 @@
-﻿from datetime import datetime, timezone
+﻿import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.analysis.ontology import load_ontology, validate_ontology
@@ -113,4 +114,20 @@ def test_safe_json_text_is_deterministic_and_bounded():
     assert "truncated" in t1.lower()
     assert "__truncated_items__" in t1
 
+
+def test_safe_json_text_preserves_empty_sequences_as_arrays():
+    payload = {
+        "items": [],
+        "nested": {
+            "values": tuple(),
+            "set_values": set(),
+        },
+    }
+
+    text = safe_json_text(payload, max_len=4096)
+    parsed = json.loads(text)
+
+    assert parsed["items"] == []
+    assert parsed["nested"]["values"] == []
+    assert parsed["nested"]["set_values"] == []
 

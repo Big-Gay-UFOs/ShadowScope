@@ -82,14 +82,17 @@ def _normalize_jsonish(
             for k, v in items
         }
 
+    is_sequence = False
     if isinstance(value, set):
         seq: Sequence[Any] = sorted(value, key=lambda x: str(x))
+        is_sequence = True
     elif isinstance(value, (list, tuple)):
         seq = value
+        is_sequence = True
     else:
         seq = ()
 
-    if seq:
+    if is_sequence:
         if len(seq) > max_items:
             keep_head = max_items // 2
             keep_tail = max_items - keep_head
@@ -345,3 +348,4 @@ def tag_fields(
     )
 
     return {"keywords": keywords, "clauses": clauses_sorted, "score": score}
+
