@@ -297,6 +297,48 @@ def ontology_validate(path: Path = typer.Option(Path("ontology.json"), "--path",
     typer.echo(json.dumps(summary, indent=2))
 
 
+
+@ontology_app.command("lint")
+def ontology_lint(
+    path: Path = typer.Option(Path("ontology.json"), "--path", "-p", help="Path to ontology.json"),
+    strict: bool = typer.Option(False, "--strict", help="Exit non-zero when lint issues are found"),
+):
+    from backend.services.tagging import TAGGABLE_EVENT_FIELDS, lint_ontology_definition
+
+    report = lint_ontology_definition(path, supplied_fields=TAGGABLE_EVENT_FIELDS)
+    validation_errors = report.get("validation_errors") or []
+    lint = report.get("lint") or {}
+    issues = lint.get("issues") or []
+
+    typer.echo("Ontology lint summary:")
+    typer.echo(
+        json.dumps(
+            {
+                "ontology": report.get("ontology"),
+                "supplied_fields": lint.get("supplied_fields"),
+                "validation_error_count": len(validation_errors),
+                "lint_issue_count": len(issues),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+    if validation_errors:
+        typer.echo("Validation errors:")
+        for err in validation_errors:
+            typer.echo(f"- {err}")
+
+    if issues:
+        typer.echo("Lint issues:")
+        for item in issues:
+            scope = item.get("scope") or "ontology"
+            issue_type = item.get("type") or "issue"
+            message = item.get("message") or ""
+            typer.echo(f"- [{issue_type}] {scope}: {message}")
+
+    if validation_errors or (strict and issues):
+        raise typer.Exit(code=2)
 @ontology_app.command("apply")
 def ontology_apply(
     path: Path = typer.Option(Path("ontology.json"), "--path", "-p", help="Path to ontology.json"),

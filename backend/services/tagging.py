@@ -1,16 +1,18 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from backend.analysis.ontology import load_ontology, validate_ontology, summarize_ontology
-from backend.analysis.tagger import compile_for_tagging, tag_fields
-from backend.db.models import Event, AnalysisRun, get_session_factory
+from backend.analysis.ontology import lint_ontology, load_ontology, summarize_ontology, validate_ontology
+from backend.analysis.tagger import compile_for_tagging, safe_json_text, tag_fields
+from backend.db.models import AnalysisRun, Event, get_session_factory
+
+
+TAGGABLE_EVENT_FIELDS: tuple[str, ...] = ("snippet", "place_text", "doc_id", "source_url", "raw_json")
 
 
 def _canon_list(v: Any) -> list:
@@ -42,6 +44,40 @@ def _canon_clauses(v: Any) -> list[dict]:
             str(c.get("match", "")),
         ),
     )
+
+
+def _to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def build_taggable_fields(event: Event) -> Dict[str, str]:
+    """Build the deterministic taggable document surface map for one event."""
+    return {
+        "snippet": _to_text(event.snippet),
+        "place_text": _to_text(event.place_text),
+        "doc_id": _to_text(event.doc_id),
+        "source_url": _to_text(event.source_url),
+        "raw_json": safe_json_text(event.raw_json),
+    }
+
+
+def lint_ontology_definition(
+    ontology_path: Path,
+    *,
+    supplied_fields: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    obj = load_ontology(ontology_path)
+    summary = summarize_ontology(obj)
+    validation_errors = validate_ontology(obj)
+    lint_report = lint_ontology(obj, supplied_fields=supplied_fields or TAGGABLE_EVENT_FIELDS)
+    return {
+        "status": "ok",
+        "ontology": summary,
+        "validation_errors": validation_errors,
+        "lint": lint_report,
+    }
 
 
 def apply_ontology_to_events(
@@ -100,14 +136,7 @@ def apply_ontology_to_events(
                 scanned += 1
                 last_id = int(ev.id)
 
-                fields = {
-                    "snippet": ev.snippet,
-                    "place_text": ev.place_text,
-                    "doc_id": ev.doc_id,
-                    "source_url": ev.source_url,
-                    "raw_json": (json.dumps(ev.raw_json, ensure_ascii=False, sort_keys=True, separators=(",", ":")) if ev.raw_json is not None else ""),
-                }
-
+                fields = build_taggable_fields(ev)
                 res = tag_fields(meta, rules, fields)
 
                 new_keywords = _canon_keywords(res["keywords"])
