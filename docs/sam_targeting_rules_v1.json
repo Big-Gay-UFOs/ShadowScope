@@ -1,0 +1,76 @@
+﻿{
+  "version": "sam-targeting-v1-first50-calibrated",
+  "source": "C:/Users/kabyl/Downloads/lead_snapshot_first50_evaluated.xlsx",
+  "summary": {
+    "rows": 50,
+    "relevant": 9,
+    "not_relevant": 41,
+    "precision_at_10_pct": 50.0,
+    "precision_at_20_pct": 40.0
+  },
+  "lanes": [
+    {
+      "lane_id": "facilities_modernization_sustainment",
+      "priority": "primary",
+      "include_terms": ["renovation", "build-out", "replacement", "expansion", "hvac", "roofing", "facility", "bpa"],
+      "exclude_terms": ["nsn", "assembly", "valve", "wrench", "stud", "roller", "fixture", "cable assembly"]
+    },
+    {
+      "lane_id": "program_logistics_mission_support",
+      "priority": "secondary",
+      "include_terms": ["global logistics", "operations support", "mission support", "program support", "sof"],
+      "exclude_terms": ["lodging", "hotel", "hospitality", "conference", "catering"]
+    },
+    {
+      "lane_id": "engineering_rd_systems",
+      "priority": "secondary",
+      "include_terms": ["real-time", "data analysis", "system development", "simulation", "advanced propulsion"],
+      "exclude_terms": ["certification", "preventative maintenance"]
+    },
+    {
+      "lane_id": "custom_fabrication_prototype",
+      "priority": "selective",
+      "include_terms": ["parts fabrication", "drawings", "statement of work", "sow", "set-aside"],
+      "exclude_terms": ["oem", "brand name", "replacement part", "nsn", "single line item"]
+    }
+  ],
+  "hard_excludes": {
+    "regex": [
+      "\\bNSN\\b",
+      "^\\d{2}--"
+    ],
+    "terms": [
+      "pharmacy",
+      "radiopharmaceutical",
+      "dental",
+      "patient",
+      "lithotripsy",
+      "omnicell",
+      "lodging",
+      "hotel",
+      "hospitality"
+    ]
+  },
+  "naics_soft_preferences": ["236220", "238160", "238220", "236118", "561990", "541715", "811310", "332710"],
+  "ranking": {
+    "weights": {
+      "scope_specificity": 30,
+      "lane_intent_density": 20,
+      "contract_breadth": 15,
+      "technical_mission_fit": 15,
+      "actionability": 10,
+      "data_quality": 10
+    },
+    "rules": [
+      {"id": "gate_commodity_signature", "condition": "nsn_or_fsc_prefix_and_no_scope_terms", "points_delta": -100, "action": "gate"},
+      {"id": "penalty_medical_cluster", "condition": "medical_terms_without_profile_override", "points_delta": -35, "action": "penalty"},
+      {"id": "penalty_event_hospitality", "condition": "event_hospitality_terms_without_mission_scope", "points_delta": -25, "action": "penalty"},
+      {"id": "boost_facilities_scope_bundle", "condition": "two_or_more_facilities_scope_terms", "points_delta": 20, "action": "boost"},
+      {"id": "boost_broad_services_bundle", "condition": "logistics_or_program_support_bundle", "points_delta": 15, "action": "boost"},
+      {"id": "boost_engineering_systems_bundle", "condition": "engineering_plus_system_development", "points_delta": 15, "action": "boost"},
+      {"id": "boost_fabrication_sow_bundle", "condition": "fabrication_plus_drawings_or_sow", "points_delta": 12, "action": "boost"},
+      {"id": "penalty_low_context_amendment", "condition": "amendment_without_scope_terms", "points_delta": -12, "action": "penalty"},
+      {"id": "penalty_duplicate", "condition": "duplicate_opportunity", "points_delta": -8, "action": "penalty"}
+    ]
+  }
+}

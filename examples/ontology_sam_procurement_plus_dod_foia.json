@@ -1,0 +1,498 @@
+{
+    "version":  "2",
+    "defaults":  {
+                     "fields":  [
+                                    "snippet",
+                                    "raw_json"
+                                ]
+                 },
+    "packs":  [
+                  {
+                      "id":  "sam_procurement_starter",
+                      "name":  "SAM Procurement Starter",
+                      "enabled":  true,
+                      "description":  "High-precision starter ontology for SAM.gov research pivots. Rules favor notice metadata and procurement context over broad single-word matches.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "notice_type_sources_sought",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*sources sought[^\\\"]*\\\"|\\bSources Sought\\b",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "notice_type_combined_synopsis_solicitation",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*combined synopsis/?solicitation[^\\\"]*\\\"|Combined Synopsis/?Solicitation",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "notice_type_presolicitation",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*presolicitation[^\\\"]*\\\"|\\bPresolicitation\\b",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "notice_type_solicitation",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*solicitation[^\\\"]*\\\"|\\bSolicitation\\b",
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "request_for_proposal",
+                                        "type":  "regex",
+                                        "pattern":  "\\bRFP\\b|Request for Proposal",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "request_for_quote",
+                                        "type":  "regex",
+                                        "pattern":  "\\bRFQ\\b|Request for Quotation",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "invitation_for_bid",
+                                        "type":  "regex",
+                                        "pattern":  "\\bIFB\\b|Invitation for Bid",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "idiq_vehicle",
+                                        "type":  "regex",
+                                        "pattern":  "\\bIDIQ\\b|Indefinite Delivery(?:,? Indefinite Quantity)?",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "task_or_delivery_order",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(task|delivery) order\\b",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "naics_context",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_naics_code\\\"|\\\"naicsCode\\\"):\\\"[0-9A-Z]{2,}\\\"|\\bNAICS\\b",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "set_aside_context",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_set_aside_(?:code|description)\\\"|\\\"typeOfSetAside(?:Description)?\\\"):\\\"[^\\\"]*(?:small business|sba|8\\(a\\)|hubzone|sdvosb|wosb)[^\\\"]*\\\"|small business set-?aside",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "response_deadline_present",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_response_deadline\\\"|\\\"responseDeadLine\\\"|\\\"responseDeadline\\\"):\\\"[^\\\"]+\\\"",
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "solicitation_number_present",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_solicitation_number\\\"|\\\"solicitationNumber\\\"):\\\"[^\\\"]+\\\"",
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "agency_path_code_present",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_agency_path_code\\\"|\\\"fullParentPathCode\\\"):\\\"[^\\\"]+\\\"",
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_program_protection_sap",
+                      "name":  "SAM DoD Program Protection and SAP",
+                      "enabled":  true,
+                      "description":  "Contextual indicators for AFOSI/SAP security and program protection work where procurement language is present.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "afosi_program_security_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:AFOSI|Office of Special Investigations)\\b.{0,120}\\b(?:program protection|program security|industrial security|special access(?:\\s+program)?|SAP security)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "sap_facility_modernization_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:special access(?:\\s+program)?|SAP(?:\\s+security)?|SCIF|sensitive compartmented information facility)\\b.{0,140}\\b(?:facility|infrastructure|modernization|upgrade|hardening|renovation)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "program_protection_plan_support",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:program protection plan|PPP|trusted systems?|classified integration)\\b.{0,120}\\b(?:support|implementation|assessment|compliance|engineering)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "saf_org_code_program_protection_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:AFTTEZ?|SAF/(?:AQL|AQR|AQX|AAH|AAZ|OCX)|NPMS|SAPCO|AFOSIPJ|Office of Competitive Activities|Air Force Test Center|Air Force Test Pilot School|DAF Rapid Capabilities Office|RCO)\\b.{0,180}\\b(?:program protection|security|compliance|test support|operations support|engineering support|infrastructure|staff support|acquisition support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "doe_nnsa_material_handling_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Restricted Data|RD|Formerly Restricted Data|FRD|Special Nuclear Material|SNM|transclassified foreign nuclear information|TFNI|Foreign Intelligence Information|FII|non-contract\\s+FII|Q\\s+clearance|Q\\s*\\+\\s*SEI|Office of Intelligence and Counterintelligence|OICI|DOE-INT)\\b.{0,180}\\b(?:handling|access|custody|transport|control|compliance|security|operations support|program support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "doe_secure_transport_response_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Office of Secure Transportation|OST|Safeguards Transporter|SGT|Mobile Guardian Transporter|MGT|Nuclear Emergency Support Team|NEST|Special Response Team|SRT|DTRA|Defense Threat Reduction Agency)\\b.{0,180}\\b(?:exercise|readiness|escort|convoy|security|operations support|logistics support|maintenance|integration|training|response)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "statutory_authority_compliance_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Atomic Energy Act of 1954|DOE Order\\s*153\\.1A|Executive Order\\s*12656)\\b.{0,180}\\b(?:implementation|compliance|planning|exercise|requirements|program support|operations support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "archival_program_handle_procurement_probe",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Project Sentient|Recent Sentient Highlights|Deep Submergence Systems Project|DSSP|Project Sand Dollar|Project Jennifer|Project Azorian|OPNAV\\s*3820|Project Sundance|Project Palladium|Operation Fishbowl|Bluegill Triple Prime)\\b.{0,180}\\b(?:contract|solicitation|task order|IDIQ|sole source|support|analysis|program support|historical research|FOIA)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_flight_test_range_instrumentation",
+                      "name":  "SAM DoD Flight Test and Range Instrumentation",
+                      "enabled":  true,
+                      "description":  "Flight test and range instrumentation cues tied to Edwards/412th/Plant 42 and NAWCWD China Lake contexts.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "edwards_412th_plant42_range_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Edwards(?:\\s+AFB)?|412th(?:\\s+Test Wing)?|Plant\\s*42)\\b.{0,140}\\b(?:flight test|test and evaluation|T\u0026E|range instrumentation|telemetry|mission instrumentation)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "nawcwd_china_lake_instrumentation_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:NAWCWD|Naval Air Warfare Center Weapons Division|China Lake)\\b.{0,140}\\b(?:telemetry|instrumentation|flight test|T\u0026E integration|test and evaluation integration)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "range_telemetry_support_services",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:range instrumentation|telemetry systems?|data acquisition systems?)\\b.{0,120}\\b(?:integration|sustainment|engineering support|operations support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "site_range_anchor_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Dugway Proving Ground|DPG|West Desert Test Center|WDTC|Utah Test and Training Range|UTTR|Tonopah Test Range|TTR|Nevada Test and Training Range|NTTR|Area\\s*6|Aerial Operations Facility|AOF|NVH1|Yucca Flat|NNSA Nevada Field Office|NFO|N2S2|Kirtland(?:\\s+Air\\s+Force\\s+Base)?|KAFB|Manzano Storage Area|Site Able|Coyote Test Field|Technical Area\\s*-?\\s*(?:1|2|3|4|5)|TA(?:1|2|3|4|5)|R2508|Helendale|Tehachapi|Ant Hill|Yuma Proving Ground|YPG)\\b.{0,180}\\b(?:test|range|telemetry|instrumentation|operations support|engineering support|facility support|infrastructure|modernization|sustainment|T\u0026E|test and evaluation)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "maritime_range_anchor_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:NSWC\\s+Crane|Weapons Systems Division\\s+JXN|AUTEC|PMRF|Diego Garcia)\\b.{0,180}\\b(?:test|range|instrumentation|acoustic|navigation|sensor|operations support|engineering support|integration|sustainment|sole source|IDIQ)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "operator_site_pair_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:National Technology and Engineering Solutions of Sandia|NTESS|Sandia Corporation|Battelle Memorial Institute|Bechtel(?:\\s+Nevada|\\s+SAIC)?|EG\u0026G|Martin Marietta|Honeywell International|Wackenhut|WSI|Woods Hole Oceanographic Institution|WHOI|WHI|BDM|TRW|Hamilton Standard|Unitech Technologies|Lockheed Martin Advanced Development Programs|Skunk Works|Boeing Phantom Works|Northrop Grumman Advanced Technology Development Center|MITRE|Aerospace Corporation|CNA Corporation|RAND Corporation)\\b.{0,220}\\b(?:Dugway Proving Ground|DPG|West Desert Test Center|WDTC|Utah Test and Training Range|UTTR|Tonopah Test Range|TTR|Nevada Test and Training Range|NTTR|Area\\s*6|Aerial Operations Facility|AOF|NVH1|Yucca Flat|NNSA Nevada Field Office|NFO|Kirtland|KAFB|Manzano Storage Area|Site Able|Coyote Test Field|R2508|Helendale|Tehachapi|Ant Hill|Yuma Proving Ground|YPG|AUTEC|PMRF|Diego Garcia|NSWC\\s+Crane|Weapons Systems Division\\s+JXN)\\b|\\b(?:Dugway Proving Ground|DPG|West Desert Test Center|WDTC|Utah Test and Training Range|UTTR|Tonopah Test Range|TTR|Nevada Test and Training Range|NTTR|Area\\s*6|Aerial Operations Facility|AOF|NVH1|Yucca Flat|NNSA Nevada Field Office|NFO|Kirtland|KAFB|Manzano Storage Area|Site Able|Coyote Test Field|R2508|Helendale|Tehachapi|Ant Hill|Yuma Proving Ground|YPG|AUTEC|PMRF|Diego Garcia|NSWC\\s+Crane|Weapons Systems Division\\s+JXN)\\b.{0,220}\\b(?:National Technology and Engineering Solutions of Sandia|NTESS|Sandia Corporation|Battelle Memorial Institute|Bechtel(?:\\s+Nevada|\\s+SAIC)?|EG\u0026G|Martin Marietta|Honeywell International|Wackenhut|WSI|Woods Hole Oceanographic Institution|WHOI|WHI|BDM|TRW|Hamilton Standard|Unitech Technologies|Lockheed Martin Advanced Development Programs|Skunk Works|Boeing Phantom Works|Northrop Grumman Advanced Technology Development Center|MITRE|Aerospace Corporation|CNA Corporation|RAND Corporation)\\b).{0,140}\\b(?:operations support|engineering support|test support|instrumentation support|telemetry support|facility support|infrastructure support|sustainment support|integration support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_advanced_aerospace_support",
+                      "name":  "SAM DoD Advanced Aerospace Support",
+                      "enabled":  true,
+                      "description":  "Advanced aerospace and low-observable integration cues with explicit engineering/support context.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "low_observable_rcs_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:low observable|radar cross section|RCS|signature management)\\b.{0,140}\\b(?:analysis|model(?:ing)?|test|integration|engineering support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "advanced_air_vehicle_integration_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:advanced aerospace|air vehicle|aerospace platform|airframe)\\b.{0,140}\\b(?:systems integration|mission systems integration|prototype integration|platform integration)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "survivability_materials_aerospace_support",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:survivability|electromagnetic signature|materials integration)\\b.{0,120}\\b(?:aircraft|aerospace)\\b.{0,120}\\b(?:support|integration|engineering)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_intel_recovery_undersea_support",
+                      "name":  "SAM DoD Intel Recovery and Undersea Support",
+                      "enabled":  true,
+                      "description":  "ONR/ONI/NRO/NGA/SOCOM-adjacent procurement cues plus undersea recovery and technical support context.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "intel_org_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:ONR|Office of Naval Research|ONI|Office of Naval Intelligence|NRO|National Reconnaissance Office|NGA|National Geospatial-Intelligence Agency|SOCOM|USSOCOM)\\b.{0,160}\\b(?:technical support|program support|operations support|integration support|analysis support|engineering support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "undersea_recovery_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:undersea|subsea|maritime|ocean)\\b.{0,140}\\b(?:recovery|salvage|sensor|acoustic|ISR|collection)\\b.{0,140}\\b(?:support|integration|services|operations)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "sensitive_recovery_exploitation_support",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:foreign material exploitation|FME|materiel recovery|sensitive site exploitation|technical exploitation)\\b.{0,140}\\b(?:support|analysis|logistics|integration|operations)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "undersea_precision_capability_pair_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:NURO|Navy Special Program|NSP|NUWC|AUTEC|PMRF|ocean battlespace sensors?|acoustic navigation|side scan|UUV|AUV)\\b.{0,180}\\b(?:recovery|salvage|collection|sensor|comm(?:unications)? systems?|integration|operations support|engineering support|program support|test support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "deep_submergence_platform_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Deep Submergence Rescue Vehicle|DSRV|Mystic\\s+DSRV-?1|Avalon\\s+DSRV-?2|Deep Submergence Search Vehicle|DSSV|dry submersible|Hughes\\s+Glomar\\s+Explorer|NR-1)\\b.{0,180}\\b(?:support|modernization|sustainment|maintenance|integration|operations|recovery|salvage|program support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "nuro_sentient_program_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Project Sentient|Recent Sentient Highlights|NURO|Navy Special Program|NSP|Deep Submergence Systems Project|DSSP|Project Sand Dollar|Project Jennifer|Project Azorian|OPNAV\\s*3820|Project Sundance|Project Palladium|Operation Fishbowl|Bluegill Triple Prime)\\b.{0,180}\\b(?:contract|solicitation|task order|IDIQ|sole source|support|analysis|program support|historical research|FOIA)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_hardened_subsurface_infrastructure",
+                      "name":  "SAM DoD Hardened Subsurface Infrastructure",
+                      "enabled":  true,
+                      "description":  "Subsurface, shaft, and hardened infrastructure cues that only score when paired with engineering/procurement context.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "subsurface_shaft_tunneling_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:hidden cavities?|deep shaft structures?|incline shaft|vertical elevator shaft|access shaft|tunnel boring machine|TBM|Robbins(?:\\s+Company)?\\s+TBM|nuclear subterrene|subter tunnel machine|vitrified(?:\\s+|-)tunnels?|glass-lined tunnels?)\\b.{0,180}\\b(?:design|construction|installation|engineering|survey|study|modernization|hardening|support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "hardened_facility_design_study_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:design of underground installations in rock|literature survey of underground construction methods for application to hardened facilities|utilization of nuclear power plants in underground installation|subsurface deployment of naval facilities|National Committee on Tunneling Technology|NCTT|intercontinental ballistic missile deep basing communication study|life support and chemical biological agent mitigation|iron-chlorine fuel cells)\\b.{0,180}\\b(?:study|analysis|design|engineering|planning|support|application|assessment)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "hardened_portal_life_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:blast door|hardened door|portal door|overpressure door|blast valve|blast damper|underground ventilation|shaft exhaust|air handling|HVAC|HEPA|CBRN filtration|redundant power|UPS|standby generation|switchgear|shaft hoist|elevator modernization|portal access control|grouting|shotcrete|rock support|tunnel lining|buried fiber|hardened comms room|protected communications)\\b.{0,180}\\b(?:underground|subsurface|shaft|tunnel|hardened|portal|installation|facility)\\b.{0,120}\\b(?:upgrade|modernization|construction|integration|maintenance|support|services)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "site_hardened_infrastructure_pair_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Dugway Proving Ground|DPG|West Desert Test Center|WDTC|Utah Test and Training Range|UTTR|Tonopah Test Range|TTR|Nevada Test and Training Range|NTTR|Area\\s*6|Aerial Operations Facility|AOF|NVH1|Yucca Flat|NNSA Nevada Field Office|NFO|N2S2|Kirtland(?:\\s+Air\\s+Force\\s+Base)?|KAFB|Manzano Storage Area|Site Able|Coyote Test Field|Technical Area\\s*-?\\s*(?:1|2|3|4|5)|TA(?:1|2|3|4|5)|R2508|Helendale|Tehachapi|Ant Hill|Yuma Proving Ground|YPG)\\b.{0,200}\\b(?:tunnel boring machine|TBM|shaft|portal|blast door|overpressure door|hardened comms room|protected communications|underground ventilation|CBRN filtration|shotcrete|rock support|tunnel lining)\\b.{0,120}\\b(?:support|services|engineering|construction|modernization|integration|sustainment)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "operational_noise_terms",
+                      "name":  "Operational Noise Terms",
+                      "enabled":  true,
+                      "description":  "SAM commodity/admin suppressors for NSN line-item buys, medical/clinical purchases, and event/hospitality noise.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "nsn_line_item_commodity_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:NSN|National Stock Number|FSC|Federal Supply Class|CLIN)\\b.{0,120}\\b(?:bolt|valve|gasket|filter|bearing|hose|nut|screw|commodity|line item|spare parts?)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "nsn_part_number_quantity_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b\\d{4}-\\d{2}-\\d{3}-\\d{4}\\b.{0,80}\\b(?:qty|quantity|unit price|part(?:\\s+number)?|NSN)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "medical_clinical_procurement_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:hospital|medical center|clinic|pharmacy|dental|clinical)\\b.{0,140}\\b(?:staffing|supplies|equipment|services|patient care|laboratory)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "event_hospitality_admin_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:conference|workshop|seminar|symposium|training event|town hall)\\b.{0,140}\\b(?:venue|catering|lodging|hospitality|audio[ -]?visual|A/V|event support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "admin_facility_ops_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:office supplies|janitorial|custodial|grounds maintenance|furniture|copy paper|toner|mailroom)\\b.{0,120}\\b(?:delivery|services?|purchase|procurement)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "explicit_uap_lore_noise_terms",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:UAP|UFO|alien|extraterrestrial|non-human|nonhuman|NHI|crash retrieval|crash recovery|reverse engineering|biologics|USAP|black budget)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "uap_lore_with_generic_secrecy_noise",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:program|research|materials?|technology|underground|tunnels?|base|facility|classified|secrecy laws?)\\b.{0,80}\\b(?:UAP|UFO|alien|extraterrestrial|non-human|nonhuman|NHI|crash retrieval|crash recovery|reverse engineering|biologics|craft)\\b|\\b(?:UAP|UFO|alien|extraterrestrial|non-human|nonhuman|NHI|crash retrieval|crash recovery|reverse engineering|biologics|craft)\\b.{0,80}\\b(?:program|research|materials?|technology|underground|tunnels?|base|facility|classified|secrecy laws?)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  }
+              ]
+}

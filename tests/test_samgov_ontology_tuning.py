@@ -1,11 +1,13 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.db.models import Event, ensure_schema, get_session_factory
 from backend.services.tagging import apply_ontology_to_events
 
 
-ONTOLOGY_PATH = Path("examples/ontology_sam_procurement_starter.json")
+STARTER_ONTOLOGY_PATH = Path("examples/ontology_sam_procurement_starter.json")
+DOD_COMPANION_ONTOLOGY_PATH = Path("examples/ontology_sam_dod_foia_companion.json")
+STARTER_PLUS_DOD_ONTOLOGY_PATH = Path("examples/ontology_sam_procurement_plus_dod_foia.json")
 
 
 def test_sam_starter_ontology_tags_contextual_procurement_signals(tmp_path: Path):
@@ -71,7 +73,7 @@ def test_sam_starter_ontology_tags_contextual_procurement_signals(tmp_path: Path
         db.commit()
 
     res = apply_ontology_to_events(
-        ontology_path=ONTOLOGY_PATH,
+        ontology_path=STARTER_ONTOLOGY_PATH,
         days=30,
         source="SAM.gov",
         batch=100,
@@ -132,7 +134,7 @@ def test_sam_starter_ontology_guardrail_avoids_generic_term_overtagging(tmp_path
         db.commit()
 
     apply_ontology_to_events(
-        ontology_path=ONTOLOGY_PATH,
+        ontology_path=STARTER_ONTOLOGY_PATH,
         days=30,
         source="SAM.gov",
         batch=100,
@@ -146,3 +148,272 @@ def test_sam_starter_ontology_guardrail_avoids_generic_term_overtagging(tmp_path
 
     assert len(hit.keywords or []) > 0
     assert noise.keywords == []
+
+
+def test_sam_procurement_plus_dod_foia_tags_starter_and_dod_context(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_ontology_plus_dod.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add(
+            Event(
+                category="opportunity",
+                source="SAM.gov",
+                hash="sam_plus_dod_1",
+                created_at=now,
+                snippet="Sources Sought RFP for Edwards AFB 412th telemetry range instrumentation integration support",
+                raw_json={
+                    "noticeType": "Sources Sought",
+                    "solicitationNumber": "AFRL-TEST-100",
+                    "naicsCode": "541715",
+                    "title": "Edwards AFB range instrumentation telemetry integration support",
+                },
+                keywords=[],
+                clauses=[],
+            )
+        )
+        db.commit()
+
+    res = apply_ontology_to_events(
+        ontology_path=STARTER_PLUS_DOD_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    assert res["scanned"] == 1
+    assert res["updated"] == 1
+
+    with SessionFactory() as db:
+        row = db.query(Event).filter(Event.hash == "sam_plus_dod_1").one()
+
+    keywords = set(row.keywords or [])
+    assert "sam_procurement_starter:notice_type_sources_sought" in keywords
+    assert any(k.startswith("sam_dod_flight_test_range_instrumentation:") for k in keywords)
+
+
+def test_sam_dod_companion_noise_guardrails_for_commodity_medical_context(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_ontology_noise_guard.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add_all(
+            [
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_dod_real_1",
+                    created_at=now,
+                    snippet=(
+                        "Low observable radar cross section analysis and mission systems integration engineering support "
+                        "for advanced aerospace platform upgrades"
+                    ),
+                    raw_json={
+                        "title": "Advanced aerospace low observable integration support",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_dod_noise_1",
+                    created_at=now,
+                    snippet=(
+                        "NSN 4720-01-123-4567 hydraulic hose quantity 12 for hospital clinic supplies and "
+                        "conference catering event support"
+                    ),
+                    raw_json={
+                        "lineItem": "NSN 4720-01-123-4567",
+                        "description": "Medical center commodity order and event support",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+            ]
+        )
+        db.commit()
+
+    apply_ontology_to_events(
+        ontology_path=DOD_COMPANION_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    with SessionFactory() as db:
+        dod = db.query(Event).filter(Event.hash == "sam_dod_real_1").one()
+        noise = db.query(Event).filter(Event.hash == "sam_dod_noise_1").one()
+
+    dod_keywords = set(dod.keywords or [])
+    noise_keywords = set(noise.keywords or [])
+
+    assert any(k.startswith("sam_dod_advanced_aerospace_support:") for k in dod_keywords)
+    assert any(k.startswith("operational_noise_terms:") for k in noise_keywords)
+    assert not any(k.startswith("sam_dod_") for k in noise_keywords)
+
+
+def test_sam_dod_companion_tags_site_operator_and_hardened_pairs(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_ontology_new_pairs.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add(
+            Event(
+                category="opportunity",
+                source="SAM.gov",
+                hash="sam_dod_pairs_1",
+                created_at=now,
+                snippet=(
+                    "NTESS and Battelle Memorial Institute at Dugway Proving Ground provide range instrumentation "
+                    "and tunnel boring machine access shaft modernization engineering support for hardened portal "
+                    "door ventilation systems."
+                ),
+                raw_json={
+                    "title": "Aerial Operations Facility NVH1 infrastructure sustainment support",
+                    "description": "R2508 tunnel lining and protected communications upgrade",
+                },
+                keywords=[],
+                clauses=[],
+            )
+        )
+        db.commit()
+
+    apply_ontology_to_events(
+        ontology_path=DOD_COMPANION_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    with SessionFactory() as db:
+        row = db.query(Event).filter(Event.hash == "sam_dod_pairs_1").one()
+
+    keywords = set(row.keywords or [])
+    assert any(k.startswith("sam_dod_flight_test_range_instrumentation:") for k in keywords)
+    assert any(k.startswith("sam_dod_hardened_subsurface_infrastructure:") for k in keywords)
+
+
+def test_sam_dod_companion_guardrail_blocks_entity_singletons_and_routes_lore_to_noise(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_ontology_new_guardrails.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add_all(
+            [
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_dod_guard_entity_only",
+                    created_at=now,
+                    snippet="Battelle Memorial Institute published a public annual report and internship schedule.",
+                    raw_json={
+                        "title": "Corporate update",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_dod_guard_generic_only",
+                    created_at=now,
+                    snippet="Program research materials technology underground tunnels base facility classified discussion.",
+                    raw_json={
+                        "note": "generic words without procurement anchors",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_dod_guard_lore_noise",
+                    created_at=now,
+                    snippet="Open-source forum about UAP UFO crash retrieval reverse engineering and biologics claims.",
+                    raw_json={
+                        "note": "lore-only discussion",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+            ]
+        )
+        db.commit()
+
+    apply_ontology_to_events(
+        ontology_path=DOD_COMPANION_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    with SessionFactory() as db:
+        entity_only = db.query(Event).filter(Event.hash == "sam_dod_guard_entity_only").one()
+        generic_only = db.query(Event).filter(Event.hash == "sam_dod_guard_generic_only").one()
+        lore_noise = db.query(Event).filter(Event.hash == "sam_dod_guard_lore_noise").one()
+
+    assert entity_only.keywords == []
+    assert generic_only.keywords == []
+
+    lore_keywords = set(lore_noise.keywords or [])
+    assert any(k.startswith("operational_noise_terms:") for k in lore_keywords)
+    assert not any(k.startswith("sam_dod_") for k in lore_keywords)
+
+
+def test_sam_dod_companion_guardrail_avoids_rd_road_false_positive(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_ontology_rd_false_positive.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add(
+            Event(
+                category="opportunity",
+                source="SAM.gov",
+                hash="sam_dod_guard_rd_road",
+                created_at=now,
+                snippet=(
+                    "Road resurfacing on Main Rd with access control gate updates and transport routing support "
+                    "for municipal traffic operations."
+                ),
+                raw_json={
+                    "title": "Road and gate maintenance services",
+                },
+                keywords=[],
+                clauses=[],
+            )
+        )
+        db.commit()
+
+    apply_ontology_to_events(
+        ontology_path=DOD_COMPANION_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    with SessionFactory() as db:
+        row = db.query(Event).filter(Event.hash == "sam_dod_guard_rd_road").one()
+
+    keywords = set(row.keywords or [])
+    assert not any(k.startswith("sam_dod_program_protection_sap:") for k in keywords)

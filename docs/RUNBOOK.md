@@ -5,13 +5,29 @@ This runbook captures the SAM-only operator flow for the current sprint.
 ## Sprint boundaries
 - Active scope: SAM.gov threshold calibration and diagnostics trust hardening.
 - USAspending: maintenance mode only (`doctor` health checks).
-- Out of scope: SAM<->USAspending linkage and keyword/term expansion.
+- Out of scope: SAM<->USAspending linkage and broad single-term expansion; in-scope is precision-first DoD companion expansion with starter behavior unchanged.
 
 ## Prereqs
 - `docker compose up -d`
 - Local env configured: `DATABASE_URL`
 - Live SAM runs require local `SAM_API_KEY`
 - CLI available: `ss --help`
+
+## SAM ontology profiles (new)
+
+SAM workflow commands now support `--ontology-profile`:
+- `starter` (default): structural SAM starter ontology.
+- `dod_foia`: DoD FOIA companion packs only.
+- `starter_plus_dod_foia`: starter + DoD FOIA companion + operational noise suppressors.
+- `dod_foia` companion rules are precision-first: site/range anchors, operator+site pairs, hardened/subsurface infrastructure pairs, DOE/NNSA secure-handling cues, undersea capability pairs, and explicit lore suppressors.
+
+Examples:
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia --json`
+
+`--ontology` still overrides profile mapping when you need an explicit file path.
 
 ## 1) Bounded SAM smoke run
 
@@ -64,7 +80,7 @@ Use repeatable threshold overrides when you want stricter local gates:
 If smoke fails, run the suggested next command from the failing check.
 
 Standard offline rebuild loop:
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_starter.json`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200`
@@ -78,3 +94,48 @@ Standard offline rebuild loop:
 - `ss doctor status --source USAspending --days 30`
 
 No USAspending feature/linkage expansion is part of this sprint.
+
+## Relationship matrix rationale
+
+DoD ontology keywords are emitted as `pack_id:rule_id` tags and flow directly into the existing correlation lanes:
+- `same_keyword`: repeated DoD pack/rule hits across events.
+- `kw_pair`: co-occurring DoD/context tags used for pair-strength support.
+- Rationale: `same_keyword` rewards repeated precise handles; `kw_pair` rewards anchor+pair co-occurrence so relationship strength is tied to context, not lore terms.
+- `same_entity`, `same_uei`, `same_sam_naics`: existing structural/entity lanes that stay unchanged.
+
+Lead scoring now exposes FOIA triage metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) so analysts can see lane diversity and pair-backed DoD context at a glance.
+
+## SAM Larger-Run Validation Runbook (2026-03-09)
+
+Use this sequence for SAM operator validation:
+
+```powershell
+# Fast wiring check
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
+
+# Larger bounded validation pass
+ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
+
+# Diagnose sparse/degraded vs healthy outcomes
+ss diagnose samgov --days 30 --json
+
+# Inspect exact bundle contract for automation/scripting
+ss inspect bundle --path <bundle_dir> --json
+```
+
+Interpretation:
+
+- `status=ok`: required checks passed.
+- `status=warning`: partially useful/sparse/degraded but artifacts are available.
+- `status=failed`: required checks failed; treat as hard failure.
+
+Bundle contract (`samgov.bundle.v1`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries.
+
+Retry tuning for larger SAM windows:
+
+```powershell
+$env:SAM_API_TIMEOUT_SECONDS = "90"
+$env:SAM_API_MAX_RETRIES = "12"
+$env:SAM_API_BACKOFF_BASE = "1.25"
+```
+
