@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
@@ -235,6 +235,62 @@ def _run_source_workflow(
             window_days=int(window_days),
             source=source,
             min_events=int(min_events_entity),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_award_id"] = correlate.rebuild_award_id_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_entity),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_contract_id"] = correlate.rebuild_contract_id_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_entity),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_doc_id"] = correlate.rebuild_doc_id_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_entity),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_agency"] = correlate.rebuild_agency_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_keywords),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_psc"] = correlate.rebuild_psc_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_keywords),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_naics"] = correlate.rebuild_naics_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_keywords),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_place_region"] = correlate.rebuild_place_region_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_keywords),
+            max_events=int(max_events_keywords),
             dry_run=False,
             database_url=database_url,
         )

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -80,7 +80,7 @@ def doctor_status(
             )
 
             # --- Correlations by lane (use correlation_key prefixes; include both source and '*' forms) ---
-            lane_prefixes = ["kw_pair", "same_keyword", "same_uei", "same_entity", "same_sam_naics"]
+            lane_prefixes = ["kw_pair", "same_keyword", "same_uei", "same_entity", "same_award_id", "same_contract_id", "same_doc_id", "same_agency", "same_psc", "same_naics", "same_place_region", "same_sam_naics"]
             lane_counts: dict[str, int] = {}
             for lane in lane_prefixes:
                 if source:
@@ -423,3 +423,4 @@ def doctor_status(
     }
 
     return payload
+

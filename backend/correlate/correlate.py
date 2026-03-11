@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -89,6 +89,7 @@ def rebuild_entity_correlations(
                 "entity_id": int(entity_id),
                 "uei": ent_uei,
                 "event_count": cnt,
+                "key_count": cnt,
                 "since": since.isoformat(),
                 "until": now.isoformat(),
             }
@@ -203,7 +204,7 @@ def rebuild_uei_correlations(
         uei_to_event_ids: Dict[str, List[int]] = {}
         for ev in rows:
             raw = ev.raw_json if isinstance(ev.raw_json, dict) else {}
-            u = raw.get("Recipient UEI") or raw.get("recipient_uei") or raw.get("uei")
+            u = ev.recipient_uei or raw.get("Recipient UEI") or raw.get("recipient_uei") or raw.get("uei")
             if not u:
                 continue
             uei = str(u).strip().upper()
@@ -241,6 +242,7 @@ def rebuild_uei_correlations(
                 "lane": lane,
                 "uei": uei,
                 "event_count": cnt,
+                "key_count": cnt,
                 "since": since.isoformat(),
                 "until": now.isoformat(),
             }
@@ -400,6 +402,7 @@ def rebuild_keyword_correlations(
                 "lane": lane,
                 "keyword": kw,
                 "event_count": cnt,
+                "key_count": cnt,
                 "since": since.isoformat(),
                 "until": now.isoformat(),
             }
@@ -589,6 +592,7 @@ def rebuild_keyword_pair_correlations(
                 "keyword_2": kw2,
                 "pair_hash": h,
                 "event_count": cnt,
+                "key_count": cnt,
                 "since": since.isoformat(),
                 "until": now.isoformat(),
             }
@@ -731,9 +735,15 @@ def rebuild_sam_naics_correlations(
                     desc_counts[desc_text] = desc_counts.get(desc_text, 0) + 1
 
         eligible: Dict[str, List[int]] = {}
+        capped_naics: Dict[str, int] = {}
+        key_counts: Dict[str, int] = {}
         for naics_code, ids in naics_to_event_ids.items():
             uniq = sorted(set(ids))
-            if len(uniq) >= min_events and len(uniq) <= max_events:
+            key_counts[naics_code] = len(uniq)
+            if len(uniq) > max_events:
+                capped_naics[naics_code] = len(uniq)
+                continue
+            if len(uniq) >= min_events:
                 eligible[naics_code] = uniq
 
         eligible_keys = set(f"{key_prefix}{naics_code}" for naics_code in eligible.keys())
@@ -765,6 +775,7 @@ def rebuild_sam_naics_correlations(
                 "naics_code": naics_code,
                 "naics_description": top_desc,
                 "event_count": cnt,
+                "key_count": cnt,
                 "since": since.isoformat(),
                 "until": now.isoformat(),
             }
@@ -839,6 +850,15 @@ def rebuild_sam_naics_correlations(
             "since": since.isoformat(),
             "naics_seen": len(naics_to_event_ids),
             "eligible_naics": len(eligible),
+            "keys_capped": len(capped_naics),
+            "top_key_counts": [
+                {
+                    "key": code,
+                    "count": int(count),
+                    "status": "capped" if code in capped_naics else "eligible" if code in eligible else "below_min",
+                }
+                for code, count in sorted(key_counts.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[:20]
+            ],
             "correlations_created": correlations_created,
             "correlations_updated": correlations_updated,
             "correlations_deleted": correlations_deleted,
@@ -847,4 +867,607 @@ def rebuild_sam_naics_correlations(
         }
     finally:
         db.close()
+
+
+
+
+def _is_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        v = value.strip()
+        return (not v) or (v.lower() in {"null", "none", "n/a", "nan"})
+    if isinstance(value, (list, dict, tuple, set)):
+        return len(value) == 0
+    return False
+
+
+def _raw_ci_get(raw: Dict[str, Any], key: str) -> Any:
+    if key in raw:
+        return raw.get(key)
+    k = str(key).lower()
+    for rk, rv in raw.items():
+        if str(rk).lower() == k:
+            return rv
+    return None
+
+
+def _event_value(ev: Event, attrs: Tuple[str, ...], raw_keys: Tuple[str, ...] = ()) -> Any:
+    for attr in attrs:
+        value = getattr(ev, attr, None)
+        if not _is_blank(value):
+            return value
+
+    raw = ev.raw_json if isinstance(ev.raw_json, dict) else {}
+    for key in raw_keys:
+        value = _raw_ci_get(raw, key)
+        if not _is_blank(value):
+            return value
+
+    return None
+
+
+def _clean_key_token(value: Any, *, upper: bool = False, lower: bool = False) -> Optional[str]:
+    if _is_blank(value):
+        return None
+    v = str(value).strip().replace("|", "/")
+    if not v:
+        return None
+    if upper:
+        return v.upper()
+    if lower:
+        return v.lower()
+    return v
+
+
+def _corr_token(value: str) -> str:
+    token = str(value).strip().replace("|", "/")
+    if len(token) <= 120:
+        return token
+    import hashlib
+
+    digest = hashlib.sha1(token.encode("utf-8")).hexdigest()[:20]
+    return f"sha1:{digest}"
+
+
+def _rebuild_same_field_correlations(
+    *,
+    lane: str,
+    key_segment: str,
+    value_label: str,
+    extractor: Callable[[Event], Tuple[Optional[str], Dict[str, Any]]],
+    window_days: int,
+    source: Optional[str],
+    min_events: int,
+    max_events: int,
+    radius_km: float = 0.0,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    window_days = int(window_days)
+    min_events = int(min_events)
+    max_events = int(max_events)
+
+    if window_days <= 0:
+        raise ValueError("window_days must be > 0")
+    if min_events < 2:
+        raise ValueError("min_events must be >= 2")
+    if max_events < min_events:
+        raise ValueError("max_events must be >= min_events")
+
+    src_key = source if source else "*"
+    key_prefix = f"{lane}|{src_key}|{window_days}|{key_segment}:"
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=window_days)
+
+    SessionFactory = get_session_factory(database_url)
+    db: Session = SessionFactory()
+    ts = func.coalesce(Event.occurred_at, Event.created_at)
+
+    try:
+        q = db.query(Event).filter(ts >= since)
+        if source:
+            q = q.filter(Event.source == source)
+        rows = q.order_by(Event.id.asc()).all()
+
+        key_to_ids: Dict[str, List[int]] = {}
+        key_meta: Dict[str, Dict[str, Any]] = {}
+
+        for ev in rows:
+            lane_key, meta = extractor(ev)
+            if _is_blank(lane_key):
+                continue
+            lane_key = _corr_token(str(lane_key))
+            key_to_ids.setdefault(lane_key, []).append(int(ev.id))
+            if lane_key not in key_meta:
+                key_meta[lane_key] = dict(meta or {})
+            else:
+                cur_meta = key_meta[lane_key]
+                for mk, mv in (meta or {}).items():
+                    if _is_blank(cur_meta.get(mk)) and not _is_blank(mv):
+                        cur_meta[mk] = mv
+
+        key_counts: Dict[str, int] = {k: len(set(ids)) for k, ids in key_to_ids.items()}
+        capped_counts = {k: c for k, c in key_counts.items() if c > max_events}
+
+        eligible: Dict[str, List[int]] = {
+            k: sorted(set(key_to_ids[k]))
+            for k, c in key_counts.items()
+            if c >= min_events and c <= max_events
+        }
+        eligible_keys = set(f"{key_prefix}{k}" for k in eligible.keys())
+
+        existing = (
+            db.query(Correlation)
+            .filter(Correlation.correlation_key.like(f"{key_prefix}%"))
+            .all()
+        )
+        existing_by_key = {c.correlation_key: c for c in existing if c.correlation_key}
+
+        correlations_created = 0
+        correlations_updated = 0
+        correlations_deleted = 0
+        links_created = 0
+        links_deleted = 0
+
+        for lane_key, event_ids in eligible.items():
+            key = f"{key_prefix}{lane_key}"
+            cnt = len(event_ids)
+            meta = dict(key_meta.get(lane_key) or {})
+
+            lanes_hit = {
+                "lane": lane,
+                value_label: lane_key,
+                "event_count": cnt,
+                "key_count": cnt,
+                "since": since.isoformat(),
+                "until": now.isoformat(),
+            }
+            for mk, mv in meta.items():
+                if not _is_blank(mv):
+                    lanes_hit[mk] = mv
+
+            display_value = meta.get(value_label) or lane_key
+            summary = f"{cnt} events share {value_label} {display_value}"
+            rationale = (
+                f"Grouped events by {value_label} within last {window_days} days "
+                f"(min_events={min_events}, max_events={max_events})."
+            )
+
+            if dry_run:
+                continue
+
+            c = existing_by_key.get(key)
+            if c is None:
+                c = Correlation(
+                    correlation_key=key,
+                    score=str(cnt),
+                    window_days=window_days,
+                    radius_km=float(radius_km),
+                    lanes_hit=lanes_hit,
+                    summary=summary,
+                    rationale=rationale,
+                    created_at=now,
+                )
+                db.add(c)
+                db.flush()
+                correlations_created += 1
+            else:
+                c.score = str(cnt)
+                c.window_days = window_days
+                c.radius_km = float(radius_km)
+                c.lanes_hit = lanes_hit
+                c.summary = summary
+                c.rationale = rationale
+                c.created_at = now
+                correlations_updated += 1
+
+            links_deleted += (
+                db.query(CorrelationLink)
+                .filter(CorrelationLink.correlation_id == int(c.id))
+                .delete(synchronize_session=False)
+            )
+            for ev_id in event_ids:
+                db.add(CorrelationLink(correlation_id=int(c.id), event_id=int(ev_id)))
+            links_created += len(event_ids)
+
+        if not dry_run:
+            stale_keys = [k for k in existing_by_key.keys() if k not in eligible_keys]
+            if stale_keys:
+                correlations_deleted = (
+                    db.query(Correlation)
+                    .filter(Correlation.correlation_key.in_(stale_keys))
+                    .delete(synchronize_session=False)
+                )
+
+        if not dry_run:
+            db.commit()
+
+        top_key_counts = [
+            {
+                "key": key,
+                "count": int(count),
+                "status": "capped" if key in capped_counts else "eligible" if key in eligible else "below_min",
+            }
+            for key, count in sorted(key_counts.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[:20]
+        ]
+
+        return {
+            "status": "ok",
+            "dry_run": dry_run,
+            "source": source,
+            "window_days": window_days,
+            "min_events": min_events,
+            "max_events": max_events,
+            "since": since.isoformat(),
+            "keys_seen": len(key_counts),
+            "keys_capped": len(capped_counts),
+            "eligible_keys": len(eligible),
+            "top_key_counts": top_key_counts,
+            "correlations_created": correlations_created,
+            "correlations_updated": correlations_updated,
+            "correlations_deleted": correlations_deleted,
+            "links_created": links_created,
+            "links_deleted": links_deleted,
+        }
+    finally:
+        db.close()
+
+
+def _extract_award_id_lane(ev: Event) -> Tuple[Optional[str], Dict[str, Any]]:
+    award_id = _event_value(ev, ("award_id",), ("award_id", "Award ID"))
+    guaid = _event_value(ev, ("generated_unique_award_id",), ("generated_unique_award_id",))
+
+    if not _is_blank(award_id):
+        value = _clean_key_token(award_id, upper=True)
+        return value, {"award_id": value, "award_id_kind": "award_id"}
+    if not _is_blank(guaid):
+        value = _clean_key_token(guaid, upper=True)
+        return value, {"award_id": value, "award_id_kind": "generated_unique_award_id"}
+
+    return None, {}
+
+
+def _extract_contract_id_lane(ev: Event) -> Tuple[Optional[str], Dict[str, Any]]:
+    piid = _event_value(ev, ("piid",), ("piid", "PIID"))
+    if not _is_blank(piid):
+        value = _clean_key_token(piid, upper=True)
+        return f"piid:{value}", {"contract_id": value, "contract_id_kind": "piid", "piid": value}
+
+    fain = _event_value(ev, ("fain",), ("fain", "FAIN"))
+    if not _is_blank(fain):
+        value = _clean_key_token(fain, upper=True)
+        return f"fain:{value}", {"contract_id": value, "contract_id_kind": "fain", "fain": value}
+
+    uri = _event_value(ev, ("uri",), ("uri", "URI"))
+    if not _is_blank(uri):
+        value = _clean_key_token(uri, upper=True)
+        return f"uri:{value}", {"contract_id": value, "contract_id_kind": "uri", "uri": value}
+
+    return None, {}
+
+
+def _extract_doc_id_lane(ev: Event) -> Tuple[Optional[str], Dict[str, Any]]:
+    document_id = _event_value(ev, ("document_id",), ("document_id", "Document ID"))
+    if not _is_blank(document_id):
+        value = _clean_key_token(document_id, upper=True)
+        return f"document:{value}", {"document_id": value, "doc_id_kind": "document_id"}
+
+    notice_id = _event_value(ev, ("notice_id",), ("notice_id", "noticeId"))
+    if not _is_blank(notice_id):
+        value = _clean_key_token(notice_id, upper=True)
+        return f"notice:{value}", {"document_id": value, "doc_id_kind": "notice_id", "notice_id": value}
+
+    doc_id = _event_value(ev, ("doc_id",), ("doc_id",))
+    if not _is_blank(doc_id):
+        value = _clean_key_token(doc_id, upper=True)
+        return f"doc:{value}", {"document_id": value, "doc_id_kind": "doc_id"}
+
+    solicitation_number = _event_value(ev, ("solicitation_number",), ("solicitation_number", "solicitationNumber"))
+    if not _is_blank(solicitation_number):
+        value = _clean_key_token(solicitation_number, upper=True)
+        return f"sol:{value}", {"document_id": value, "doc_id_kind": "solicitation_number", "solicitation_number": value}
+
+    return None, {}
+
+
+def _extract_agency_lane(ev: Event) -> Tuple[Optional[str], Dict[str, Any]]:
+    awarding_code = _event_value(ev, ("awarding_agency_code",), ("awarding_agency_code", "fullParentPathCode"))
+    if not _is_blank(awarding_code):
+        value = _clean_key_token(awarding_code, upper=True)
+        return f"award:{value}", {
+            "agency_key": value,
+            "agency_type": "awarding_code",
+            "awarding_agency_code": value,
+            "awarding_agency_name": _event_value(ev, ("awarding_agency_name",), ("awarding_agency_name", "fullParentPathName")),
+        }
+
+    funding_code = _event_value(ev, ("funding_agency_code",), ("funding_agency_code",))
+    if not _is_blank(funding_code):
+        value = _clean_key_token(funding_code, upper=True)
+        return f"fund:{value}", {
+            "agency_key": value,
+            "agency_type": "funding_code",
+            "funding_agency_code": value,
+            "funding_agency_name": _event_value(ev, ("funding_agency_name",), ("funding_agency_name",)),
+        }
+
+    office_code = _event_value(ev, ("contracting_office_code",), ("contracting_office_code", "officeCode", "subTierCode"))
+    if not _is_blank(office_code):
+        value = _clean_key_token(office_code, upper=True)
+        return f"office:{value}", {
+            "agency_key": value,
+            "agency_type": "contracting_office_code",
+            "contracting_office_code": value,
+            "contracting_office_name": _event_value(ev, ("contracting_office_name",), ("contracting_office_name", "officeName", "subTier")),
+        }
+
+    awarding_name = _event_value(ev, ("awarding_agency_name",), ("awarding_agency_name", "fullParentPathName"))
+    if not _is_blank(awarding_name):
+        value = _clean_key_token(awarding_name, lower=True)
+        return f"award_name:{value}", {"agency_key": awarding_name, "agency_type": "awarding_name"}
+
+    funding_name = _event_value(ev, ("funding_agency_name",), ("funding_agency_name",))
+    if not _is_blank(funding_name):
+        value = _clean_key_token(funding_name, lower=True)
+        return f"fund_name:{value}", {"agency_key": funding_name, "agency_type": "funding_name"}
+
+    office_name = _event_value(ev, ("contracting_office_name",), ("contracting_office_name", "officeName", "subTier"))
+    if not _is_blank(office_name):
+        value = _clean_key_token(office_name, lower=True)
+        return f"office_name:{value}", {"agency_key": office_name, "agency_type": "contracting_office_name"}
+
+    return None, {}
+
+
+def _extract_psc_lane(ev: Event) -> Tuple[Optional[str], Dict[str, Any]]:
+    psc = _event_value(ev, ("psc_code",), ("psc_code", "sam_classification_code", "classificationCode", "PSC Code"))
+    if _is_blank(psc):
+        return None, {}
+    value = _clean_key_token(psc, upper=True)
+    return value, {
+        "psc_code": value,
+        "psc_description": _event_value(ev, ("psc_description",), ("psc_description", "PSC Description")),
+    }
+
+
+def _extract_naics_lane(ev: Event) -> Tuple[Optional[str], Dict[str, Any]]:
+    naics = _event_value(ev, ("naics_code",), ("naics_code", "sam_naics_code", "naicsCode", "NAICS"))
+    if _is_blank(naics):
+        return None, {}
+    value = _clean_key_token(naics, upper=True)
+    return value, {
+        "naics_code": value,
+        "naics_description": _event_value(
+            ev,
+            ("naics_description",),
+            ("naics_description", "sam_naics_description", "naicsDescription", "NAICS Description"),
+        ),
+    }
+
+
+def _extract_place_region_lane(ev: Event) -> Tuple[Optional[str], Dict[str, Any]]:
+    country = _clean_key_token(
+        _event_value(
+            ev,
+            ("place_of_performance_country",),
+            ("place_of_performance_country", "sam_place_country_code", "countryCode", "country"),
+        ),
+        upper=True,
+    )
+    state = _clean_key_token(
+        _event_value(
+            ev,
+            ("place_of_performance_state",),
+            ("place_of_performance_state", "sam_place_state_code", "stateCode", "state"),
+        ),
+        upper=True,
+    )
+    zip_code = _clean_key_token(
+        _event_value(ev, ("place_of_performance_zip",), ("place_of_performance_zip", "zip", "postalCode")),
+        upper=True,
+    )
+
+    if state:
+        c = country or "USA"
+        key = f"{c}:{state}"
+        return key, {
+            "place_region": key,
+            "place_country": c,
+            "place_state": state,
+        }
+
+    if zip_code:
+        c = country or "USA"
+        zip_prefix = zip_code[:3]
+        key = f"{c}:ZIP{zip_prefix}"
+        return key, {
+            "place_region": key,
+            "place_country": c,
+            "place_zip_prefix": zip_prefix,
+        }
+
+    return None, {}
+
+
+def rebuild_award_id_correlations(
+    *,
+    window_days: int = 30,
+    source: Optional[str] = "USAspending",
+    min_events: int = 2,
+    max_events: int = 200,
+    radius_km: float = 0.0,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    return _rebuild_same_field_correlations(
+        lane="same_award_id",
+        key_segment="award",
+        value_label="award_id",
+        extractor=_extract_award_id_lane,
+        window_days=window_days,
+        source=source,
+        min_events=min_events,
+        max_events=max_events,
+        radius_km=radius_km,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+
+
+def rebuild_contract_id_correlations(
+    *,
+    window_days: int = 30,
+    source: Optional[str] = "USAspending",
+    min_events: int = 2,
+    max_events: int = 200,
+    radius_km: float = 0.0,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    return _rebuild_same_field_correlations(
+        lane="same_contract_id",
+        key_segment="contract",
+        value_label="contract_id",
+        extractor=_extract_contract_id_lane,
+        window_days=window_days,
+        source=source,
+        min_events=min_events,
+        max_events=max_events,
+        radius_km=radius_km,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+
+
+def rebuild_doc_id_correlations(
+    *,
+    window_days: int = 30,
+    source: Optional[str] = "USAspending",
+    min_events: int = 2,
+    max_events: int = 200,
+    radius_km: float = 0.0,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    return _rebuild_same_field_correlations(
+        lane="same_doc_id",
+        key_segment="doc",
+        value_label="document_id",
+        extractor=_extract_doc_id_lane,
+        window_days=window_days,
+        source=source,
+        min_events=min_events,
+        max_events=max_events,
+        radius_km=radius_km,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+
+
+def rebuild_agency_correlations(
+    *,
+    window_days: int = 30,
+    source: Optional[str] = None,
+    min_events: int = 2,
+    max_events: int = 200,
+    radius_km: float = 0.0,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    return _rebuild_same_field_correlations(
+        lane="same_agency",
+        key_segment="agency",
+        value_label="agency_key",
+        extractor=_extract_agency_lane,
+        window_days=window_days,
+        source=source,
+        min_events=min_events,
+        max_events=max_events,
+        radius_km=radius_km,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+
+
+def rebuild_psc_correlations(
+    *,
+    window_days: int = 30,
+    source: Optional[str] = None,
+    min_events: int = 2,
+    max_events: int = 200,
+    radius_km: float = 0.0,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    return _rebuild_same_field_correlations(
+        lane="same_psc",
+        key_segment="psc",
+        value_label="psc_code",
+        extractor=_extract_psc_lane,
+        window_days=window_days,
+        source=source,
+        min_events=min_events,
+        max_events=max_events,
+        radius_km=radius_km,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+
+
+def rebuild_naics_correlations(
+    *,
+    window_days: int = 30,
+    source: Optional[str] = None,
+    min_events: int = 2,
+    max_events: int = 200,
+    radius_km: float = 0.0,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    return _rebuild_same_field_correlations(
+        lane="same_naics",
+        key_segment="naics",
+        value_label="naics_code",
+        extractor=_extract_naics_lane,
+        window_days=window_days,
+        source=source,
+        min_events=min_events,
+        max_events=max_events,
+        radius_km=radius_km,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+
+
+def rebuild_place_region_correlations(
+    *,
+    window_days: int = 30,
+    source: Optional[str] = None,
+    min_events: int = 2,
+    max_events: int = 200,
+    radius_km: float = 0.0,
+    dry_run: bool = False,
+    database_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    return _rebuild_same_field_correlations(
+        lane="same_place_region",
+        key_segment="region",
+        value_label="place_region",
+        extractor=_extract_place_region_lane,
+        window_days=window_days,
+        source=source,
+        min_events=min_events,
+        max_events=max_events,
+        radius_km=radius_km,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+
+
+
+
+
+
 

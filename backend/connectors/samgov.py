@@ -13,6 +13,10 @@ from typing import Any, Dict, Iterable, List, Optional
 import requests
 from pydantic import BaseModel, Field
 
+from backend.connectors.event_normalization import (
+    extract_samgov_event_fields,
+    merge_canonical_fields_into_raw,
+)
 from backend.connectors.samgov_context import extract_sam_context_fields, merge_sam_context_fields
 
 logger = logging.getLogger(__name__)
@@ -312,8 +316,9 @@ def normalize_opportunities(records: Iterable[Dict[str, Any]]) -> List[Dict[str,
     events: List[Dict[str, Any]] = []
 
     for record in records:
-        notice_id = _clean_str(record.get("noticeId") or record.get("noticeid") or record.get("notice_id"))
-        doc_id = notice_id
+        canonical = extract_samgov_event_fields(record)
+        notice_id = _clean_str(canonical.get("notice_id") or record.get("noticeId") or record.get("noticeid") or record.get("notice_id"))
+        doc_id = canonical.get("document_id") or notice_id
 
         if notice_id:
             unique_key = f"{SOURCE_NAME}:{notice_id}"
@@ -331,23 +336,19 @@ def normalize_opportunities(records: Iterable[Dict[str, Any]]) -> List[Dict[str,
 
         source_url = _normalize_source_url(notice_id, _clean_str(record.get("uiLink")))
 
-        # Preserve full payload, but copy awardee identifiers into canonical keys if present.
+        # Preserve full payload while backfilling canonical normalized keys.
         raw_json: Dict[str, Any] = dict(record)
-        award = raw_json.get("award")
-        if isinstance(award, dict):
-            awardee = award.get("awardee")
-            if isinstance(awardee, dict):
-                a_name = _clean_str(awardee.get("name"))
-                a_uei = _clean_str(awardee.get("ueiSAM") or awardee.get("ueiSam") or awardee.get("uei"))
-                if a_name and not raw_json.get("Recipient Name"):
-                    raw_json["Recipient Name"] = a_name
-                if a_uei and not raw_json.get("Recipient UEI"):
-                    raw_json["Recipient UEI"] = a_uei
+
+        if canonical.get("recipient_name") and not raw_json.get("Recipient Name"):
+            raw_json["Recipient Name"] = canonical.get("recipient_name")
+        if canonical.get("recipient_uei") and not raw_json.get("Recipient UEI"):
+            raw_json["Recipient UEI"] = canonical.get("recipient_uei")
 
         # SAM context contract: promote a focused set of high-value fields for
         # research pivots (agency path, notice metadata, NAICS/set-aside, dates).
         sam_ctx = extract_sam_context_fields(raw_json)
         raw_json = merge_sam_context_fields(raw_json, sam_ctx)
+        raw_json = merge_canonical_fields_into_raw(raw_json, canonical)
 
         events.append(
             {
@@ -364,6 +365,7 @@ def normalize_opportunities(records: Iterable[Dict[str, Any]]) -> List[Dict[str,
                 "lat": None,
                 "lon": None,
                 "hash": digest,
+                **canonical,
             }
         )
 
@@ -383,4 +385,3 @@ __all__ = [
     "fetch_opportunities_page",
     "normalize_opportunities",
 ]
-

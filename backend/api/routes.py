@@ -1,4 +1,4 @@
-from typing import Any, Optional
+﻿from typing import Any, Optional
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select, or_, cast, String
@@ -56,6 +56,18 @@ def list_events(
     entity_id: int | None = None,
     keyword: str | None = None,
     has_entity: bool | None = None,
+    award_id: str | None = None,
+    contract_id: str | None = None,
+    document_id: str | None = None,
+    notice_id: str | None = None,
+    solicitation_number: str | None = None,
+    recipient_uei: str | None = None,
+    agency_code: str | None = None,
+    psc: str | None = None,
+    naics: str | None = None,
+    notice_award_type: str | None = None,
+    place_state: str | None = None,
+    place_country: str | None = None,
     db: Session = Depends(get_db_session),
 ):
     q = select(Event)
@@ -76,14 +88,76 @@ def list_events(
         q = q.where(or_(Event.created_at >= since, Event.occurred_at >= since))
 
     if keyword:
-
         kw = str(keyword).strip()
-
         if kw:
-
             kw_esc = kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             q = q.where(cast(Event.keywords, String).like(f'%"{kw_esc}"%', escape="\\"))
 
+    if award_id:
+        award = str(award_id).strip()
+        if award:
+            q = q.where(or_(Event.award_id == award, Event.generated_unique_award_id == award))
+
+    if contract_id:
+        cid = str(contract_id).strip()
+        if cid:
+            q = q.where(or_(Event.piid == cid, Event.fain == cid, Event.uri == cid))
+
+    if document_id:
+        doc = str(document_id).strip()
+        if doc:
+            q = q.where(or_(Event.document_id == doc, Event.doc_id == doc))
+
+    if notice_id:
+        n = str(notice_id).strip()
+        if n:
+            q = q.where(Event.notice_id == n)
+
+    if solicitation_number:
+        s = str(solicitation_number).strip()
+        if s:
+            q = q.where(Event.solicitation_number == s)
+
+    if recipient_uei:
+        uei = str(recipient_uei).strip().upper()
+        if uei:
+            q = q.where(func.upper(Event.recipient_uei) == uei)
+
+    if agency_code:
+        ac = str(agency_code).strip().upper()
+        if ac:
+            q = q.where(
+                or_(
+                    func.upper(Event.awarding_agency_code) == ac,
+                    func.upper(Event.funding_agency_code) == ac,
+                    func.upper(Event.contracting_office_code) == ac,
+                )
+            )
+
+    if psc:
+        psc_code = str(psc).strip().upper()
+        if psc_code:
+            q = q.where(func.upper(Event.psc_code) == psc_code)
+
+    if naics:
+        naics_code = str(naics).strip().upper()
+        if naics_code:
+            q = q.where(func.upper(Event.naics_code) == naics_code)
+
+    if notice_award_type:
+        ntype = str(notice_award_type).strip().lower()
+        if ntype:
+            q = q.where(func.lower(Event.notice_award_type) == ntype)
+
+    if place_state:
+        st = str(place_state).strip().upper()
+        if st:
+            q = q.where(func.upper(Event.place_of_performance_state) == st)
+
+    if place_country:
+        ctry = str(place_country).strip().upper()
+        if ctry:
+            q = q.where(func.upper(Event.place_of_performance_country) == ctry)
 
     rows = db.execute(q.order_by(Event.id.desc()).limit(int(limit))).scalars().all()
     return [
@@ -97,6 +171,37 @@ def list_events(
             "source": e.source,
             "source_url": e.source_url,
             "doc_id": e.doc_id,
+            "award_id": e.award_id,
+            "generated_unique_award_id": e.generated_unique_award_id,
+            "piid": e.piid,
+            "fain": e.fain,
+            "uri": e.uri,
+            "transaction_id": e.transaction_id,
+            "modification_number": e.modification_number,
+            "source_record_id": e.source_record_id,
+            "recipient_name": e.recipient_name,
+            "recipient_uei": e.recipient_uei,
+            "recipient_parent_uei": e.recipient_parent_uei,
+            "recipient_duns": e.recipient_duns,
+            "recipient_cage_code": e.recipient_cage_code,
+            "awarding_agency_code": e.awarding_agency_code,
+            "awarding_agency_name": e.awarding_agency_name,
+            "funding_agency_code": e.funding_agency_code,
+            "funding_agency_name": e.funding_agency_name,
+            "contracting_office_code": e.contracting_office_code,
+            "contracting_office_name": e.contracting_office_name,
+            "psc_code": e.psc_code,
+            "psc_description": e.psc_description,
+            "naics_code": e.naics_code,
+            "naics_description": e.naics_description,
+            "notice_award_type": e.notice_award_type,
+            "place_of_performance_city": e.place_of_performance_city,
+            "place_of_performance_state": e.place_of_performance_state,
+            "place_of_performance_country": e.place_of_performance_country,
+            "place_of_performance_zip": e.place_of_performance_zip,
+            "solicitation_number": e.solicitation_number,
+            "notice_id": e.notice_id,
+            "document_id": e.document_id,
             "keywords": _norm_list(e.keywords),
             "clauses": _norm_list(e.clauses),
             "place_text": e.place_text,

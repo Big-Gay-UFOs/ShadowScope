@@ -1,4 +1,4 @@
-"""Export utilities for ShadowScope datasets."""
+﻿"""Export utilities for ShadowScope datasets."""
 from __future__ import annotations
 
 import csv
@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
-from backend.db.models import Event, get_session_factory
+from backend.db.models import EVENT_PROMOTED_FIELDS, Event, get_session_factory
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
 
 
@@ -51,7 +51,7 @@ def export_events(
 
 
 def _serialize_event(event: Event) -> Dict[str, object]:
-    return {
+    row: Dict[str, object] = {
         "id": event.id,
         "entity_id": event.entity_id,
         "category": event.category,
@@ -69,6 +69,9 @@ def _serialize_event(event: Event) -> Dict[str, object]:
         "hash": event.hash,
         "created_at": event.created_at.isoformat() if event.created_at else None,
     }
+    for field_name in EVENT_PROMOTED_FIELDS:
+        row[field_name] = getattr(event, field_name, None)
+    return row
 
 
 def _write_csv(path: Path, rows):

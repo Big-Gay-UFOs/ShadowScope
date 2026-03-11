@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.db.models import Entity, Event, ensure_schema, get_session_factory
@@ -37,6 +37,12 @@ def test_upsert_backfills_raw_json_without_wiping_tags(tmp_path: Path):
                 "recipient_id": "RID-XYZ",
             },
             "doc_id": "A1",
+            "award_id": "A1",
+            "generated_unique_award_id": "A1-GEN",
+            "recipient_uei": "UEI123",
+            "recipient_name": "ACME INC",
+            "naics_code": "541330",
+            "awarding_agency_code": "DOE",
             "source_url": "https://example.com/award/A1",
             "snippet": "desc",
             "place_text": "place",
@@ -51,6 +57,12 @@ def test_upsert_backfills_raw_json_without_wiping_tags(tmp_path: Path):
     row = db.query(Event).filter_by(hash="h1").one()
     assert isinstance(row.raw_json, dict)
     assert row.raw_json.get("Recipient UEI") == "UEI123"
+    assert row.award_id == "A1"
+    assert row.generated_unique_award_id == "A1-GEN"
+    assert row.recipient_uei == "UEI123"
+    assert row.recipient_name == "ACME INC"
+    assert row.naics_code == "541330"
+    assert row.awarding_agency_code == "DOE"
     assert row.keywords == ["keepme"]
     assert row.clauses == [{"k": "v"}]
 
@@ -111,6 +123,8 @@ def test_entity_linking_uei_first_is_idempotent(tmp_path: Path):
     evs = db2.query(Event).order_by(Event.id.asc()).all()
     assert evs[0].entity_id == evs[1].entity_id
     db2.close()
+
+
 def test_entity_sites_json_meta_persists_on_update(tmp_path: Path):
     db_url = f"sqlite:///{tmp_path / 'meta.db'}"
     ensure_schema(db_url)

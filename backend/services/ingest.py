@@ -1,4 +1,4 @@
-"""Ingestion workflows for live data sources."""
+﻿"""Ingestion workflows for live data sources."""
 from __future__ import annotations
 
 import json
@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from backend.connectors import usaspending, samgov
-from backend.db.models import Event, IngestRun, get_session_factory
+from backend.db.models import EVENT_PROMOTED_FIELDS, Event, IngestRun, get_session_factory
 from backend.runtime import RAW_SOURCES, ensure_runtime_directories
 
 LOGGER = logging.getLogger("shadowscope.ingest")
@@ -155,6 +155,19 @@ def ingest_usaspending(
     }
 
 
+
+def _is_missing_value(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return True
+        if cleaned.lower() in {"null", "none", "n/a"}:
+            return True
+    if isinstance(value, (list, dict, tuple, set)):
+        return len(value) == 0
+    return False
 def _upsert_events(session: Session, events):
     if not events:
         return 0
@@ -222,6 +235,15 @@ def _upsert_events(session: Session, events):
             if row.occurred_at is None and ev.get("occurred_at") is not None:
                 row.occurred_at = ev.get("occurred_at")
                 changed = True
+
+            for field_name in EVENT_PROMOTED_FIELDS:
+                new_value = ev.get(field_name)
+                if _is_missing_value(new_value):
+                    continue
+                current_value = getattr(row, field_name, None)
+                if _is_missing_value(current_value):
+                    setattr(row, field_name, new_value)
+                    changed = True
 
             if changed:
                 backfilled += 1
@@ -444,3 +466,5 @@ def ingest_sam_opportunities(
 
 
 __all__ = ["ingest_usaspending", "ingest_sam_opportunities"]
+
+

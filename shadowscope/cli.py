@@ -1,4 +1,4 @@
-﻿"""Typer-based command line interface for ShadowScope."""
+"""Typer-based command line interface for ShadowScope."""
 from __future__ import annotations
 
 import json
@@ -1377,6 +1377,79 @@ def correlate_rebuild_sam_naics(
     )
 
 
+
+@correlate_app.command("rebuild-normalized")
+def correlate_rebuild_normalized(
+    window_days: int = typer.Option(30, "--window-days", help="Lookback window (days)"),
+    source: str = typer.Option("", "--source", help="Event source (blank for all)"),
+    min_events: int = typer.Option(2, "--min-events", help="Minimum events required per lane key"),
+    max_events: int = typer.Option(200, "--max-events", help="Cap very common keys to avoid noisy/giant clusters"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute only; do not write to DB"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+):
+    from backend.correlate import correlate
+
+    src = source if source else None
+    res = {
+        "same_award_id": correlate.rebuild_award_id_correlations(
+            window_days=window_days,
+            source=src,
+            min_events=min_events,
+            max_events=max_events,
+            dry_run=dry_run,
+            database_url=database_url,
+        ),
+        "same_contract_id": correlate.rebuild_contract_id_correlations(
+            window_days=window_days,
+            source=src,
+            min_events=min_events,
+            max_events=max_events,
+            dry_run=dry_run,
+            database_url=database_url,
+        ),
+        "same_doc_id": correlate.rebuild_doc_id_correlations(
+            window_days=window_days,
+            source=src,
+            min_events=min_events,
+            max_events=max_events,
+            dry_run=dry_run,
+            database_url=database_url,
+        ),
+        "same_agency": correlate.rebuild_agency_correlations(
+            window_days=window_days,
+            source=src,
+            min_events=min_events,
+            max_events=max_events,
+            dry_run=dry_run,
+            database_url=database_url,
+        ),
+        "same_psc": correlate.rebuild_psc_correlations(
+            window_days=window_days,
+            source=src,
+            min_events=min_events,
+            max_events=max_events,
+            dry_run=dry_run,
+            database_url=database_url,
+        ),
+        "same_naics": correlate.rebuild_naics_correlations(
+            window_days=window_days,
+            source=src,
+            min_events=min_events,
+            max_events=max_events,
+            dry_run=dry_run,
+            database_url=database_url,
+        ),
+        "same_place_region": correlate.rebuild_place_region_correlations(
+            window_days=window_days,
+            source=src,
+            min_events=min_events,
+            max_events=max_events,
+            dry_run=dry_run,
+            database_url=database_url,
+        ),
+    }
+    typer.echo(json.dumps(res, ensure_ascii=False, indent=2))
+
 app.add_typer(correlate_app, name="correlate")
 
 @export_app.command("correlations")
@@ -1400,7 +1473,6 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
-
 
 
 
