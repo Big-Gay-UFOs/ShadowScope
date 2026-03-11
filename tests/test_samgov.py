@@ -17,6 +17,7 @@ def test_normalize_opportunities_handles_date_formats_and_missing_fields():
             "solicitationNumber": "DOE-RFP-001",
             "naicsCode": "541330",
             "naicsDescription": "Engineering Services",
+            "classificationCode": "R425",
             "typeOfSetAside": "SBA",
             "typeOfSetAsideDescription": "Total Small Business Set-Aside",
             "responseDeadLine": "2026-03-15",
@@ -86,6 +87,21 @@ def test_normalize_opportunities_handles_date_formats_and_missing_fields():
     assert "OTTAWA" in events[2]["place_text"]
     assert "CAN" in events[2]["place_text"]
 
+    # Promoted normalized fields are filled for lanes/filters.
+    e0 = events[0]
+    assert e0["notice_id"] == "N1"
+    assert e0["document_id"] == "N1"
+    assert e0["source_record_id"] == "N1"
+    assert e0["solicitation_number"] == "DOE-RFP-001"
+    assert e0["naics_code"] == "541330"
+    assert e0["naics_description"] == "Engineering Services"
+    assert e0["psc_code"] == "R425"
+    assert e0["awarding_agency_code"] == "DOE.SCI"
+    assert e0["recipient_name"] == "ACME INC"
+    assert e0["recipient_uei"] == "UEI123"
+    assert e0["place_of_performance_state"] == "WI"
+    assert e0["place_of_performance_country"] == "USA"
+
     # Awardee identifiers copied into canonical keys for later entity-linking
     assert events[0]["raw_json"].get("Recipient Name") == "ACME INC"
     assert events[0]["raw_json"].get("Recipient UEI") == "UEI123"
@@ -98,3 +114,9 @@ def test_normalize_opportunities_handles_date_formats_and_missing_fields():
     assert raw0.get("sam_set_aside_code") == "SBA"
     assert raw0.get("sam_agency_path_code") == "DOE.SCI"
     assert raw0.get("sam_response_deadline", "").startswith("2026-03-15")
+
+    # Canonical keys are merged into raw_json for compatibility/debugging.
+    assert raw0.get("notice_id") == "N1"
+    assert raw0.get("document_id") == "N1"
+    assert raw0.get("naics_code") == "541330"
+    assert raw0.get("awarding_agency_code") == "DOE.SCI"

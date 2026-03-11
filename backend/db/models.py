@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 import os
 from contextlib import contextmanager
 from typing import Iterator, Optional
@@ -14,6 +14,40 @@ load_dotenv()
 
 DEFAULT_DATABASE_URL = "sqlite:///./dev.db"
 Base = declarative_base()
+
+EVENT_PROMOTED_FIELDS: tuple[str, ...] = (
+    "award_id",
+    "generated_unique_award_id",
+    "piid",
+    "fain",
+    "uri",
+    "transaction_id",
+    "modification_number",
+    "source_record_id",
+    "recipient_name",
+    "recipient_uei",
+    "recipient_parent_uei",
+    "recipient_duns",
+    "recipient_cage_code",
+    "awarding_agency_code",
+    "awarding_agency_name",
+    "funding_agency_code",
+    "funding_agency_name",
+    "contracting_office_code",
+    "contracting_office_name",
+    "psc_code",
+    "psc_description",
+    "naics_code",
+    "naics_description",
+    "notice_award_type",
+    "place_of_performance_city",
+    "place_of_performance_state",
+    "place_of_performance_country",
+    "place_of_performance_zip",
+    "solicitation_number",
+    "notice_id",
+    "document_id",
+)
 
 
 class Entity(Base):
@@ -42,6 +76,44 @@ class Event(Base):
     source = Column(String, nullable=False)
     source_url = Column(Text)
     doc_id = Column(String)
+
+    award_id = Column(String(128), index=True)
+    generated_unique_award_id = Column(String(128), index=True)
+    piid = Column(String(128), index=True)
+    fain = Column(String(128), index=True)
+    uri = Column(String(256), index=True)
+    transaction_id = Column(String(128), index=True)
+    modification_number = Column(String(64), index=True)
+    source_record_id = Column(String(128), index=True)
+
+    recipient_name = Column(Text)
+    recipient_uei = Column(String(64), index=True)
+    recipient_parent_uei = Column(String(64), index=True)
+    recipient_duns = Column(String(32), index=True)
+    recipient_cage_code = Column(String(32), index=True)
+
+    awarding_agency_code = Column(String(64), index=True)
+    awarding_agency_name = Column(Text)
+    funding_agency_code = Column(String(64), index=True)
+    funding_agency_name = Column(Text)
+    contracting_office_code = Column(String(64), index=True)
+    contracting_office_name = Column(Text)
+
+    psc_code = Column(String(32), index=True)
+    psc_description = Column(Text)
+    naics_code = Column(String(32), index=True)
+    naics_description = Column(Text)
+    notice_award_type = Column(String(128), index=True)
+
+    place_of_performance_city = Column(String(128))
+    place_of_performance_state = Column(String(32), index=True)
+    place_of_performance_country = Column(String(32), index=True)
+    place_of_performance_zip = Column(String(32), index=True)
+
+    solicitation_number = Column(String(128), index=True)
+    notice_id = Column(String(128), index=True)
+    document_id = Column(String(128), index=True)
+
     keywords = Column(JSON)
     clauses = Column(JSON)
     place_text = Column(Text)

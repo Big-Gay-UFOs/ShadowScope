@@ -1,4 +1,4 @@
-"""USAspending API connector for ShadowScope."""
+﻿"""USAspending API connector for ShadowScope."""
 from __future__ import annotations
 
 import hashlib
@@ -10,6 +10,11 @@ import requests
 import time
 import random
 from pydantic import BaseModel, Field
+
+from backend.connectors.event_normalization import (
+    extract_usaspending_event_fields,
+    merge_canonical_fields_into_raw,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,44 @@ class AwardEvent(BaseModel):
     place_text: Optional[str]
     snippet: Optional[str]
     raw_json: Dict[str, Any]
+
+    award_id: Optional[str] = None
+    generated_unique_award_id: Optional[str] = None
+    piid: Optional[str] = None
+    fain: Optional[str] = None
+    uri: Optional[str] = None
+    transaction_id: Optional[str] = None
+    modification_number: Optional[str] = None
+    source_record_id: Optional[str] = None
+
+    recipient_name: Optional[str] = None
+    recipient_uei: Optional[str] = None
+    recipient_parent_uei: Optional[str] = None
+    recipient_duns: Optional[str] = None
+    recipient_cage_code: Optional[str] = None
+
+    awarding_agency_code: Optional[str] = None
+    awarding_agency_name: Optional[str] = None
+    funding_agency_code: Optional[str] = None
+    funding_agency_name: Optional[str] = None
+    contracting_office_code: Optional[str] = None
+    contracting_office_name: Optional[str] = None
+
+    psc_code: Optional[str] = None
+    psc_description: Optional[str] = None
+    naics_code: Optional[str] = None
+    naics_description: Optional[str] = None
+    notice_award_type: Optional[str] = None
+
+    place_of_performance_city: Optional[str] = None
+    place_of_performance_state: Optional[str] = None
+    place_of_performance_country: Optional[str] = None
+    place_of_performance_zip: Optional[str] = None
+
+    solicitation_number: Optional[str] = None
+    notice_id: Optional[str] = None
+    document_id: Optional[str] = None
+
     keywords: List[str] = Field(default_factory=list)
     clauses: List[str] = Field(default_factory=list)
     lat: Optional[float] = None
@@ -168,11 +211,44 @@ def fetch_awards(
         page += 1
 
 
+def _format_place_from_canonical(canonical: Dict[str, Optional[str]]) -> Optional[str]:
+    city = canonical.get("place_of_performance_city")
+    state = canonical.get("place_of_performance_state")
+    zip_code = canonical.get("place_of_performance_zip")
+    country = canonical.get("place_of_performance_country")
+
+    parts: List[str] = []
+    locality: List[str] = []
+    if city:
+        locality.append(city)
+    if state:
+        locality.append(state)
+    if zip_code:
+        if locality:
+            locality[-1] = f"{locality[-1]} {zip_code}".strip()
+        else:
+            locality.append(zip_code)
+
+    if locality:
+        parts.append(", ".join(locality))
+    if country:
+        parts.append(country)
+
+    return ", ".join(parts) if parts else None
+
+
 def normalize_awards(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Normalize raw USAspending response rows into event dictionaries."""
     events: List[Dict[str, Any]] = []
     for record in records:
-        unique_key = str(record.get("internal_id") or record.get("generated_unique_award_id") or record)
+        canonical = extract_usaspending_event_fields(record)
+        unique_key = str(
+            record.get("internal_id")
+            or canonical.get("source_record_id")
+            or canonical.get("generated_unique_award_id")
+            or canonical.get("award_id")
+            or record
+        )
         digest = hashlib.sha256(unique_key.encode("utf-8")).hexdigest()
 
         action_date = (
@@ -182,13 +258,22 @@ def normalize_awards(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             or record.get("last_modified_date")
         )
         place = record.get("Place of Performance") or record.get("place_of_performance")
+        if not place:
+            place = _format_place_from_canonical(canonical)
+
         description = record.get("Description") or record.get("description")
         occurred_at = _parse_date(action_date)
 
-        doc_identifier = record.get("piid") or record.get("Award ID") or record.get("generated_unique_award_id")
-        unique_award_id = record.get("generated_unique_award_id") or record.get("Award ID")
+        doc_identifier = (
+            canonical.get("document_id")
+            or canonical.get("piid")
+            or canonical.get("award_id")
+            or canonical.get("generated_unique_award_id")
+        )
+        unique_award_id = canonical.get("generated_unique_award_id") or canonical.get("award_id")
 
         source_url = f"https://www.usaspending.gov/award/{unique_award_id}" if unique_award_id else None
+        raw_json = merge_canonical_fields_into_raw(record, canonical)
 
         event = AwardEvent(
             category="procurement",
@@ -198,8 +283,9 @@ def normalize_awards(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             doc_id=str(doc_identifier) if doc_identifier else None,
             place_text=place,
             snippet=description,
-            raw_json=record,
+            raw_json=raw_json,
             hash=digest,
+            **canonical,
         )
         events.append(event.model_dump())
     return events

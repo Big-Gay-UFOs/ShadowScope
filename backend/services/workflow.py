@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
@@ -236,6 +236,62 @@ def _run_source_workflow(
             window_days=int(window_days),
             source=source,
             min_events=int(min_events_entity),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_award_id"] = correlate.rebuild_award_id_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_entity),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_contract_id"] = correlate.rebuild_contract_id_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_entity),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_doc_id"] = correlate.rebuild_doc_id_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_entity),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_agency"] = correlate.rebuild_agency_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_keywords),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_psc"] = correlate.rebuild_psc_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_keywords),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_naics"] = correlate.rebuild_naics_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_keywords),
+            max_events=int(max_events_keywords),
+            dry_run=False,
+            database_url=database_url,
+        )
+        corr["same_place_region"] = correlate.rebuild_place_region_correlations(
+            window_days=int(window_days),
+            source=source,
+            min_events=int(min_events_keywords),
+            max_events=int(max_events_keywords),
             dry_run=False,
             database_url=database_url,
         )
@@ -823,6 +879,13 @@ def run_samgov_smoke_workflow(
         "correlations_by_lane": {
             "same_entity": _safe_int(lane_counts.get("same_entity")),
             "same_uei": _safe_int(lane_counts.get("same_uei")),
+            "same_award_id": _safe_int(lane_counts.get("same_award_id")),
+            "same_contract_id": _safe_int(lane_counts.get("same_contract_id")),
+            "same_doc_id": _safe_int(lane_counts.get("same_doc_id")),
+            "same_agency": _safe_int(lane_counts.get("same_agency")),
+            "same_psc": _safe_int(lane_counts.get("same_psc")),
+            "same_naics": _safe_int(lane_counts.get("same_naics")),
+            "same_place_region": _safe_int(lane_counts.get("same_place_region")),
             "same_keyword": _safe_int(lane_counts.get("same_keyword")),
             "kw_pair": _safe_int(lane_counts.get("kw_pair")),
             "same_sam_naics": _safe_int(lane_counts.get("same_sam_naics")),
@@ -893,3 +956,5 @@ __all__ = [
     "run_samgov_workflow",
     "run_samgov_smoke_workflow",
 ]
+
+

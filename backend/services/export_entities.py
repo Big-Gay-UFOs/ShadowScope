@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import json
@@ -113,10 +113,10 @@ def export_entities_bundle(
                 "entity_name": None if ent is None else ent.name,
                 "entity_uei": None if ent is None else ent.uei,
                 "entity_cage": None if ent is None else ent.cage,
-                "recipient_name": _raw_get(raw, ["Recipient Name", "recipient_name", "recipient"]),
-                "recipient_uei": _raw_get(raw, ["UEI", "uei", "recipient_uei"]),
-                "recipient_duns": _raw_get(raw, ["DUNS", "duns", "recipient_duns"]),
-                "recipient_cage": _raw_get(raw, ["CAGE", "cage", "recipient_cage"]),
+                "recipient_name": ev.recipient_name or _raw_get(raw, ["Recipient Name", "recipient_name", "recipient"]),
+                "recipient_uei": ev.recipient_uei or _raw_get(raw, ["Recipient UEI", "UEI", "uei", "recipient_uei"]),
+                "recipient_duns": ev.recipient_duns or _raw_get(raw, ["Recipient DUNS Number", "DUNS", "duns", "recipient_duns"]),
+                "recipient_cage": ev.recipient_cage_code or _raw_get(raw, ["Recipient CAGE Code", "CAGE", "cage", "recipient_cage"]),
             }
         )
 
@@ -159,3 +159,4 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 __all__ = ["export_entities_bundle"]
+

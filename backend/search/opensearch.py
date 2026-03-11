@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from typing import Any, Dict
@@ -61,7 +61,7 @@ def opensearch_search(
                     {
                         "multi_match": {
                             "query": q,
-                            "fields": ["snippet^2", "place_text", "doc_id", "keywords"],
+                            "fields": ["snippet^2", "place_text", "doc_id", "document_id", "notice_id", "solicitation_number", "award_id^2", "generated_unique_award_id^2", "piid^2", "fain^2", "uri", "recipient_name^1.5", "recipient_uei^2", "awarding_agency_name", "awarding_agency_code", "funding_agency_name", "funding_agency_code", "contracting_office_name", "psc_code^1.5", "naics_code^1.5", "naics_description", "notice_award_type", "place_of_performance_city", "place_of_performance_state", "place_of_performance_country", "keywords"],
                             "type": "best_fields",
                         }
                     }

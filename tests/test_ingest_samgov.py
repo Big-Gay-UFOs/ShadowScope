@@ -76,6 +76,12 @@ def test_ingest_samgov_is_idempotent_and_records_ingest_run(tmp_path: Path, monk
         assert db.query(Event).count() == 3
         n1 = db.query(Event).filter(Event.doc_id == "N1").one()
         assert isinstance(n1.raw_json, dict)
+        assert n1.notice_id == "N1"
+        assert n1.document_id == "N1"
+        assert n1.source_record_id == "N1"
+        assert n1.notice_award_type == "sources sought"
+        assert n1.naics_code == "541330"
+        assert n1.awarding_agency_code == "DOE.SCI"
         assert n1.raw_json.get("sam_notice_type") == "sources sought"
         assert n1.raw_json.get("sam_naics_code") == "541330"
         assert n1.raw_json.get("sam_set_aside_code") == "SBA"
@@ -139,3 +145,4 @@ def test_ingest_samgov_keywords_union_does_not_starve_later_terms(tmp_path: Path
     assert res["inserted"] == 3
     assert "DOE" in calls
     assert "NNSA" in calls
+

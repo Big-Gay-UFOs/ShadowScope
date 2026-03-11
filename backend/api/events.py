@@ -1,4 +1,4 @@
-"""Events API endpoints."""
+﻿"""Events API endpoints."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -29,6 +29,44 @@ class EventOut(BaseModel):
     source: str
     source_url: Optional[str] = None
     doc_id: Optional[str] = None
+
+    award_id: Optional[str] = None
+    generated_unique_award_id: Optional[str] = None
+    piid: Optional[str] = None
+    fain: Optional[str] = None
+    uri: Optional[str] = None
+    transaction_id: Optional[str] = None
+    modification_number: Optional[str] = None
+    source_record_id: Optional[str] = None
+
+    recipient_name: Optional[str] = None
+    recipient_uei: Optional[str] = None
+    recipient_parent_uei: Optional[str] = None
+    recipient_duns: Optional[str] = None
+    recipient_cage_code: Optional[str] = None
+
+    awarding_agency_code: Optional[str] = None
+    awarding_agency_name: Optional[str] = None
+    funding_agency_code: Optional[str] = None
+    funding_agency_name: Optional[str] = None
+    contracting_office_code: Optional[str] = None
+    contracting_office_name: Optional[str] = None
+
+    psc_code: Optional[str] = None
+    psc_description: Optional[str] = None
+    naics_code: Optional[str] = None
+    naics_description: Optional[str] = None
+    notice_award_type: Optional[str] = None
+
+    place_of_performance_city: Optional[str] = None
+    place_of_performance_state: Optional[str] = None
+    place_of_performance_country: Optional[str] = None
+    place_of_performance_zip: Optional[str] = None
+
+    solicitation_number: Optional[str] = None
+    notice_id: Optional[str] = None
+    document_id: Optional[str] = None
+
     keywords: Optional[List[str]] = None
     clauses: Optional[List[str]] = None
     place_text: Optional[str] = None

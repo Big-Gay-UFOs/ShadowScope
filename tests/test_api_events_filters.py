@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -66,6 +66,16 @@ def test_api_events_filters(tmp_path):
             snippet="e1",
             place_text="",
             doc_id="d1",
+            document_id="DOC-X",
+            award_id="AWARD-X",
+            piid="PIID-X",
+            source_record_id="SRC-1",
+            awarding_agency_code="DOE",
+            naics_code="541330",
+            psc_code="R425",
+            notice_award_type="award",
+            place_of_performance_state="VA",
+            place_of_performance_country="USA",
             source_url="http://example.com/1",
             raw_json={},
             keywords=["alpha", "beta"],
@@ -79,6 +89,7 @@ def test_api_events_filters(tmp_path):
             snippet="e2",
             place_text="",
             doc_id="d2",
+            piid="PIID-X",
             source_url="http://example.com/2",
             raw_json={},
             keywords=["beta"],
@@ -133,3 +144,28 @@ def test_api_events_filters(tmp_path):
         assert r.status_code == 200
         hashes = {e["hash"] for e in r.json()}
         assert "ev_old" not in hashes
+
+        # New normalized field filters.
+        r = c.get("/api/events?limit=100&award_id=AWARD-X")
+        assert r.status_code == 200
+        assert {e["hash"] for e in r.json()} == {"ev1"}
+
+        r = c.get("/api/events?limit=100&contract_id=PIID-X")
+        assert r.status_code == 200
+        assert {e["hash"] for e in r.json()} >= {"ev1", "ev2"}
+
+        r = c.get("/api/events?limit=100&document_id=DOC-X")
+        assert r.status_code == 200
+        assert {e["hash"] for e in r.json()} == {"ev1"}
+
+        r = c.get("/api/events?limit=100&naics=541330")
+        assert r.status_code == 200
+        assert {e["hash"] for e in r.json()} == {"ev1"}
+
+        r = c.get("/api/events?limit=100&agency_code=DOE")
+        assert r.status_code == 200
+        assert {e["hash"] for e in r.json()} == {"ev1"}
+
+        r = c.get("/api/events?limit=100&place_state=VA&place_country=USA")
+        assert r.status_code == 200
+        assert {e["hash"] for e in r.json()} == {"ev1"}
