@@ -35,6 +35,27 @@ def test_export_kw_pairs_writes_files(tmp_path):
                 },
             ),
             Correlation(
+                correlation_key="kw_pair|*|30|pair:cccccccccccccccc",
+                score="0.750000",
+                window_days=30,
+                radius_km=0.0,
+                lanes_hit={
+                    "kw_pair": {
+                        "keyword_1": "e",
+                        "keyword_2": "f",
+                        "event_count": 4,
+                        "c12": 4,
+                        "keyword_1_df": 4,
+                        "keyword_2_df": 4,
+                        "total_events": 10,
+                        "score_signal": 0.75,
+                        "score_kind": "npmi",
+                        "score_secondary": 2.125,
+                        "score_secondary_kind": "log_odds",
+                    }
+                },
+            ),
+            Correlation(
                 correlation_key="kw_pair|*|30|pair:bbbbbbbbbbbbbbbb",
                 score="0.100000",
                 window_days=30,
@@ -63,9 +84,12 @@ def test_export_kw_pairs_writes_files(tmp_path):
     assert res["csv"].exists()
     assert res["json"].exists()
     payload = json.loads(res["json"].read_text(encoding="utf-8"))
-    assert payload["count"] == 1
-    item = payload["items"][0]
-    assert item["score_signal"] == 0.625
-    assert item["event_count"] == 3
-    assert item["c12"] == 3
-    assert item["score_secondary"] == 1.875
+    assert payload["count"] == 2
+    items = {item["correlation_key"]: item for item in payload["items"]}
+    assert items["kw_pair|*|30|pair:aaaaaaaaaaaaaaaa"]["score_signal"] == 0.625
+    assert items["kw_pair|*|30|pair:aaaaaaaaaaaaaaaa"]["event_count"] == 3
+    assert items["kw_pair|*|30|pair:aaaaaaaaaaaaaaaa"]["c12"] == 3
+    assert items["kw_pair|*|30|pair:aaaaaaaaaaaaaaaa"]["score_secondary"] == 1.875
+    assert items["kw_pair|*|30|pair:cccccccccccccccc"]["score_signal"] == 0.75
+    assert items["kw_pair|*|30|pair:cccccccccccccccc"]["event_count"] == 4
+    assert items["kw_pair|*|30|pair:cccccccccccccccc"]["score_secondary"] == 2.125

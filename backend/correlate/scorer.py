@@ -117,7 +117,8 @@ def compute_kw_pair_signal(
         lift_smoothed = p12 / (p1 * p2)
 
     pmi = math.log(lift_smoothed) if lift_smoothed > 0 else 0.0
-    npmi = pmi / (-math.log(p12)) if p12 > 0 else 0.0
+    npmi_denom = -math.log(p12) if 0.0 < p12 < 1.0 else 0.0
+    npmi = pmi / npmi_denom if npmi_denom > 0 else 0.0
     log_odds = math.log((a * d) / (b * c)) if a > 0 and b > 0 and c > 0 and d > 0 else 0.0
 
     lift_raw = 0.0
@@ -142,6 +143,8 @@ def compute_kw_pair_signal(
 def kw_pair_lane_payload(lanes_hit: Any) -> dict[str, Any]:
     if isinstance(lanes_hit, dict):
         if lanes_hit.get("lane") == "kw_pair":
+            return lanes_hit
+        if any(key in lanes_hit for key in ("keyword_1", "k1", "event_count", "c12", "score_signal", "score_secondary")):
             return lanes_hit
         nested = lanes_hit.get("kw_pair")
         if isinstance(nested, dict):
@@ -207,3 +210,4 @@ def kw_pair_bonus_contribution(
     if signal < safe_float(min_signal):
         return 0.0
     return max(0.0, signal)
+
