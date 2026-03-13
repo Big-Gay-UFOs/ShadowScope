@@ -1,21 +1,22 @@
 # ShadowScope Roadmap
 
-_Last updated: 2026-03-09_
+_Last updated: 2026-03-13_
 
 ## Current sprint
 
 ### Theme
-SAM-only Threshold Calibration + Operator Trust Hardening
+Deterministic Cross-Source Candidate Joins + Operator Trust Hardening
 
 ### Scope
 - Calibrate SAM smoke/doctor thresholds from bounded SAM runs.
 - Enforce thresholds in `ss workflow samgov-smoke` with deterministic fixture tests.
 - Improve SAM.gov operator-facing failure hints (what failed, why it matters, next command).
 - Keep CI-facing checks offline/fixture-based.
+- Add deterministic SAM.gov <-> USAspending candidate joins with explainable evidence and capped pair expansion.
 
 ### Explicit boundaries
-- USAspending is maintenance mode for this sprint.
-- No SAM<->USAspending linkage/join/correlation work.
+- USAspending ingest remains lightweight for this sprint.
+- No asserted SAM<->USAspending identity merges; only candidate joins/correlations with evidence.
 - No keyword/term expansion for SAM or USAspending.
 
 ### Completed in this sprint
@@ -25,7 +26,7 @@ SAM-only Threshold Calibration + Operator Trust Hardening
 - [x] Added repeatable threshold override entrypoint (`--threshold key=value`, repeatable).
 - [x] Added fixture tests for threshold pass and deterministic fail behavior (context-depth + `same_sam_naics`).
 - [x] Hardened SAM doctor hints with source-specific, command-ready guidance.
-- [x] Kept USAspending unchanged except maintenance-safe health check paths.
+- [x] Added deterministic SAM<->USAspending candidate joins with explainable evidence, scoring, and caps.
 
 ### Calibration snapshot (bounded SAM runs)
 Bundles:
@@ -84,3 +85,4 @@ Completed in this sprint:
 - [x] Added bundle inspection command: `ss inspect bundle --path ...`
 - [x] Added retry/rate-limit request diagnostics surfaced from SAM ingest metadata
 - [x] Added regression tests for bundle normalization/report/diagnostics/validation metadata
+

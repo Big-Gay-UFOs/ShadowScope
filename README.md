@@ -40,6 +40,7 @@ ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile d
 ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
+ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45
 ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2
 ```
 
@@ -69,7 +70,7 @@ reviewable "leads" without manually bouncing between multiple government sites.
 - Optionally enrich events by:
   - linking organizations/entities (e.g., via UEI/DUNS-style identifiers when present)
   - tagging events using an ontology/keyword list
-  - computing simple "correlation lanes" (e.g., shared keywords, same entity/identifier)
+  - computing deterministic correlation lanes and candidate joins (e.g., shared keywords, same entity/identifier, SAM<->USAspending incumbent candidates)
 
 You can drive the workflow via the `ss` CLI and/or the backend API.
 
@@ -161,8 +162,8 @@ SAM-only Threshold Calibration + Operator Trust Hardening
 
 - In scope: calibrated SAM smoke threshold gates, fixture-based pass/fail coverage, and clearer SAM operator diagnostics.
 - In scope: deterministic/offline CI validation.
-- USAspending remains maintenance mode (health checks only).
-- Out of scope: SAM<->USAspending linkage/join/correlation work.
+- USAspending ingest remains lightweight, but deterministic SAM<->USAspending candidate joins are now supported for investigator review.
+- Cross-source joins are stored as candidate correlations with evidence and scores, not asserted identity merges.
 - Out of scope: broad/single-term expansion; only precision-first DoD companion expansion is in scope, with starter/default behavior unchanged.
 
 ### Calibration evidence (bounded SAM smoke)
@@ -251,7 +252,8 @@ ss ontology apply --path .\examples\ontology_sam_procurement_starter.json --days
 
 # 4) Build correlations
 ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2
-ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2
+ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
+ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45
 
 # 5) Generate a lead snapshot
 ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200
@@ -326,7 +328,8 @@ Typical workflow (SAM.gov tuning loop):
 - `ss workflow samgov --skip-ingest --ontology-profile starter_plus_dod_foia --window-days 30 --days 30`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10 --max-events 200 --max-keywords-per-event 10`
+- `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
 - `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "sam context tuning pass"`
 
 5) Optional maintenance-mode USAspending check
@@ -339,7 +342,7 @@ More detail: see `docs/RUNBOOK.md`.
 ## Status
 
 - SAM.gov baseline is healthy and repeatable; use `ss workflow samgov` / `ss workflow samgov-smoke` for ongoing smoke checks.
-- USAspending is in maintenance mode this sprint; keep lightweight health checks with `ss doctor status --source USAspending --days 30`.
+- USAspending health checks remain lightweight; use `ss doctor status --source USAspending --days 30` for feed sanity and `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45` for cross-source candidate joins.
 - Roadmap/checklist: see `ROADMAP.md` (authoritative tracker).
 
 ### Notes
@@ -371,7 +374,7 @@ Windows execution policy (one-time):
 ## Key FOIA sprint additions
 - Seeded ingest: `--keyword`, `--recipient`
 - FOIA ontology companion: `examples/ontology_sam_dod_foia_companion.json` (precision-first anchor+pair+exact-probe rules + suppressors)
-- Correlation lanes include `kw_pair` (co-term clustering)
+- Correlation lanes include `kw_pair` (co-term clustering) and `sam_usaspending_candidate_join` (pairwise cross-source incumbent candidates)
 - Relationship matrix rationale: `same_keyword` captures repeated precision tags while `kw_pair` promotes anchor+pair co-occurrence evidence for triage confidence.
 - Default lead snapshots are **v2**
 - Operational noise handling (HRP/DACTS, NASA sponsoring agreement)
@@ -467,6 +470,9 @@ Retry tuning knobs for larger SAM windows:
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
+
+
+
 
 
 
