@@ -1213,6 +1213,42 @@ def report_latest(
     typer.echo(f"Report status: {res.get('status')}")
     typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
     typer.echo(f"Report HTML: {Path(res.get('report_html')).resolve()}")
+
+@report_app.command("candidate-joins")
+def report_candidate_joins(
+    window_days: int = typer.Option(None, "--window-days", help="Filter by recent SAM lookback window"),
+    min_score: int = typer.Option(None, "--min-score", help="Minimum deterministic confidence score"),
+    limit: int = typer.Option(20, "--limit", help="Max joins to summarize"),
+    incumbent_only: bool = typer.Option(False, "--incumbent-only", help="Only summarize likely incumbent-style joins"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload"),
+):
+    from backend.services.export_correlations import summarize_candidate_joins
+
+    res = summarize_candidate_joins(
+        database_url=database_url,
+        window_days=window_days,
+        min_score=min_score,
+        limit=limit,
+        incumbent_only=incumbent_only,
+    )
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+
+    typer.echo(
+        "Candidate joins summary: "
+        f"count={res.get('count')} likely_incumbent={res.get('likely_incumbent_count')} score_bands={res.get('score_bands')}"
+    )
+    typer.echo(f"Evidence counts: {res.get('evidence_type_counts')}")
+    for item in res.get('items', []):
+        sam = item.get('sam_event') or {}
+        usa = item.get('usaspending_event') or {}
+        typer.echo(
+            f"- score={item.get('score')} incumbent={item.get('likely_incumbent')} "
+            f"sam={sam.get('hash') or sam.get('doc_id')} usa={usa.get('hash') or usa.get('doc_id')} "
+            f"evidence={','.join([str(x) for x in item.get('evidence_types') or []])}"
+        )
 def run() -> None:
     app()
 
@@ -1450,8 +1486,80 @@ def correlate_rebuild_normalized(
     }
     typer.echo(json.dumps(res, ensure_ascii=False, indent=2))
 
+
+@correlate_app.command("rebuild-sam-usaspending-joins")
+def correlate_rebuild_sam_usaspending_joins(
+    window_days: int = typer.Option(30, "--window-days", help="Recent SAM lookback window (days)"),
+    history_days: int = typer.Option(365, "--history-days", help="USAspending history lookback window (days)"),
+    min_score: int = typer.Option(45, "--min-score", help="Minimum deterministic confidence score to keep"),
+    max_matches_per_key: int = typer.Option(25, "--max-matches-per-key", help="Skip overly common keys with more than this many USA matches"),
+    max_candidates_per_sam: int = typer.Option(10, "--max-candidates-per-sam", help="Keep at most this many candidate joins per SAM event"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute only; do not write to DB"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+):
+    from backend.correlate.candidate_joins import rebuild_sam_usaspending_candidate_joins
+
+    res = rebuild_sam_usaspending_candidate_joins(
+        window_days=window_days,
+        history_days=history_days,
+        min_score=min_score,
+        max_matches_per_key=max_matches_per_key,
+        max_candidates_per_sam=max_candidates_per_sam,
+        dry_run=dry_run,
+        database_url=database_url,
+    )
+    typer.echo(
+        "SAM<->USAspending candidate join rebuild: "
+        + " ".join(
+            [
+                f"{k}={v}"
+                for k, v in res.items()
+                if k
+                in (
+                    "dry_run",
+                    "window_days",
+                    "history_days",
+                    "min_score",
+                    "sam_events_seen",
+                    "usaspending_events_seen",
+                    "sam_events_with_candidates",
+                    "candidate_pairs_considered",
+                    "candidate_pairs_above_threshold",
+                    "candidate_pairs_trimmed",
+                    "likely_incumbent_count",
+                    "correlations_created",
+                    "correlations_updated",
+                    "correlations_deleted",
+                )
+            ]
+        )
+    )
 app.add_typer(correlate_app, name="correlate")
 
+
+@export_app.command("candidate-joins")
+def export_candidate_joins_cmd(
+    out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
+    window_days: int = typer.Option(None, "--window-days", help="Filter by recent SAM lookback window"),
+    min_score: int = typer.Option(None, "--min-score", help="Minimum deterministic confidence score"),
+    limit: int = typer.Option(200, "--limit", help="Max candidate joins to export"),
+    incumbent_only: bool = typer.Option(False, "--incumbent-only", help="Only export likely incumbent-style joins"),
+    database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
+):
+    from backend.services.export_correlations import export_candidate_joins
+
+    export_path = Path(out).expanduser() if out else None
+    res = export_candidate_joins(
+        database_url=database_url,
+        output=export_path,
+        window_days=window_days,
+        min_score=min_score,
+        limit=limit,
+        incumbent_only=incumbent_only,
+    )
+    typer.echo(f"Candidate joins CSV: {res['csv'].resolve()}")
+    typer.echo(f"Candidate joins JSON: {res['json'].resolve()}")
+    typer.echo(f"Rows exported: {res['count']}")
 @export_app.command("correlations")
 def export_correlations_cmd(
     out: str = typer.Option("data/exports/correlations.json", "--out", help="Output JSON path"),
@@ -1473,6 +1581,9 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
+
+
+
 
 
 
