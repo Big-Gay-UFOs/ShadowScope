@@ -4,13 +4,37 @@ from backend.db.models import Correlation, CorrelationLink, Event, ensure_schema
 from backend.services.leads import compute_leads
 
 
-def _seed_kw_pair_link(db, event_id: int, key_suffix: str = "abcd", score: str = "4") -> None:
+
+def _seed_kw_pair_link(
+    db,
+    event_id: int,
+    key_suffix: str = "abcd",
+    *,
+    event_count: int = 4,
+    score_signal: float = 0.5,
+    score_secondary: float = 1.0,
+) -> None:
     corr = Correlation(
         correlation_key=f"kw_pair|SAM.gov|30|pair:{key_suffix}",
-        score=score,
+        score=f"{float(score_signal):.6f}",
         window_days=30,
         radius_km=0.0,
-        lanes_hit={"lane": "kw_pair", "keyword_1": "alpha", "keyword_2": "beta", "event_count": int(score)},
+        lanes_hit={
+            "lane": "kw_pair",
+            "keyword_1": "alpha",
+            "keyword_2": "beta",
+            "event_count": int(event_count),
+            "c12": int(event_count),
+            "c1": int(event_count),
+            "c2": int(event_count),
+            "keyword_1_df": int(event_count),
+            "keyword_2_df": int(event_count),
+            "total_events": 10,
+            "score_signal": float(score_signal),
+            "score_kind": "npmi",
+            "score_secondary": float(score_secondary),
+            "score_secondary_kind": "log_odds",
+        },
     )
     db.add(corr)
     db.commit()
@@ -18,6 +42,7 @@ def _seed_kw_pair_link(db, event_id: int, key_suffix: str = "abcd", score: str =
 
     db.add(CorrelationLink(correlation_id=int(corr.id), event_id=int(event_id)))
     db.commit()
+
 
 
 def test_compute_leads_adds_foia_matrix_metadata_and_bonus(tmp_path):
@@ -46,7 +71,7 @@ def test_compute_leads_adds_foia_matrix_metadata_and_bonus(tmp_path):
         db.commit()
         db.refresh(ev)
 
-        _seed_kw_pair_link(db, int(ev.id), key_suffix="foia1111", score="4")
+        _seed_kw_pair_link(db, int(ev.id), key_suffix="foia1111", event_count=4, score_signal=0.5)
 
         ranked, scanned = compute_leads(
             db,
@@ -64,9 +89,12 @@ def test_compute_leads_adds_foia_matrix_metadata_and_bonus(tmp_path):
     assert details["dod_lane_count"] == 4
     assert details["dod_keyword_hit_count"] == 4
     assert details["pair_count"] == 1
+    assert details["pair_count_total"] == 1
+    assert details["pair_strength"] == 0.5
     assert details["foia_matrix_bonus"] == 3
     assert details["foia_potential_tier"] == "high"
     assert score == 18
+
 
 
 def test_compute_leads_keeps_noise_penalty_while_exposing_foia_metadata(tmp_path):
@@ -96,7 +124,7 @@ def test_compute_leads_keeps_noise_penalty_while_exposing_foia_metadata(tmp_path
         db.commit()
         db.refresh(ev)
 
-        _seed_kw_pair_link(db, int(ev.id), key_suffix="foia2222", score="4")
+        _seed_kw_pair_link(db, int(ev.id), key_suffix="foia2222", event_count=4, score_signal=0.5)
 
         ranked, scanned = compute_leads(
             db,
@@ -119,3 +147,56 @@ def test_compute_leads_keeps_noise_penalty_while_exposing_foia_metadata(tmp_path
     assert details["foia_matrix_bonus"] == 1
     assert details["foia_potential_tier"] == "high"
     assert score == 10
+
+
+
+def test_compute_leads_pair_bonus_requires_signal_and_event_count_thresholds(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_pair_signal_thresholds.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        ev = Event(
+            category="opportunity",
+            source="SAM.gov",
+            hash="lead_signal_thresholds_1",
+            created_at=now,
+            snippet="Thresholded pair bonus lead",
+            raw_json={},
+            keywords=[
+                "sam_dod_program_protection_sap:afosi_program_security_context",
+                "sam_dod_flight_test_range_instrumentation:edwards_412th_plant42_range_context",
+            ],
+            clauses=[],
+        )
+        db.add(ev)
+        db.commit()
+        db.refresh(ev)
+
+        _seed_kw_pair_link(db, int(ev.id), key_suffix="sig11111", event_count=3, score_signal=0.7)
+        _seed_kw_pair_link(db, int(ev.id), key_suffix="sig22222", event_count=5, score_signal=0.05)
+        _seed_kw_pair_link(db, int(ev.id), key_suffix="sig33333", event_count=1, score_signal=0.9)
+
+        ranked, scanned = compute_leads(
+            db,
+            source="SAM.gov",
+            min_score=0,
+            limit=10,
+            scan_limit=50,
+            scoring_version="v2",
+            pair_signal_threshold=0.15,
+            pair_event_count_threshold=2,
+        )
+
+    assert scanned == 1
+    assert len(ranked) == 1
+
+    score, _event, details = ranked[0]
+    assert details["pair_count"] == 1
+    assert details["pair_count_total"] == 3
+    assert details["pair_strength"] == 0.7
+    assert details["pair_bonus"] == 4
+    assert details["pair_signal_threshold"] == 0.15
+    assert details["pair_event_count_threshold"] == 2
+    assert score == 13
