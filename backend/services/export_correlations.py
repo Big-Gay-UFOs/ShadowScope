@@ -157,12 +157,12 @@ def export_kw_pairs(
         if not k1 or not k2:
             continue
 
-        event_count = kw_pair_event_count(payload, fallback_score=c.score)
+        event_count = kw_pair_event_count(c.lanes_hit or {}, fallback_score=c.score)
         if event_count < int(min_event_count):
             continue
 
-        score_signal = kw_pair_score_signal(payload)
-        score_secondary = kw_pair_score_secondary(payload)
+        score_signal = kw_pair_score_signal(c.lanes_hit or {})
+        score_secondary = kw_pair_score_secondary(c.lanes_hit or {})
         items.append(
             {
                 "correlation_id": int(c.id),
@@ -492,6 +492,7 @@ def export_candidate_joins(
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return {"csv": csv_path, "json": json_path, "count": len(items)}
+
 
 
 
