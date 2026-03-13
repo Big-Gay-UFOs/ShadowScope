@@ -4,6 +4,7 @@ from backend.db.models import Correlation, CorrelationLink, Event, LeadSnapshot,
 from backend.services.export_leads import export_lead_snapshot
 
 
+
 def test_export_lead_snapshot_includes_explainability(tmp_path):
     db_path = tmp_path / "explain.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
@@ -19,10 +20,23 @@ def test_export_lead_snapshot_includes_explainability(tmp_path):
 
         c = Correlation(
             correlation_key="kw_pair|USAspending|30|pair:aaaaaaaaaaaaaaaa",
-            score="3",
+            score="0.577400",
             window_days=30,
             radius_km=0.0,
-            lanes_hit={"lane": "kw_pair", "keyword_1": "alpha", "keyword_2": "beta", "event_count": 3},
+            lanes_hit={
+                "lane": "kw_pair",
+                "keyword_1": "alpha",
+                "keyword_2": "beta",
+                "event_count": 3,
+                "c12": 3,
+                "keyword_1_df": 3,
+                "keyword_2_df": 3,
+                "total_events": 9,
+                "score_signal": 0.5774,
+                "score_kind": "npmi",
+                "score_secondary": 1.4142,
+                "score_secondary_kind": "log_odds",
+            },
         )
         db.add(c)
         db.commit()
@@ -43,7 +57,17 @@ def test_export_lead_snapshot_includes_explainability(tmp_path):
                 event_hash=e1.hash,
                 rank=1,
                 score=12,
-                score_details={"scoring_version": "v2", "clause_score": 0, "keyword_score": 3, "entity_bonus": 0, "pair_bonus": 6, "pair_count": 1, "pair_strength": 0.5774},
+                score_details={
+                    "scoring_version": "v2",
+                    "clause_score": 0,
+                    "keyword_score": 3,
+                    "entity_bonus": 0,
+                    "pair_bonus": 6,
+                    "pair_count": 1,
+                    "pair_count_total": 1,
+                    "pair_strength": 0.5774,
+                    "pair_signal_total": 0.5774,
+                },
             )
         )
         db.commit()
@@ -57,3 +81,5 @@ def test_export_lead_snapshot_includes_explainability(tmp_path):
     assert "top_kw_pairs_json" in item
     pairs = json.loads(item["top_kw_pairs_json"])
     assert pairs and pairs[0]["keyword_1"] == "alpha"
+    assert pairs[0]["score_signal"] == 0.5774
+    assert pairs[0]["score_secondary"] == 1.4142

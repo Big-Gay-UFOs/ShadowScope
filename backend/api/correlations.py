@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Integer, cast, func
+from sqlalchemy import Float, cast, func
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db_session
@@ -17,7 +17,7 @@ def list_correlations(
     source: Optional[str] = Query("USAspending", description="Event source filter (blank for all)"),
     lane: Optional[str] = Query(None, description="Filter by correlation lane (e.g., same_entity, same_uei)"),
     window_days: Optional[int] = Query(None, ge=1, description="Filter by window_days"),
-    min_score: Optional[int] = Query(None, ge=0, description="Minimum numeric score (best-effort; score stored as text)"),
+    min_score: Optional[float] = Query(None, ge=0, description="Minimum numeric score (best-effort; score stored as text)"),
     min_event_count: Optional[int] = Query(None, ge=0, description="Minimum linked events (correlation_links; respects source filter)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -32,7 +32,7 @@ def list_correlations(
         q = q.filter(Correlation.window_days == int(window_days))
 
     if min_score is not None:
-        q = q.filter(cast(Correlation.score, Integer) >= int(min_score))
+        q = q.filter(cast(Correlation.score, Float) >= float(min_score))
 
     if min_event_count is not None and int(min_event_count) > 0:
         mec = int(min_event_count)

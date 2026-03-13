@@ -10,6 +10,15 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import select
 
+from backend.correlate.scorer import (
+    DEFAULT_KW_PAIR_BONUS_MIN_EVENT_COUNT,
+    DEFAULT_KW_PAIR_BONUS_MIN_SIGNAL,
+    kw_pair_bonus_contribution,
+    kw_pair_event_count,
+    kw_pair_lane_payload,
+    kw_pair_score_secondary,
+    kw_pair_score_signal,
+)
 from backend.db.models import Correlation, CorrelationLink, Event, LeadSnapshot, LeadSnapshotItem, get_session_factory
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
 from backend.services.deltas import compute_lead_deltas
@@ -39,6 +48,14 @@ def _top_clauses_text(details: dict[str, Any], limit: int = 5) -> str:
     return "; ".join(out)
 
 
+
+def _legacy_kw_pair_contribution(event_count: int) -> float:
+    if int(event_count) <= 0:
+        return 0.0
+    return 1.0 / math.sqrt(float(event_count))
+
+
+
 def _fetch_kw_pair_correlations(db, *, event_ids: list[int], source: Optional[str]) -> dict[int, list[dict[str, Any]]]:
     if not event_ids:
         return {}
@@ -61,42 +78,25 @@ def _fetch_kw_pair_correlations(db, *, event_ids: list[int], source: Optional[st
     by_event: dict[int, list[dict[str, Any]]] = {}
     for event_id, cid, cscore, window_days, ckey, lanes_hit in q.all():
         eid = int(event_id)
-        lh = lanes_hit if isinstance(lanes_hit, dict) else {}
-
-        if lh.get("lane") == "kw_pair":
-            kw1 = lh.get("keyword_1") or lh.get("k1")
-            kw2 = lh.get("keyword_2") or lh.get("k2")
-            ec = lh.get("event_count")
-        else:
-            maybe = lh.get("kw_pair") if isinstance(lh, dict) else None
-            if isinstance(maybe, dict):
-                kw1 = maybe.get("keyword_1") or maybe.get("k1")
-                kw2 = maybe.get("keyword_2") or maybe.get("k2")
-                ec = maybe.get("event_count")
-            else:
-                kw1 = None
-                kw2 = None
-                ec = None
-
-        if ec is None:
-            try:
-                ec = int(cscore or 0)
-            except Exception:
-                ec = 0
-
-        try:
-            ec_i = int(ec)
-        except Exception:
-            ec_i = 0
-
+        payload = kw_pair_lane_payload(lanes_hit)
+        kw1 = payload.get("keyword_1") or payload.get("k1")
+        kw2 = payload.get("keyword_2") or payload.get("k2")
+        ec_i = kw_pair_event_count(lanes_hit, fallback_score=cscore)
         if not kw1 or not kw2 or ec_i <= 0:
             continue
 
-        contrib = 0.0
-        try:
-            contrib = 1.0 / math.sqrt(float(ec_i))
-        except Exception:
-            contrib = 0.0
+        score_signal = kw_pair_score_signal(lanes_hit)
+        score_secondary = kw_pair_score_secondary(lanes_hit)
+        contribution = kw_pair_bonus_contribution(
+            score_signal=score_signal,
+            event_count=ec_i,
+            min_signal=DEFAULT_KW_PAIR_BONUS_MIN_SIGNAL,
+            min_event_count=DEFAULT_KW_PAIR_BONUS_MIN_EVENT_COUNT,
+        )
+        pair_bonus_eligible = contribution > 0
+        if contribution <= 0 and score_signal is None:
+            contribution = _legacy_kw_pair_contribution(ec_i)
+            pair_bonus_eligible = contribution > 0
 
         by_event.setdefault(eid, []).append(
             {
@@ -106,12 +106,25 @@ def _fetch_kw_pair_correlations(db, *, event_ids: list[int], source: Optional[st
                 "keyword_1": str(kw1),
                 "keyword_2": str(kw2),
                 "event_count": int(ec_i),
-                "contribution": round(float(contrib), 6),
+                "score_signal": None if score_signal is None else round(float(score_signal), 6),
+                "score_kind": payload.get("score_kind"),
+                "score_secondary": None if score_secondary is None else round(float(score_secondary), 6),
+                "score_secondary_kind": payload.get("score_secondary_kind"),
+                "contribution": round(float(contribution), 6),
+                "pair_bonus_eligible": bool(pair_bonus_eligible),
             }
         )
 
     for eid in list(by_event.keys()):
-        by_event[eid].sort(key=lambda d: (d.get("contribution", 0.0), -d.get("event_count", 0)), reverse=True)
+        by_event[eid].sort(
+            key=lambda d: (
+                1 if d.get("pair_bonus_eligible") else 0,
+                d.get("contribution", 0.0),
+                -1.0 if d.get("score_signal") is None else d.get("score_signal", 0.0),
+                d.get("event_count", 0),
+            ),
+            reverse=True,
+        )
 
     return by_event
 
@@ -194,7 +207,10 @@ def export_lead_snapshot(
 
         pairs = kw_pairs_by_event.get(int(it.event_id), []) or []
         top_pairs = pairs[:5]
-        top_pairs_text = "; ".join([f"{p['keyword_1']}+{p['keyword_2']}(n={p['event_count']})" for p in top_pairs])
+        top_pairs_text = "; ".join([
+            f"{p['keyword_1']}+{p['keyword_2']}(signal={p['score_signal'] if p.get('score_signal') is not None else 'legacy'}, n={p['event_count']})"
+            for p in top_pairs
+        ])
 
         why_bits: list[str] = []
         if clause_score_raw is not None:
@@ -420,3 +436,4 @@ def _write_csv(path: Path, rows):
 
 
 __all__ = ["export_lead_snapshot", "export_lead_deltas"]
+

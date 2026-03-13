@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from backend.correlate.scorer import kw_pair_event_count, kw_pair_lane_payload, kw_pair_score_secondary, kw_pair_score_signal
 from backend.db.models import Correlation, CorrelationLink, Entity, Event, get_session_factory
 from pathlib import Path
 
@@ -16,7 +17,7 @@ def export_correlations(
     source: Optional[str] = "USAspending",
     lane: Optional[str] = None,
     window_days: Optional[int] = None,
-    min_score: Optional[int] = None,
+    min_score: Optional[float] = None,
     limit: int = 500,
     database_url: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -91,15 +92,15 @@ def export_correlations(
             )
 
         if min_score is not None:
-            ms = int(min_score)
+            ms = float(min_score)
 
-            def _as_int(s: Any) -> Optional[int]:
+            def _as_float(s: Any) -> Optional[float]:
                 try:
-                    return int(s)
+                    return float(s)
                 except Exception:
                     return None
 
-            items = [it for it in items if (_as_int(it.get("score")) is not None and _as_int(it.get("score")) >= ms)]
+            items = [it for it in items if (_as_float(it.get("score")) is not None and _as_float(it.get("score")) >= ms)]
 
         payload = {
             "exported_at": datetime.now(timezone.utc).isoformat(),
@@ -128,8 +129,8 @@ def export_kw_pairs(
     """
     Export kw_pair correlations to CSV + JSON.
 
-    event_count is taken from lanes_hit["kw_pair"]["event_count"] when present,
-    otherwise falls back to int(score) when score is numeric.
+    event_count is taken from lanes_hit metadata when present.
+    score_signal is exported separately from raw event_count/c12 metadata.
     """
     from datetime import datetime, timezone
     import csv
@@ -147,56 +148,54 @@ def export_kw_pairs(
 
     items: list[dict] = []
     for c in rows:
-        lh = c.lanes_hit or {}
-        kw = None
-        if isinstance(lh, dict):
-            # Current schema: lanes_hit is a flat dict with lane == 'kw_pair'
-            if lh.get('lane') == 'kw_pair':
-                kw = lh
-            else:
-                # Back-compat: some legacy shapes may nest by lane name
-                maybe = lh.get('kw_pair')
-                if isinstance(maybe, dict):
-                    kw = maybe
-        if not isinstance(kw, dict):
+        payload = kw_pair_lane_payload(c.lanes_hit or {})
+        if not payload:
             continue
 
-        k1 = kw.get("keyword_1") or kw.get("k1")
-        k2 = kw.get("keyword_2") or kw.get("k2")
+        k1 = payload.get("keyword_1") or payload.get("k1")
+        k2 = payload.get("keyword_2") or payload.get("k2")
         if not k1 or not k2:
-            ck = c.correlation_key or ""
-            parts = ck.split("|")
-            if len(parts) >= 3 and parts[0] == "kw_pair":
-                k1, k2 = parts[1], parts[2]
-
-        ec = kw.get("event_count")
-        if ec is None:
-            try:
-                ec = int(c.score) if c.score is not None else 0
-            except Exception:
-                ec = 0
-
-        try:
-            ec_i = int(ec)
-        except Exception:
-            ec_i = 0
-
-        if ec_i < int(min_event_count):
             continue
 
+        event_count = kw_pair_event_count(payload, fallback_score=c.score)
+        if event_count < int(min_event_count):
+            continue
+
+        score_signal = kw_pair_score_signal(payload)
+        score_secondary = kw_pair_score_secondary(payload)
         items.append(
             {
                 "correlation_id": int(c.id),
                 "correlation_key": c.correlation_key,
                 "keyword_1": k1,
                 "keyword_2": k2,
-                "event_count": ec_i,
+                "event_count": int(event_count),
+                "c12": int(payload.get("c12") or event_count),
+                "keyword_1_df": payload.get("keyword_1_df") or payload.get("c1"),
+                "keyword_2_df": payload.get("keyword_2_df") or payload.get("c2"),
+                "total_events": payload.get("total_events"),
                 "window_days": c.window_days,
                 "score": c.score,
+                "score_signal": None if score_signal is None else round(float(score_signal), 6),
+                "score_kind": payload.get("score_kind"),
+                "score_secondary": None if score_secondary is None else round(float(score_secondary), 6),
+                "score_secondary_kind": payload.get("score_secondary_kind"),
+                "expected_count": payload.get("expected_count"),
+                "lift_raw": payload.get("lift_raw"),
+                "pmi": payload.get("pmi"),
+                "npmi": payload.get("npmi"),
+                "log_odds": payload.get("log_odds"),
             }
         )
 
-    items.sort(key=lambda x: (x["event_count"], x["correlation_id"]), reverse=True)
+    items.sort(
+        key=lambda x: (
+            -1.0 if x.get("score_signal") is None else x.get("score_signal", 0.0),
+            x.get("event_count", 0),
+            x.get("correlation_id", 0),
+        ),
+        reverse=True,
+    )
     items = items[: int(limit)]
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -234,8 +233,6 @@ def export_kw_pairs(
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return {"csv": csv_path, "json": json_path, "count": len(items)}
-
-
 
 def _candidate_join_items(
     *,
@@ -495,6 +492,7 @@ def export_candidate_joins(
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return {"csv": csv_path, "json": json_path, "count": len(items)}
+
 
 
 
