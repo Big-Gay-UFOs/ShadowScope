@@ -144,11 +144,11 @@ def kw_pair_lane_payload(lanes_hit: Any) -> dict[str, Any]:
     if isinstance(lanes_hit, dict):
         if lanes_hit.get("lane") == "kw_pair":
             return lanes_hit
-        if any(key in lanes_hit for key in ("keyword_1", "k1", "event_count", "c12", "score_signal", "score_secondary")):
-            return lanes_hit
         nested = lanes_hit.get("kw_pair")
         if isinstance(nested, dict):
             return nested
+        if any(key in lanes_hit for key in ("keyword_1", "k1", "event_count", "c12", "score_signal", "score_secondary")):
+            return lanes_hit
     return {}
 
 
@@ -210,4 +210,5 @@ def kw_pair_bonus_contribution(
     if signal < safe_float(min_signal):
         return 0.0
     return max(0.0, signal)
+
 
