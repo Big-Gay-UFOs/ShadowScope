@@ -52,7 +52,9 @@ def test_export_kw_pairs_writes_files(tmp_path):
                         "score_kind": "npmi",
                         "score_secondary": 2.125,
                         "score_secondary_kind": "log_odds",
-                    }
+                    },
+                    "event_count": 999,
+                    "score_signal": 0.01,
                 },
             ),
             Correlation(
