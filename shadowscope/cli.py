@@ -863,7 +863,7 @@ def workflow_usaspending(
         max_records=max_records,
         start_page=start_page,
         recipient_search_text=recipient,
-        keywords=resolved_keywords,
+        keywords=keyword,
         ontology_path=ontology_path,
         ontology_days=ontology_days,
         window_days=window_days,
@@ -1641,6 +1641,8 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
+
+
 
 
 

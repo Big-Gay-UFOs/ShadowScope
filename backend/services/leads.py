@@ -26,6 +26,7 @@ from backend.db.models import (
 
 
 _DOD_PACK_PREFIX = "sam_dod_"
+_NOISE_PACK_PREFIXES = ("operational_noise_terms:", "sam_proxy_noise_expansion:")
 _FOIA_MATRIX_BONUS_CAP = 3
 
 
@@ -296,3 +297,4 @@ def create_lead_snapshot(
         }
     finally:
         db.close()
+
