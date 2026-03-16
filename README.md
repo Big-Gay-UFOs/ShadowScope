@@ -29,26 +29,53 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontol
 - `starter` -> `examples/ontology_sam_procurement_starter.json`
 - `dod_foia` -> `examples/ontology_sam_dod_foia_companion.json`
 - `starter_plus_dod_foia` -> `examples/ontology_sam_procurement_plus_dod_foia.json`
+- `hidden_program_proxy` -> `examples/ontology_sam_hidden_program_proxy_companion.json`
+- `hidden_program_proxy_exploratory` -> `examples/ontology_sam_hidden_program_proxy_exploratory.json`
+- `starter_plus_dod_foia_hidden_program_proxy` -> `examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json`
+- `starter_plus_dod_foia_hidden_program_proxy_exploratory` -> `examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json`
 - `--ontology <path>` always overrides `--ontology-profile`
-- `dod_foia` now uses precision-first contextual rules (site/range anchors, operator+site pairs, hardened/subsurface pairs, DOE/NNSA secure-handling cues, undersea capability pairs) plus explicit UAP-lore suppressors in `operational_noise_terms`.
+- `dod_foia` keeps the existing precision-first DoD FOIA companion with explicit UAP-lore suppressors in `operational_noise_terms`.
+- `hidden_program_proxy` is the new conservative public-records proxy companion for SAM.gov support-footprint triage.
+- `hidden_program_proxy_exploratory` is lower-weight and opt-in only; it is not mixed into the default precision companion.
 
-### 5) Offline rebuild loop (after ontology edits)
+### 5) Seeded SAM keyword files
+
+- `examples/terms/sam_hidden_program_proxy_core_seeds.txt`
+- `examples/terms/sam_hidden_program_proxy_expansion_seeds.txt`
+- `examples/terms/sam_hidden_program_proxy_exploratory_seeds.txt`
+- Use `--keywords-file <path>` with `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, or `ss workflow samgov-validate` for newline-delimited seed terms.
+- Repeated `--keyword` values are merged with file terms, comments beginning with `#` are ignored, and duplicates are removed while preserving order.
+
+### 6) Offline rebuild loops (after ontology edits)
+
+Default precision hidden-program proxy loop:
 
 ```powershell
-ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia
-ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json
 ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
 ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45
 ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2
+ss doctor status --source "SAM.gov" --days 30 --json
 ```
 
-### 6) Verification commands
+Optional exploratory hidden-program proxy loop:
 
 ```powershell
-.\.venv\Scripts\pytest.exe -q tests/test_example_ontologies.py tests/test_samgov_ontology_tuning.py
-.\.venv\Scripts\pytest.exe -q tests/test_workflow_cli_flags.py tests/test_workflow_wrapper.py
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json
+ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
+ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
+ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2
+```
+
+On a fixed window, treat improvement as directional: we want denser useful keyword and `kw_pair` signal without degrading pipeline health or weakening the existing suppressors.
+
+### 7) Verification commands
+
+```powershell
+.\.venv\Scripts\pytest.exe -q tests/test_example_ontologies.py tests/test_workflow_cli_flags.py tests/test_samgov_ontology_tuning.py tests/test_leads_foia_matrix.py backend/tests/test_tagger.py
+.\.venv\Scripts\pytest.exe -q tests/test_workflow_wrapper.py
 ```
 
 ## Quickstart
@@ -215,8 +242,8 @@ Diagnostics review:
 
 Threshold tuning loop (example override):
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 
 Fixture test verification:
@@ -228,11 +255,15 @@ Fixture test verification:
 
 ## PowerShell demo walkthrough
 
-This repo includes four SAM.gov ontology options:
+This repo includes the following SAM.gov ontology options:
 
 - **Starter (default):** `examples/ontology_sam_procurement_starter.json` (structural baseline)
-- **DoD FOIA companion:** `examples/ontology_sam_dod_foia_companion.json` (DoD mission-intent packs + operational noise suppressors)
-- **Starter + DoD FOIA (recommended):** `examples/ontology_sam_procurement_plus_dod_foia.json` (combined practical profile)
+- **DoD FOIA companion:** `examples/ontology_sam_dod_foia_companion.json` (existing DoD mission-intent packs + operational noise suppressors)
+- **Starter + DoD FOIA:** `examples/ontology_sam_procurement_plus_dod_foia.json` (combined practical profile)
+- **Hidden-program proxy companion:** `examples/ontology_sam_hidden_program_proxy_companion.json` (new default precision proxy-language companion)
+- **Hidden-program proxy exploratory companion:** `examples/ontology_sam_hidden_program_proxy_exploratory.json` (new lower-weight opt-in expansion)
+- **Starter + DoD FOIA + hidden-program proxy:** `examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json` (recommended precision proxy workflow)
+- **Starter + DoD FOIA + hidden-program proxy exploratory:** `examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json` (opt-in exploratory workflow)
 - **Demo (non-production):** `examples/ontology_sam_kwpair_demo.json` (broad smoke signal only)
 
 For PowerShell session setup, use:
@@ -270,8 +301,17 @@ If you want a single operator command instead of manual sequencing:
 # Full SAM workflow (ingest -> ontology -> entities -> correlations -> snapshot -> exports)
 ss workflow samgov --days 30 --pages 2 --limit 50 --ontology-profile starter --window-days 30
 
+# Recommended precision hidden-program proxy workflow
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy
+
+# Optional exploratory add-on workflow
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory
+
+# Seeded search terms from a newline-delimited file
+ss workflow samgov --days 30 --pages 2 --limit 50 --keywords-file .\examples\terms\sam_hidden_program_proxy_core_seeds.txt --ontology-profile hidden_program_proxy --window-days 30
+
 # Smoke workflow (same chain + doctor checks + artifact bundle)
-ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy --json
 ```
 ### Optional smoke-test mode
 
@@ -305,7 +345,10 @@ Do not use `lead_snapshots_total > 0` as a SAM.gov-specific success check. That 
 
 ### Notes
 
-- Starter ontology is the default recommendation for realistic signal.
+- Starter ontology remains the default recommendation for general SAM workflow health checks.
+- `starter_plus_dod_foia_hidden_program_proxy` is the recommended precision-first profile when you want the existing DoD FOIA companion plus the new public-records proxy-language packs.
+- `starter_plus_dod_foia_hidden_program_proxy_exploratory` is opt-in and lower-weight; use it only when you explicitly want broader exploratory context.
+- Seed term files live under `examples/terms/` and can be supplied via `--keywords-file`.
 - Demo ontology is intentionally broad for quick smoke tests.
 - `SAM_API_KEY` is session-scoped in PowerShell unless you also persist it in local `.env`.
 
@@ -325,12 +368,13 @@ Typical workflow (SAM.gov tuning loop):
 - Target checks: `events_window > 0`, `events_with_keywords > 0`, `same_keyword > 0 OR kw_pair > 0`, `events_with_research_context > 0`
 
 4) Repeatable SAM tuning loop after ontology/context edits
-- `ss workflow samgov --skip-ingest --ontology-profile starter_plus_dod_foia --window-days 30 --days 30`
+- `ss workflow samgov --skip-ingest --ontology-profile starter_plus_dod_foia_hidden_program_proxy --window-days 30 --days 30`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10 --max-events 200 --max-keywords-per-event 10`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
 - `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
 - `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "sam context tuning pass"`
+- Optional exploratory add-on: `ss workflow samgov --skip-ingest --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory --window-days 30 --days 30`
 
 5) Optional maintenance-mode USAspending check
 - `ss doctor status --source USAspending --days 30`

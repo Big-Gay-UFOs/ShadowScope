@@ -1,0 +1,138 @@
+{
+    "version":  "2",
+    "defaults":  {
+                     "fields":  [
+                                    "snippet",
+                                    "raw_json"
+                                ]
+                 },
+    "packs":  [
+                  {
+                      "id":  "sam_proxy_vacuum_cryogenic_high_field_infrastructure",
+                      "name":  "SAM Proxy Vacuum Cryogenic and High-Field Infrastructure",
+                      "enabled":  true,
+                      "description":  "Opt-in exploratory proxy cues for TVAC/UHV/cryogenic and high-field support infrastructure.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "tvac_uhv_cryostat_context",
+                                        "concept_id":  "vacuum_cryogenic_test_infrastructure",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:thermal\\s+vacuum\\s+chamber|TVAC|ultra-high\\s+vacuum|UHV|cryostat|cryocooler|pulse\\s+tube\\s+cryocooler|cold\\s+head|helium\\s+leak\\s+detection|helium\\s+mass\\s+spectrometer\\s+leak\\s+detector)\\b.{0,160}\\b(?:testing|diagnostics|instrumentation|chamber\\s+operations|integration|facility\\s+support)\\b|\\b(?:testing|diagnostics|instrumentation|chamber\\s+operations|integration|facility\\s+support)\\b.{0,120}\\b(?:thermal\\s+vacuum\\s+chamber|TVAC|ultra-high\\s+vacuum|UHV|cryostat|cryocooler|pulse\\s+tube\\s+cryocooler|cold\\s+head|helium\\s+leak\\s+detection|helium\\s+mass\\s+spectrometer\\s+leak\\s+detector)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "pulsed_power_high_voltage_context",
+                                        "concept_id":  "pulsed_power_test_infrastructure",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:pulsed\\s+power|capacitor\\s+bank|Marx\\s+generator|high-voltage\\s+feedthrough|high\\s+voltage\\s+feedthrough|pulse\\s+forming\\s+network|HV\\s+supply)\\b.{0,160}\\b(?:testing|diagnostics|facility|instrumentation|integration|operations\\s+support)\\b|\\b(?:testing|diagnostics|facility|instrumentation|integration|operations\\s+support)\\b.{0,120}\\b(?:pulsed\\s+power|capacitor\\s+bank|Marx\\s+generator|high-voltage\\s+feedthrough|high\\s+voltage\\s+feedthrough|pulse\\s+forming\\s+network|HV\\s+supply)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "magnetic_shielding_field_mapping_context",
+                                        "concept_id":  "high_field_diagnostics",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:magnetic\\s+shielding|magnetic\\s+field\\s+mapping|SQUID|Hall\\s+probe|Helmholtz\\s+coil|Faraday\\s+cage)\\b.{0,160}\\b(?:diagnostics|calibration|instrumentation|testing|analysis)\\b|\\b(?:diagnostics|calibration|instrumentation|testing|analysis)\\b.{0,120}\\b(?:magnetic\\s+shielding|magnetic\\s+field\\s+mapping|SQUID|Hall\\s+probe|Helmholtz\\s+coil|Faraday\\s+cage)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_plasma_propulsion_diagnostics",
+                      "name":  "SAM Proxy Plasma and Propulsion Diagnostics",
+                      "enabled":  true,
+                      "description":  "Opt-in exploratory proxy cues for plasma diagnostics and electric propulsion test support.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "plasma_diagnostics_context",
+                                        "concept_id":  "plasma_diagnostics",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:plasma\\s+diagnostics|plume\\s+diagnostics|Langmuir\\s+probe|emissive\\s+probe|retarding\\s+potential\\s+analyzer|Faraday\\s+probe)\\b.{0,160}\\b(?:testing|instrumentation|analysis|calibration|support)\\b|\\b(?:testing|instrumentation|analysis|calibration|support)\\b.{0,120}\\b(?:plasma\\s+diagnostics|plume\\s+diagnostics|Langmuir\\s+probe|emissive\\s+probe|retarding\\s+potential\\s+analyzer|Faraday\\s+probe)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "electric_propulsion_test_context",
+                                        "concept_id":  "electric_propulsion_test",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:thrust\\s+stand|Hall\\s+thruster|ion\\s+thruster|pulsed\\s+plasma\\s+thruster|electric\\s+propulsion)\\b.{0,160}\\b(?:test|instrumentation|facility|calibration|analysis)\\b|\\b(?:test|instrumentation|facility|calibration|analysis)\\b.{0,120}\\b(?:thrust\\s+stand|Hall\\s+thruster|ion\\s+thruster|pulsed\\s+plasma\\s+thruster|electric\\s+propulsion)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "arcjet_high_enthalpy_facility_context",
+                                        "concept_id":  "high_enthalpy_propulsion_facility",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:arcjet|high-enthalpy|plasma\\s+wind\\s+tunnel|arc\\s+heater|vacuum\\s+firing)\\b.{0,160}\\b(?:facility|testing|instrumentation|analysis|support)\\b|\\b(?:facility|testing|instrumentation|analysis|support)\\b.{0,120}\\b(?:arcjet|high-enthalpy|plasma\\s+wind\\s+tunnel|arc\\s+heater|vacuum\\s+firing)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_advanced_material_process_chain",
+                      "name":  "SAM Proxy Advanced Material Process Chain",
+                      "enabled":  true,
+                      "description":  "Opt-in exploratory proxy cues for advanced alloy/composite process chains and metamaterial surface work.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "refractory_superalloy_process_context",
+                                        "concept_id":  "advanced_alloy_process_chain",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:vacuum\\s+induction\\s+melting|electron\\s+beam\\s+melting|vacuum\\s+arc\\s+remelt|hot\\s+isostatic\\s+pressing|diffusion\\s+bonding|friction\\s+stir\\s+welding)\\b.{0,120}\\b(?:refractory\\s+metal|superalloy|UHTC|ceramic\\s+matrix\\s+composite)\\b.{0,120}\\b(?:process\\s+development|fabrication|evaluation|repair|support)\\b|\\b(?:refractory\\s+metal|superalloy|UHTC|ceramic\\s+matrix\\s+composite)\\b.{0,120}\\b(?:vacuum\\s+induction\\s+melting|electron\\s+beam\\s+melting|vacuum\\s+arc\\s+remelt|hot\\s+isostatic\\s+pressing|diffusion\\s+bonding|friction\\s+stir\\s+welding)\\b.{0,120}\\b(?:process\\s+development|fabrication|evaluation|repair|support)\\b|\\b(?:vacuum\\s+induction\\s+melting|electron\\s+beam\\s+melting|vacuum\\s+arc\\s+remelt|hot\\s+isostatic\\s+pressing|diffusion\\s+bonding|friction\\s+stir\\s+welding)\\b.{0,180}\\b(?:process\\s+development|fabrication|evaluation|repair|support)\\b.{0,120}\\b(?:refractory\\s+metal|superalloy|UHTC|ceramic\\s+matrix\\s+composite)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "composite_radome_tps_fabrication_context",
+                                        "concept_id":  "advanced_aero_material_fabrication",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:autoclave\\s+cure|resin\\s+transfer\\s+molding|directed\\s+energy\\s+deposition|powder\\s+bed\\s+fusion|sputter\\s+deposition|plasma\\s+spray)\\b.{0,120}\\b(?:radome|composite|ablative\\s+material|thermal\\s+protection\\s+system)\\b.{0,120}\\b(?:fabrication|characterization|repair|evaluation|support)\\b|\\b(?:radome|composite|ablative\\s+material|thermal\\s+protection\\s+system)\\b.{0,120}\\b(?:autoclave\\s+cure|resin\\s+transfer\\s+molding|directed\\s+energy\\s+deposition|powder\\s+bed\\s+fusion|sputter\\s+deposition|plasma\\s+spray)\\b.{0,120}\\b(?:fabrication|characterization|repair|evaluation|support)\\b|\\b(?:autoclave\\s+cure|resin\\s+transfer\\s+molding|directed\\s+energy\\s+deposition|powder\\s+bed\\s+fusion|sputter\\s+deposition|plasma\\s+spray)\\b.{0,180}\\b(?:fabrication|characterization|repair|evaluation|support)\\b.{0,120}\\b(?:radome|composite|ablative\\s+material|thermal\\s+protection\\s+system)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "metamaterial_surface_treatment_context",
+                                        "concept_id":  "metamaterial_surface_treatment",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:metamaterial|engineered\\s+surface|surface\\s+treatment|thin\\s+film|coating\\s+stack)\\b.{0,160}\\b(?:characterization|fabrication|evaluation|support|integration)\\b|\\b(?:characterization|fabrication|evaluation|support|integration)\\b.{0,120}\\b(?:metamaterial|engineered\\s+surface|surface\\s+treatment|thin\\s+film|coating\\s+stack)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  }
+              ]
+}
+

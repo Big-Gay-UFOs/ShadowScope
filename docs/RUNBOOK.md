@@ -17,15 +17,22 @@ This runbook captures the SAM-only operator flow for the current sprint.
 
 SAM workflow commands now support `--ontology-profile`:
 - `starter` (default): structural SAM starter ontology.
-- `dod_foia`: DoD FOIA companion packs only.
+- `dod_foia`: existing DoD FOIA companion packs only.
 - `starter_plus_dod_foia`: starter + DoD FOIA companion + operational noise suppressors.
-- `dod_foia` companion rules are precision-first: site/range anchors, operator+site pairs, hardened/subsurface infrastructure pairs, DOE/NNSA secure-handling cues, undersea capability pairs, and explicit lore suppressors.
+- `hidden_program_proxy`: new default precision proxy-language companion only.
+- `hidden_program_proxy_exploratory`: new lower-weight opt-in exploratory companion only.
+- `starter_plus_dod_foia_hidden_program_proxy`: starter + existing DoD FOIA companion + new default precision proxy companion.
+- `starter_plus_dod_foia_hidden_program_proxy_exploratory`: starter + existing DoD FOIA companion + default precision proxy companion + optional exploratory companion.
+- `dod_foia` and the new proxy profiles keep explicit lore suppressors; the exploratory layer does not weaken them.
 
 Examples:
 - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter`
 - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
-- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia --json`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy --json`
+
+Keyword seed files live under `examples/terms/` and can be passed with `--keywords-file`; repeated `--keyword` values are merged and deduped.
 
 `--ontology` still overrides profile mapping when you need an explicit file path.
 
@@ -79,11 +86,22 @@ Use repeatable threshold overrides when you want stricter local gates:
 
 If smoke fails, run the suggested next command from the failing check.
 
-Standard offline rebuild loop:
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
-- `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-- `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200`
+Standard offline rebuild loops:
+- Default precision hidden-program proxy:
+  `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json`
+  `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+  `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+  `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
+  `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2`
+  `ss doctor status --source "SAM.gov" --days 30 --json`
+- Optional exploratory add-on:
+  `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json`
+  `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+  `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2`
+
+On a fixed window, look for directional improvement in useful keyword density and `kw_pair` signal without degrading pipeline health or existing suppressor behavior.
 
 ## 5) Fixture verification (offline)
 
@@ -138,4 +156,5 @@ $env:SAM_API_TIMEOUT_SECONDS = "90"
 $env:SAM_API_MAX_RETRIES = "12"
 $env:SAM_API_BACKOFF_BASE = "1.25"
 ```
+
 

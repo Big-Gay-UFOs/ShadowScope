@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from shadowscope import cli as cli_module
@@ -190,3 +191,120 @@ def test_workflow_samgov_validate_profile_maps_dod_foia(monkeypatch):
 
     assert result.exit_code == 0, result.stdout
     assert captured.get("ontology_path") == Path("examples/ontology_sam_dod_foia_companion.json")
+
+
+@pytest.mark.parametrize(
+    ("profile", "expected_path"),
+    [
+        ("hidden_program_proxy", Path("examples/ontology_sam_hidden_program_proxy_companion.json")),
+        ("hidden_program_proxy_exploratory", Path("examples/ontology_sam_hidden_program_proxy_exploratory.json")),
+        (
+            "starter_plus_dod_foia_hidden_program_proxy",
+            Path("examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json"),
+        ),
+        (
+            "starter_plus_dod_foia_hidden_program_proxy_exploratory",
+            Path("examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json"),
+        ),
+    ],
+)
+def test_workflow_samgov_profile_maps_hidden_program_proxy_variants(monkeypatch, profile, expected_path):
+    captured = {}
+
+    def fake_run_samgov_workflow(**kwargs):
+        captured.update(kwargs)
+        return {"status": "ok", "source": "SAM.gov"}
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_workflow", fake_run_samgov_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["workflow", "samgov", "--ontology-profile", profile, "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("ontology_path") == expected_path
+
+
+@pytest.mark.parametrize(
+    ("seed_path", "expected_first", "expected_last", "expected_count"),
+    [
+        (
+            Path("examples/terms/sam_hidden_program_proxy_core_seeds.txt"),
+            "program protection",
+            "restricted data",
+            35,
+        ),
+        (
+            Path("examples/terms/sam_hidden_program_proxy_expansion_seeds.txt"),
+            "shielded enclosure",
+            "dynamic positioning",
+            51,
+        ),
+        (
+            Path("examples/terms/sam_hidden_program_proxy_exploratory_seeds.txt"),
+            "thermal vacuum chamber",
+            "plasma spray",
+            44,
+        ),
+    ],
+)
+def test_workflow_samgov_keywords_file_parses_proxy_seed_lists(monkeypatch, seed_path, expected_first, expected_last, expected_count):
+    captured = {}
+
+    def fake_run_samgov_workflow(**kwargs):
+        captured.update(kwargs)
+        return {"status": "ok", "source": "SAM.gov"}
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_workflow", fake_run_samgov_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["workflow", "samgov", "--keywords-file", str(seed_path), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("keywords")[0] == expected_first
+    assert captured.get("keywords")[-1] == expected_last
+    assert len(captured.get("keywords") or []) == expected_count
+
+
+def test_ingest_samgov_keywords_file_merges_with_repeat_keyword(monkeypatch, tmp_path):
+    captured = {}
+    seed_file = tmp_path / "seed_terms.txt"
+    seed_file.write_text("alpha\nbeta\n", encoding="utf-8")
+
+    def fake_ingest_sam_opportunities(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "success",
+            "run_id": 1,
+            "fetched": 0,
+            "inserted": 0,
+            "normalized": 0,
+            "snapshot_dir": str(tmp_path / "raw"),
+        }
+
+    monkeypatch.setattr(cli_module, "ingest_sam_opportunities", fake_ingest_sam_opportunities)
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "ingest",
+            "samgov",
+            "--api-key",
+            "dummy",
+            "--keyword",
+            "alpha",
+            "--keyword",
+            "gamma",
+            "--keywords-file",
+            str(seed_file),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("keywords") == ["alpha", "gamma", "beta"]
+
+
+

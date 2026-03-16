@@ -26,6 +26,7 @@ from backend.db.models import (
 
 
 _DOD_PACK_PREFIX = "sam_dod_"
+_NOISE_PACK_PREFIXES = ("operational_noise_terms:", "sam_proxy_noise_expansion:")
 _FOIA_MATRIX_BONUS_CAP = 3
 
 
@@ -150,7 +151,7 @@ def compute_leads(
             continue
 
         kw_list = _norm_list(e.keywords)
-        has_noise = any(isinstance(k, str) and k.startswith("operational_noise_terms:") for k in kw_list)
+        has_noise = any(isinstance(k, str) and k.startswith(_NOISE_PACK_PREFIXES) for k in kw_list)
         dod_lane_count, dod_keyword_hit_count = _dod_keyword_metrics(kw_list)
         pair_n = pair_counts.get(int(e.id), 0)
         pair_n_total = pair_counts_total.get(int(e.id), 0)
@@ -296,3 +297,4 @@ def create_lead_snapshot(
         }
     finally:
         db.close()
+
