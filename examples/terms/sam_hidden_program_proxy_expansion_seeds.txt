@@ -1,0 +1,51 @@
+shielded enclosure
+shielded room
+special access facility
+secure facility hardening
+protected communications
+buried fiber
+underground ventilation
+blast door
+portal access control
+controlled access area
+vault door
+GSA container
+visit authorization request
+classified courier
+COMSEC
+cryptographic controlled item
+Type 1 encryption
+TACLANE
+mission instrumentation
+telemetry integration
+signature measurement facility
+spectral signature
+signature phenomenology
+multispectral
+hyperspectral
+EO/IR
+MWIR
+LWIR
+SWIR
+high-speed imaging
+photometric calibration
+imaging spectrometer
+sample preparation
+evidence handling
+sample archive
+glovebox
+inert atmosphere
+clean room
+contamination control
+microstructure analysis
+non-destructive evaluation
+computed tomography
+x-ray diffraction
+scanning electron microscopy
+electron backscatter diffraction
+nanoindentation
+isotopic analysis
+deep submergence
+acoustic navigation
+ROV launch and recovery
+dynamic positioning

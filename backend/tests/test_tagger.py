@@ -1,4 +1,4 @@
-﻿import json
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -131,3 +131,32 @@ def test_safe_json_text_preserves_empty_sequences_as_arrays():
     assert parsed["nested"]["values"] == []
     assert parsed["nested"]["set_values"] == []
 
+
+
+def test_compile_and_tag_ignore_concept_id_metadata():
+    ont = {
+        "version": "x",
+        "defaults": {"case_insensitive": True, "fields": ["snippet"]},
+        "packs": [
+            {
+                "id": "p",
+                "name": "P",
+                "enabled": True,
+                "rules": [
+                    {
+                        "id": "r1",
+                        "concept_id": "proxy_concept",
+                        "type": "phrase",
+                        "pattern": "secure transport",
+                        "weight": 4,
+                    }
+                ],
+            }
+        ],
+    }
+
+    meta, rules = compile_for_tagging(ont)
+    res = tag_fields(meta, rules, {"snippet": "secure transport logistics support"})
+
+    assert "p:r1" in res["keywords"]
+    assert res["clauses"][0]["rule"] == "r1"

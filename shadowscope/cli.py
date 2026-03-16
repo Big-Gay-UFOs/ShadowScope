@@ -82,12 +82,24 @@ class SamOntologyProfile(str, Enum):
     starter = "starter"
     dod_foia = "dod_foia"
     starter_plus_dod_foia = "starter_plus_dod_foia"
+    hidden_program_proxy = "hidden_program_proxy"
+    hidden_program_proxy_exploratory = "hidden_program_proxy_exploratory"
+    starter_plus_dod_foia_hidden_program_proxy = "starter_plus_dod_foia_hidden_program_proxy"
+    starter_plus_dod_foia_hidden_program_proxy_exploratory = "starter_plus_dod_foia_hidden_program_proxy_exploratory"
 
 
 _SAM_ONTOLOGY_PROFILE_PATHS: dict[SamOntologyProfile, Path] = {
     SamOntologyProfile.starter: Path("examples/ontology_sam_procurement_starter.json"),
     SamOntologyProfile.dod_foia: Path("examples/ontology_sam_dod_foia_companion.json"),
     SamOntologyProfile.starter_plus_dod_foia: Path("examples/ontology_sam_procurement_plus_dod_foia.json"),
+    SamOntologyProfile.hidden_program_proxy: Path("examples/ontology_sam_hidden_program_proxy_companion.json"),
+    SamOntologyProfile.hidden_program_proxy_exploratory: Path("examples/ontology_sam_hidden_program_proxy_exploratory.json"),
+    SamOntologyProfile.starter_plus_dod_foia_hidden_program_proxy: Path(
+        "examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json"
+    ),
+    SamOntologyProfile.starter_plus_dod_foia_hidden_program_proxy_exploratory: Path(
+        "examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json"
+    ),
 }
 
 
@@ -99,6 +111,46 @@ def _resolve_sam_ontology_path(
     if ontology_path is not None:
         return Path(ontology_path)
     return _SAM_ONTOLOGY_PROFILE_PATHS[ontology_profile]
+
+
+# Minimal newline-delimited keyword-file support for SAM ingest/workflow seeding.
+def _load_newline_terms_file(path: Path) -> list[str]:
+    try:
+        text = Path(path).expanduser().read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise typer.BadParameter(f"Unable to read keywords file '{path}': {exc}") from exc
+
+    terms: list[str] = []
+    seen: set[str] = set()
+    for raw_line in text.splitlines():
+        term = str(raw_line).strip()
+        if not term or term.startswith("#"):
+            continue
+        if term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+    return terms
+
+
+def _merge_terms(*groups: Optional[List[str]]) -> Optional[List[str]]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group or []:
+            term = str(item or "").strip()
+            if not term or term in seen:
+                continue
+            seen.add(term)
+            terms.append(term)
+    return terms or None
+
+
+def _resolve_sam_ingest_keywords(*, keyword: Optional[List[str]], keywords_file: Optional[Path]) -> Optional[List[str]]:
+    file_terms = _load_newline_terms_file(keywords_file) if keywords_file is not None else None
+    return _merge_terms(keyword, file_terms)
+
+
 @db_app.command("init")
 def db_init(database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command.")):
     status = sync_database(database_url)
@@ -173,6 +225,7 @@ def ingest_samgov_cli(
     max_records: Optional[int] = typer.Option(None, "--max-records", "--limit", help="Total cap across pages (and across keyword union when multiple --keyword are used)."),
     start_page: int = typer.Option(1, "--start-page", help="Start page (resume/chunking)"),
     keywords: Optional[List[str]] = typer.Option(None, "--keyword", help="Optional title search terms (repeat --keyword)."),
+    keywords_file: Optional[Path] = typer.Option(None, "--keywords-file", help="Optional newline-delimited title search terms file."),
     api_key: Optional[str] = typer.Option(None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
@@ -182,6 +235,7 @@ def ingest_samgov_cli(
       - API key is read from SAM_API_KEY unless --api-key is provided.
       - Raw snapshots are written under data/raw/sam/YYYYMMDD/.
     """
+    resolved_keywords = _resolve_sam_ingest_keywords(keyword=keywords, keywords_file=keywords_file)
     try:
         result = ingest_sam_opportunities(
             api_key=api_key,
@@ -190,7 +244,7 @@ def ingest_samgov_cli(
             page_size=page_size,
             max_records=max_records,
             start_page=start_page,
-            keywords=keywords,
+            keywords=resolved_keywords,
             database_url=database_url,
         )
     except Exception as exc:
@@ -809,7 +863,7 @@ def workflow_usaspending(
         max_records=max_records,
         start_page=start_page,
         recipient_search_text=recipient,
-        keywords=keyword,
+        keywords=resolved_keywords,
         ontology_path=ontology_path,
         ontology_days=ontology_days,
         window_days=window_days,
@@ -852,13 +906,14 @@ def workflow_samgov(
     ),
     start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
     keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    keywords_file: Optional[Path] = typer.Option(None, "--keywords-file", help="Ingest: newline-delimited title search terms file"),
     api_key: Optional[str] = typer.Option(
         None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."
     ),
     ontology_profile: SamOntologyProfile = typer.Option(
         SamOntologyProfile.starter,
         "--ontology-profile",
-        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia | hidden_program_proxy | hidden_program_proxy_exploratory | starter_plus_dod_foia_hidden_program_proxy | starter_plus_dod_foia_hidden_program_proxy_exploratory",
     ),
     ontology_path: Optional[Path] = typer.Option(
         None,
@@ -898,6 +953,7 @@ def workflow_samgov(
     from backend.services.workflow import run_samgov_workflow
 
     export_path = Path(out).expanduser() if out else None
+    resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     res = run_samgov_workflow(
         ingest_days=ingest_days,
@@ -905,7 +961,7 @@ def workflow_samgov(
         page_size=page_size,
         max_records=max_records,
         start_page=start_page,
-        keywords=keyword,
+        keywords=resolved_keywords,
         api_key=api_key,
         ontology_path=resolved_ontology_path,
         ontology_days=ontology_days,
@@ -956,11 +1012,12 @@ def workflow_samgov_validate(
     max_records: Optional[int] = typer.Option(250, "--max-records", "--limit", help="Ingest: total cap across pages"),
     start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
     keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    keywords_file: Optional[Path] = typer.Option(None, "--keywords-file", help="Ingest: newline-delimited title search terms file"),
     api_key: Optional[str] = typer.Option(None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."),
     ontology_profile: SamOntologyProfile = typer.Option(
         SamOntologyProfile.starter,
         "--ontology-profile",
-        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia | hidden_program_proxy | hidden_program_proxy_exploratory | starter_plus_dod_foia_hidden_program_proxy | starter_plus_dod_foia_hidden_program_proxy_exploratory",
     ),
     ontology_path: Optional[Path] = typer.Option(
         None,
@@ -990,6 +1047,7 @@ def workflow_samgov_validate(
     from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_validation_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     res = run_samgov_validation_workflow(
@@ -998,7 +1056,7 @@ def workflow_samgov_validate(
         page_size=page_size,
         max_records=max_records,
         start_page=start_page,
-        keywords=keyword,
+        keywords=resolved_keywords,
         api_key=api_key,
         ontology_path=resolved_ontology_path,
         ontology_days=ontology_days,
@@ -1043,13 +1101,14 @@ def workflow_samgov_smoke(
     ),
     start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
     keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    keywords_file: Optional[Path] = typer.Option(None, "--keywords-file", help="Ingest: newline-delimited title search terms file"),
     api_key: Optional[str] = typer.Option(
         None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."
     ),
     ontology_profile: SamOntologyProfile = typer.Option(
         SamOntologyProfile.starter,
         "--ontology-profile",
-        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia | hidden_program_proxy | hidden_program_proxy_exploratory | starter_plus_dod_foia_hidden_program_proxy | starter_plus_dod_foia_hidden_program_proxy_exploratory",
     ),
     ontology_path: Optional[Path] = typer.Option(
         None,
@@ -1089,6 +1148,7 @@ def workflow_samgov_smoke(
     from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_smoke_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     res = run_samgov_smoke_workflow(
@@ -1097,7 +1157,7 @@ def workflow_samgov_smoke(
         page_size=page_size,
         max_records=max_records,
         start_page=start_page,
-        keywords=keyword,
+        keywords=resolved_keywords,
         api_key=api_key,
         ontology_path=resolved_ontology_path,
         ontology_days=ontology_days,

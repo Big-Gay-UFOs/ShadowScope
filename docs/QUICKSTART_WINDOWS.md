@@ -23,13 +23,20 @@ SAM workflow commands support `--ontology-profile`:
 - `starter` (default)
 - `dod_foia`
 - `starter_plus_dod_foia`
-- `dod_foia` uses precision-first contextual rules plus explicit lore suppressors
+- `hidden_program_proxy`
+- `hidden_program_proxy_exploratory`
+- `starter_plus_dod_foia_hidden_program_proxy`
+- `starter_plus_dod_foia_hidden_program_proxy_exploratory`
+- `dod_foia` and the new proxy profiles keep explicit lore suppressors intact; the exploratory layer is opt-in and lower-weight.
 
 Examples:
 - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter`
 - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
-- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia --json`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy --json`
+
+Keyword seed files live under `examples/terms/` and can be passed with `--keywords-file`; repeated `--keyword` values are merged and deduped.
 
 Use `--ontology <path>` to explicitly override any profile mapping.
 
@@ -65,8 +72,20 @@ Each check prints expected threshold, observed value, pass/fail, and next comman
 
 ### 5) Threshold tuning loop
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
-- `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+- Default precision hidden-program proxy loop:
+  `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json`
+  `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+  `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+  `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
+  `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2`
+  `ss doctor status --source "SAM.gov" --days 30 --json`
+- Optional exploratory add-on:
+  `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json`
+  `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+  `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2`
+- On a fixed window, expect directional improvement in useful keyword density and `kw_pair` signal without degrading pipeline health or suppressor behavior.
 
 ### 6) Fixture verification (offline)
 - `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
@@ -112,4 +131,5 @@ If larger runs are slow/rate-limited, tune:
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
+
 

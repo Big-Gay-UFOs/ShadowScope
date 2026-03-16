@@ -200,3 +200,40 @@ def test_compute_leads_pair_bonus_requires_signal_and_event_count_thresholds(tmp
     assert details["pair_signal_threshold"] == 0.15
     assert details["pair_event_count_threshold"] == 2
     assert score == 13
+
+def test_compute_leads_treats_proxy_noise_pack_as_noise(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_proxy_noise.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        ev = Event(
+            category="opportunity",
+            source="SAM.gov",
+            hash="lead_proxy_noise_1",
+            created_at=now,
+            snippet="Proxy noise-only lead",
+            raw_json={},
+            keywords=["sam_proxy_noise_expansion:generic_lab_supply_noise"],
+            clauses=[],
+        )
+        db.add(ev)
+        db.commit()
+
+        ranked, scanned = compute_leads(
+            db,
+            source="SAM.gov",
+            min_score=-10,
+            limit=10,
+            scan_limit=50,
+            scoring_version="v2",
+        )
+
+    assert scanned == 1
+    assert len(ranked) == 1
+
+    score, _event, details = ranked[0]
+    assert details["has_noise"] is True
+    assert details["noise_penalty"] == 8
+    assert score == -5

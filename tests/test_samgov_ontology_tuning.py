@@ -417,3 +417,217 @@ def test_sam_dod_companion_guardrail_avoids_rd_road_false_positive(tmp_path: Pat
 
     keywords = set(row.keywords or [])
     assert not any(k.startswith("sam_dod_program_protection_sap:") for k in keywords)
+
+PROXY_PRECISION_ONTOLOGY_PATH = Path("examples/ontology_sam_hidden_program_proxy_companion.json")
+PROXY_EXPLORATORY_ONTOLOGY_PATH = Path("examples/ontology_sam_hidden_program_proxy_exploratory.json")
+STARTER_PLUS_DOD_PROXY_ONTOLOGY_PATH = Path("examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json")
+STARTER_PLUS_DOD_PROXY_EXPLORATORY_ONTOLOGY_PATH = Path(
+    "examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json"
+)
+
+
+def test_sam_hidden_program_proxy_precision_matches_snippet_and_raw_json(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_proxy_precision.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add_all(
+            [
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_proxy_precision_snippet",
+                    created_at=now,
+                    snippet="ICD 705 SCIF modernization design upgrade for accredited area hardening",
+                    raw_json={"title": "secure facility modernization"},
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_proxy_precision_raw_json",
+                    created_at=now,
+                    snippet="",
+                    raw_json={
+                        "details": "TEMPEST shielded room testing certification and integration support",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+            ]
+        )
+        db.commit()
+
+    res = apply_ontology_to_events(
+        ontology_path=PROXY_PRECISION_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    assert res["scanned"] == 2
+    assert res["updated"] == 2
+
+    with SessionFactory() as db:
+        snippet_row = db.query(Event).filter(Event.hash == "sam_proxy_precision_snippet").one()
+        raw_json_row = db.query(Event).filter(Event.hash == "sam_proxy_precision_raw_json").one()
+
+    assert "sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context" in set(
+        snippet_row.keywords or []
+    )
+    assert any(
+        clause.get("rule") == "icd705_scif_sapf_facility_upgrade_context" and clause.get("field") == "snippet"
+        for clause in (snippet_row.clauses or [])
+    )
+    assert "sam_proxy_secure_compartmented_facility_engineering:tempest_emanations_shielding_context" in set(
+        raw_json_row.keywords or []
+    )
+    assert any(
+        clause.get("rule") == "tempest_emanations_shielding_context" and clause.get("field") == "raw_json"
+        for clause in (raw_json_row.clauses or [])
+    )
+
+
+def test_sam_hidden_program_proxy_precision_noise_guardrails_cover_lab_supply_and_training(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_proxy_noise.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add_all(
+            [
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_proxy_noise_lab",
+                    created_at=now,
+                    snippet="reagent consumables pipette centrifuge nitrile gloves for routine lab supply support",
+                    raw_json={},
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_proxy_noise_training",
+                    created_at=now,
+                    snippet="ICD 705 SCIF COMSEC training course awareness seminar for staff",
+                    raw_json={},
+                    keywords=[],
+                    clauses=[],
+                ),
+            ]
+        )
+        db.commit()
+
+    apply_ontology_to_events(
+        ontology_path=PROXY_PRECISION_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    with SessionFactory() as db:
+        lab = db.query(Event).filter(Event.hash == "sam_proxy_noise_lab").one()
+        training = db.query(Event).filter(Event.hash == "sam_proxy_noise_training").one()
+
+    assert set(lab.keywords or []) == {"sam_proxy_noise_expansion:generic_lab_supply_noise"}
+    assert set(training.keywords or []) == {"sam_proxy_noise_expansion:security_training_noise"}
+
+
+def test_sam_hidden_program_proxy_composite_routes_lore_to_existing_noise_only(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_proxy_lore_noise.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add(
+            Event(
+                category="opportunity",
+                source="SAM.gov",
+                hash="sam_proxy_lore_only",
+                created_at=now,
+                snippet="Open-source UAP UFO crash retrieval reverse engineering biologics black budget claims forum thread.",
+                raw_json={"note": "lore only"},
+                keywords=[],
+                clauses=[],
+            )
+        )
+        db.commit()
+
+    apply_ontology_to_events(
+        ontology_path=STARTER_PLUS_DOD_PROXY_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    with SessionFactory() as db:
+        row = db.query(Event).filter(Event.hash == "sam_proxy_lore_only").one()
+
+    keywords = set(row.keywords or [])
+    assert keywords
+    assert all(item.startswith("operational_noise_terms:") for item in keywords)
+    assert not any(item.startswith("sam_proxy_") for item in keywords)
+    assert not any(item.startswith("sam_dod_") for item in keywords)
+
+
+def test_sam_hidden_program_proxy_exploratory_requires_context_for_broad_terms(tmp_path: Path):
+    db_url = f"sqlite:///{(tmp_path / 'sam_proxy_exploratory.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add_all(
+            [
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_proxy_exploratory_hit",
+                    created_at=now,
+                    snippet="Hall thruster test instrumentation and facility calibration support for electric propulsion diagnostics",
+                    raw_json={},
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_proxy_exploratory_singleton",
+                    created_at=now,
+                    snippet="Hall thruster overview brochure for outreach display",
+                    raw_json={},
+                    keywords=[],
+                    clauses=[],
+                ),
+            ]
+        )
+        db.commit()
+
+    apply_ontology_to_events(
+        ontology_path=PROXY_EXPLORATORY_ONTOLOGY_PATH,
+        days=30,
+        source="SAM.gov",
+        batch=100,
+        dry_run=False,
+        database_url=db_url,
+    )
+
+    with SessionFactory() as db:
+        hit = db.query(Event).filter(Event.hash == "sam_proxy_exploratory_hit").one()
+        singleton = db.query(Event).filter(Event.hash == "sam_proxy_exploratory_singleton").one()
+
+    assert "sam_proxy_plasma_propulsion_diagnostics:electric_propulsion_test_context" in set(hit.keywords or [])
+    assert singleton.keywords == []
