@@ -34,33 +34,130 @@ def find_latest_sam_smoke_bundle(bundle_root: Optional[Path | str] = None) -> Op
     return dirs[0]
 
 
+def _generated_file_map(manifest: dict[str, Any]) -> dict[str, Any]:
+    return manifest.get("generated_files") if isinstance(manifest.get("generated_files"), dict) else {}
+
+
+def _resolve_bundle_generated_path(
+    bundle_dir: Path,
+    manifest: dict[str, Any],
+    *file_ids: str,
+    legacy_names: tuple[str, ...] = (),
+) -> Optional[Path]:
+    generated_files = _generated_file_map(manifest)
+    fallback: Optional[Path] = None
+    for file_id in file_ids:
+        if file_id not in generated_files:
+            continue
+        resolved = _resolve_path(bundle_dir, generated_files.get(file_id))
+        if resolved is None:
+            continue
+        if resolved.exists():
+            return resolved
+        if fallback is None:
+            fallback = resolved
+    for legacy_name in legacy_names:
+        resolved = _resolve_path(bundle_dir, legacy_name)
+        if resolved is None:
+            continue
+        if resolved.exists():
+            return resolved
+        if fallback is None:
+            fallback = resolved
+    return fallback
+
+
+def _manifest_artifacts(bundle_dir: Path, manifest: dict[str, Any], workflow: dict[str, Any]) -> dict[str, Any]:
+    artifacts: dict[str, Any] = {}
+    for file_id, rel_path in _generated_file_map(manifest).items():
+        resolved = _resolve_path(bundle_dir, rel_path)
+        if resolved is not None:
+            artifacts[str(file_id)] = resolved
+    if isinstance(workflow.get("exports"), dict):
+        artifacts["exports"] = workflow.get("exports")
+    return artifacts
+
+
 def load_sam_bundle_payload(bundle_dir: Path | str) -> dict[str, Any]:
     bundle = resolve_bundle_directory(bundle_dir)
-    workflow_doc = _load_json_payload(bundle / "workflow_result.json")
-    doctor_doc = _load_json_payload(bundle / "doctor_status.json")
-    smoke_doc = _load_json_payload(bundle / "smoke_summary.json")
+    manifest = _load_json_payload(bundle / "bundle_manifest.json")
+
+    workflow_doc = _load_json_payload(
+        _resolve_bundle_generated_path(
+            bundle,
+            manifest,
+            "workflow_result_json",
+            legacy_names=("results/workflow_result.json", "workflow_result.json"),
+        )
+        or (bundle / "workflow_result.json")
+    )
+    doctor_doc = _load_json_payload(
+        _resolve_bundle_generated_path(
+            bundle,
+            manifest,
+            "doctor_status_json",
+            legacy_names=("results/doctor_status.json", "doctor_status.json"),
+        )
+        or (bundle / "doctor_status.json")
+    )
+    smoke_doc = _load_json_payload(
+        _resolve_bundle_generated_path(
+            bundle,
+            manifest,
+            "workflow_summary_json",
+            "smoke_summary_json",
+            legacy_names=("results/workflow_summary.json", "workflow_summary.json", "smoke_summary.json"),
+        )
+        or (bundle / "smoke_summary.json")
+    )
 
     workflow = workflow_doc.get("result") if isinstance(workflow_doc.get("result"), dict) else {}
     doctor = doctor_doc.get("result") if isinstance(doctor_doc.get("result"), dict) else {}
     smoke = smoke_doc if isinstance(smoke_doc, dict) else {}
 
-    run_metadata = smoke.get("run_metadata") if isinstance(smoke.get("run_metadata"), dict) else {}
+    run_metadata: dict[str, Any] = {}
+    manifest_run_parameters = manifest.get("run_parameters") if isinstance(manifest.get("run_parameters"), dict) else {}
+    if manifest_run_parameters:
+        run_metadata.update(manifest_run_parameters)
+    run_metadata.setdefault("source", manifest.get("source"))
+    run_metadata.setdefault("workflow_type", manifest.get("workflow_type"))
+    run_metadata.setdefault("run_timestamp", manifest.get("generated_at"))
+    run_metadata.setdefault("validation_mode", smoke.get("validation_mode") or manifest.get("validation_mode"))
+    smoke_run_metadata = smoke.get("run_metadata") if isinstance(smoke.get("run_metadata"), dict) else {}
+    if smoke_run_metadata:
+        run_metadata.update(smoke_run_metadata)
+
     artifacts = smoke.get("artifacts") if isinstance(smoke.get("artifacts"), dict) else {}
+    if not artifacts:
+        artifacts = _manifest_artifacts(bundle, manifest, workflow)
 
     generated_at = (
         smoke.get("generated_at")
+        or manifest.get("generated_at")
         or workflow_doc.get("generated_at")
         or doctor_doc.get("generated_at")
         or datetime.now(timezone.utc).isoformat()
     )
-    workflow_type = str(run_metadata.get("workflow_type") or _infer_workflow_type(smoke))
-    source = str(run_metadata.get("source") or workflow.get("source") or smoke.get("source") or "SAM.gov")
+    workflow_type = str(
+        smoke.get("workflow_type")
+        or run_metadata.get("workflow_type")
+        or manifest.get("workflow_type")
+        or _infer_workflow_type(smoke)
+    )
+    source = str(
+        run_metadata.get("source")
+        or manifest.get("source")
+        or workflow.get("source")
+        or smoke.get("source")
+        or "SAM.gov"
+    )
 
     return {
         "bundle_dir": bundle,
         "generated_at": generated_at,
         "workflow_type": workflow_type,
         "source": source,
+        "manifest": manifest,
         "run_metadata": run_metadata,
         "workflow_result": workflow,
         "doctor_status": doctor,
@@ -186,9 +283,18 @@ def _render_report_html(
     artifacts: dict[str, Any],
     report_path: Path,
 ) -> str:
+    quality = smoke.get("quality") if isinstance(smoke.get("quality"), dict) else {}
+    required_failure_categories = ", ".join([str(v) for v in quality.get("required_failure_categories") or []]) or None
+    advisory_failure_categories = ", ".join([str(v) for v in quality.get("advisory_failure_categories") or []]) or None
     run_meta_rows = [
         ("Source", source),
         ("Workflow Type", workflow_type),
+        ("Validation Mode", smoke.get("validation_mode") or run_metadata.get("validation_mode")),
+        ("Workflow Gate Status", smoke.get("status") or workflow.get("status")),
+        ("Quality", quality.get("quality")),
+        ("Required Checks Passed", smoke.get("required_checks_passed")),
+        ("Required Failure Categories", required_failure_categories),
+        ("Advisory Failure Categories", advisory_failure_categories),
         ("Run Timestamp", generated_at),
         ("Ingest", _summary_label(ingest, keys=("fetched", "inserted", "normalized"))),
         ("Ontology", _summary_label(ontology, keys=("updated", "unchanged", "scanned"))),
@@ -228,6 +334,7 @@ def _render_report_html(
 
     hint_rows = [{"hint": h} for h in (doctor.get("hints") or []) if str(h).strip()]
     last_runs_rows = _last_runs_rows((doctor.get("last_runs") if isinstance(doctor, dict) else None) or {})
+    validation_category_rows = _validation_category_rows(smoke)
     artifact_rows = _artifact_rows(
         bundle_dir=bundle_dir,
         report_path=report_path,
@@ -361,6 +468,10 @@ def _render_report_html(
         {_render_table(last_runs_rows, fallback="No run references available.")}
       </section>
       <section class="section">
+        <h2>Validation Categories</h2>
+        {_render_table(validation_category_rows, fallback="Validation category summary unavailable.")}
+      </section>
+      <section class="section">
         <h2>Top Keywords</h2>
         {_render_table(top_keywords, fallback="Top keyword data unavailable.")}
       </section>
@@ -394,13 +505,35 @@ def _render_report_html(
 
 
 def _resolve_report_status(*, smoke: dict[str, Any], workflow: dict[str, Any]) -> str:
+    summary_status = str(smoke.get("status") or "").strip().lower()
+    if summary_status in {"failed", "fail", "error"}:
+        return "FAIL"
+    if smoke.get("required_checks_passed") is False:
+        return "FAIL"
+    if smoke.get("failed_required_checks"):
+        return "FAIL"
+
+    if summary_status in {"warning", "warn"}:
+        return "WARNING"
+    if (smoke.get("failed_advisory_checks") or smoke.get("warning_checks")):
+        return "WARNING"
+
+    quality = smoke.get("quality") if isinstance(smoke.get("quality"), dict) else {}
+    quality_name = str(quality.get("quality") or "").strip().lower()
+    if quality_name == "hard_failure":
+        return "FAIL"
+    if quality_name in {"partially_useful", "rate_limited_degraded", "sparse_valid", "degraded"}:
+        return "WARNING"
+
     smoke_passed = smoke.get("smoke_passed")
-    if smoke_passed is True:
+    if smoke_passed is True and summary_status in {"", "ok"}:
         return "PASS"
     if smoke_passed is False:
         return "FAIL"
 
     status = str(workflow.get("status") or "").strip().lower()
+    if status in {"warning", "warn"}:
+        return "WARNING"
     if status in {"ok", "success", "passed"}:
         return "PASS"
     if status in {"failed", "fail", "error"}:
@@ -589,6 +722,24 @@ def _table_rows_from_list(*, rows: list[Any], expected: tuple[str, ...]) -> list
     return out
 
 
+def _validation_category_rows(smoke: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    groups = smoke.get("check_groups") if isinstance(smoke.get("check_groups"), dict) else {}
+    for category, group in groups.items():
+        if not isinstance(group, dict):
+            continue
+        rows.append(
+            {
+                "category": group.get("category_label") or category,
+                "required_total": group.get("required_total"),
+                "advisory_total": group.get("advisory_total"),
+                "failed_required": group.get("failed_required"),
+                "failed_advisory": group.get("failed_advisory"),
+            }
+        )
+    return rows
+
+
 def _render_kv_table(rows: list[tuple[str, Any]]) -> str:
     clean = [{"field": k, "value": v} for k, v in rows if k]
     return _render_table(clean, fallback="Section unavailable.")
@@ -706,6 +857,11 @@ def _load_json_payload(path: Path) -> dict[str, Any]:
 
 
 def _infer_workflow_type(smoke_summary: dict[str, Any]) -> str:
+    workflow_type = smoke_summary.get("workflow_type")
+    if workflow_type:
+        return str(workflow_type)
+    if str(smoke_summary.get("validation_mode") or "").strip().lower() == "larger":
+        return "samgov-validation"
     if smoke_summary:
         return "samgov-smoke"
     return "samgov"
@@ -728,4 +884,3 @@ __all__ = [
     "load_sam_bundle_payload",
     "resolve_bundle_directory",
 ]
-

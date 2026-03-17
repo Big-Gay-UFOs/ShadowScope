@@ -477,7 +477,7 @@ Full details + checklists live here:
 ShadowScope now distinguishes two SAM.gov validation intents:
 
 - Small bounded smoke: quick pass/fail confidence on core workflow wiring.
-- Larger-run validation: bigger bounded windows/pages with warning-oriented quality classification.
+- Larger-run validation: bigger bounded windows/pages with explicit required and advisory quality gates.
 
 Recommended operator sequence:
 
@@ -494,6 +494,8 @@ ss diagnose samgov --days 30 --json
 # 4) Inspect a specific bundle contract/manifest
 ss inspect bundle --path <bundle_dir> --json
 ```
+
+`ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now honor the manifest-driven workflow gate status, required/advisory split, and category failures instead of relying on smoke-only pass heuristics.
 
 Normalized SAM bundle contract (`samgov.bundle.v1`):
 
@@ -522,17 +524,21 @@ Bundle interpretation:
 
 Warnings vs failures:
 
-- `failed`: required checks failed (hard failure).
-- `warning`: run produced artifacts but quality gates indicate sparse/degraded/partially-useful outcomes.
+- `failed`: one or more required checks failed. The bundle/report now labels whether the failure came from pipeline health, source coverage/context health, or lead-signal quality.
+- `warning`: required checks passed, but one or more advisory checks missed threshold and the run is degraded/partially useful.
 - `ok`: required checks passed and no warning-level misses.
+
+Validation policy:
+
+- Smoke mode keeps the calibrated threshold contract as a strict gate.
+- Larger mode now mixes required and advisory checks instead of downgrading all threshold misses to warnings.
+- Each serialized check includes `name`, `observed`, `threshold`, `severity`, `required` vs `advisory`, and pass/fail outcome.
 
 Retry tuning knobs for larger SAM windows:
 
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
-
-
 
 
 

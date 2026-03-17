@@ -491,12 +491,14 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary_payload["smoke_passed"] is True
+    assert summary_payload["required_checks_passed"] is True
     check_names = {c.get("name") for c in summary_payload.get("checks", [])}
     assert "events_window_threshold" in check_names
     assert "sam_research_context_events_threshold" in check_names
     assert "snapshot_items_threshold" in check_names
 
     assert summary_payload.get("thresholds")
+    assert summary_payload.get("quality_gate_policy", {}).get("required_checks")
     assert summary_payload.get("failed_required_checks") == []
 
     manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -522,6 +524,9 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     report_html = report_path.read_text(encoding="utf-8")
     assert "SAM.gov Workflow Bundle Report" in report_html
     assert "workflow_type=samgov-smoke" in report_html
+    assert "Pipeline health" in report_html
+    assert "Source coverage/context health" in report_html
+    assert "Lead-signal quality" in report_html
 
     baseline = summary_payload.get("baseline", {})
     entity_cov = baseline.get("entity_coverage", {})
@@ -570,17 +575,52 @@ def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
 
     assert res.get("validation_mode") == "larger"
     assert res.get("workflow_type") == "samgov-validation"
+    assert res.get("quality_gate_policy", {}).get("required_checks")
+    assert res.get("quality_gate_policy", {}).get("advisory_checks")
     assert res.get("status") in {"ok", "warning"}
+    assert "workflow_execution" in (res.get("quality_gate_policy", {}).get("required_checks") or [])
+    assert "ingest_nonzero" in (res.get("quality_gate_policy", {}).get("required_checks") or [])
+    assert "workflow_execution" in (res.get("quality_gate_policy", {}).get("effective_required_checks") or [])
+    assert "ingest_nonzero" in (res.get("quality_gate_policy", {}).get("effective_advisory_checks") or [])
+    overrides = res.get("quality_gate_policy", {}).get("policy_overrides") or []
+    assert any(item.get("name") == "ingest_nonzero" for item in overrides)
 
     artifacts = res.get("artifacts") or {}
     manifest_path = Path(artifacts.get("bundle_manifest_json"))
     summary_path = Path(artifacts.get("smoke_summary_json"))
+    report_path = Path(artifacts.get("report_html"))
     assert manifest_path.exists()
     assert summary_path.exists()
+    assert report_path.exists()
 
     manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest_payload.get("validation_mode") == "larger"
     assert manifest_payload.get("workflow_type") == "samgov-validation"
+    check_summary = manifest_payload.get("check_summary") or {}
+    assert check_summary.get("required_total", 0) > 0
+    assert check_summary.get("advisory_total", 0) > 0
+    by_category = check_summary.get("by_category") or {}
+    assert by_category.get("source_coverage_context_health", {}).get("required_total", 0) > 0
+    assert by_category.get("lead_signal_quality", {}).get("required_total", 0) > 0
+
+    summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    checks_by_name = {item.get("name"): item for item in summary_payload.get("checks", [])}
+    assert checks_by_name["workflow_execution"]["policy_level"] == "required"
+    assert checks_by_name["workflow_execution"]["passed"] is True
+    assert checks_by_name["events_window_threshold"]["policy_level"] == "required"
+    assert checks_by_name["events_window_threshold"]["severity"] == "error"
+    assert checks_by_name["events_with_keywords_coverage_threshold"]["policy_level"] == "advisory"
+    assert checks_by_name["same_sam_naics_lane_threshold"]["policy_level"] == "advisory"
+    assert checks_by_name["snapshot_items_threshold"]["policy_level"] == "required"
+
+    report_html = report_path.read_text(encoding="utf-8")
+    assert "Severity" in report_html
+    assert "Policy" in report_html
+    assert "Lead-signal quality" in report_html
+    assert "advisory" in report_html
+    assert "required" in report_html
+
+
 def test_samgov_smoke_threshold_contract_fails_with_context_and_naics_misses(tmp_path: Path):
     db_path = tmp_path / "sam_smoke_fail.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
@@ -627,6 +667,103 @@ def test_samgov_smoke_threshold_contract_fails_with_context_and_naics_misses(tmp
     assert naics_fail["expected"] == ">= 2"
     assert int((naics_fail.get("actual") or {}).get("same_sam_naics", 0)) < 2
     assert "rebuild-sam-naics" in naics_fail["hint"]
+
+
+def test_samgov_validation_required_quality_misses_fail_larger_mode(tmp_path: Path, monkeypatch):
+    def fake_run_samgov_workflow(**_kwargs):
+        return {
+            "source": "SAM.gov",
+            "status": "ok",
+            "ingest": {"status": "success", "fetched": 25, "inserted": 25, "normalized": 25},
+            "snapshot": {"items": 0},
+            "exports": {},
+        }
+
+    def fake_doctor_status(**_kwargs):
+        return {
+            "db": {"status": "ok"},
+            "counts": {
+                "events_window": 30,
+                "events_with_entity_window": 5,
+                "lead_snapshots_total": 1,
+            },
+            "keywords": {
+                "scanned_events": 30,
+                "events_with_keywords": 6,
+                "coverage_pct": 20.0,
+                "unique_keywords": 2,
+            },
+            "entities": {
+                "window_linked_coverage_pct": 16.7,
+                "sample_scanned_events": 30,
+                "sample_events_with_identity_signal": 30,
+                "sample_events_with_identity_signal_linked": 5,
+                "sample_identity_signal_coverage_pct": 16.7,
+                "sample_events_with_name": 30,
+                "sample_events_with_name_linked": 5,
+                "sample_name_coverage_pct": 16.7,
+            },
+            "correlations": {
+                "by_lane": {
+                    "same_keyword": 0,
+                    "kw_pair": 0,
+                    "same_sam_naics": 0,
+                    "same_entity": 1,
+                    "same_uei": 0,
+                }
+            },
+            "sam_context": {
+                "scanned_events": 30,
+                "events_with_research_context": 6,
+                "research_context_coverage_pct": 20.0,
+                "events_with_core_procurement_context": 6,
+                "core_procurement_context_coverage_pct": 20.0,
+                "avg_context_fields_per_event": 1.2,
+                "coverage_by_field_pct": {
+                    "sam_notice_type": 100.0,
+                    "sam_solicitation_number": 100.0,
+                    "sam_naics_code": 20.0,
+                },
+                "top_notice_types": [],
+                "top_naics_codes": [],
+                "top_set_aside_codes": [],
+            },
+            "hints": [],
+        }
+
+    monkeypatch.setattr(workflow_module, "run_samgov_workflow", fake_run_samgov_workflow)
+    monkeypatch.setattr(workflow_module, "doctor_status", fake_doctor_status)
+
+    res = run_samgov_validation_workflow(
+        bundle_root=tmp_path / "validation_required_fail",
+        require_nonzero=True,
+        skip_ingest=False,
+    )
+
+    assert res["status"] == "failed"
+    assert res["required_checks_passed"] is False
+    assert res["quality"]["required_failure_categories"] == [
+        "source_coverage_context_health",
+        "lead_signal_quality",
+    ]
+
+    failed_by_name = {item.get("name"): item for item in res.get("failed_required_checks", [])}
+    assert "events_with_entity_coverage_threshold" in failed_by_name
+    assert "sam_research_context_coverage_threshold" in failed_by_name
+    assert "keyword_or_kw_pair_signal_threshold" in failed_by_name
+    assert "snapshot_items_threshold" in failed_by_name
+
+    advisory_by_name = {item.get("name"): item for item in res.get("failed_advisory_checks", [])}
+    assert "events_with_keywords_coverage_threshold" in advisory_by_name
+    assert "same_sam_naics_lane_threshold" in advisory_by_name
+
+    res_no_exit_gate = run_samgov_validation_workflow(
+        bundle_root=tmp_path / "validation_required_fail_no_exit_gate",
+        require_nonzero=False,
+        skip_ingest=False,
+    )
+    assert res_no_exit_gate["status"] == "failed"
+    assert res_no_exit_gate["required_checks_passed"] is False
 
 def test_samgov_smoke_keyword_coverage_uses_sampled_population(tmp_path: Path, monkeypatch):
     def fake_run_samgov_workflow(**_kwargs):
