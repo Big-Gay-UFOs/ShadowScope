@@ -19,7 +19,12 @@ from backend.runtime import ensure_runtime_directories
 from backend.services.export import export_events
 from backend.services.export_correlations import export_kw_pairs
 from backend.services.export_leads import export_lead_snapshot, export_lead_deltas
-from backend.services.ingest import ingest_sam_opportunities, ingest_usaspending
+from backend.services.ingest import (
+    describe_sam_posted_window,
+    ingest_sam_opportunities,
+    ingest_usaspending,
+    resolve_sam_posted_window,
+)
 
 app = typer.Typer(help="ShadowScope control plane")
 db_app = typer.Typer(help="Database lifecycle commands")
@@ -162,6 +167,39 @@ def _parse_datetime_option(value: Optional[str], *, option_name: str) -> Optiona
         raise typer.BadParameter(f"{option_name} must be an ISO-8601 datetime") from exc
 
 
+def _resolve_sam_ingest_window_or_raise(
+    *,
+    days: Optional[int],
+    posted_from: Optional[str],
+    posted_to: Optional[str],
+    default_days: int,
+) -> dict[str, object]:
+    has_explicit = bool(str(posted_from or "").strip()) or bool(str(posted_to or "").strip())
+    resolved_days = days if days is not None else (None if has_explicit else int(default_days))
+    try:
+        return resolve_sam_posted_window(days=resolved_days, posted_from=posted_from, posted_to=posted_to)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+def _extract_sam_posted_window(result: dict) -> Optional[dict[str, object]]:
+    ingest = result.get("ingest")
+    if isinstance(ingest, dict) and isinstance(ingest.get("date_window"), dict):
+        return ingest.get("date_window")
+
+    run_metadata = result.get("run_metadata")
+    if isinstance(run_metadata, dict) and run_metadata.get("effective_posted_from") and run_metadata.get("effective_posted_to"):
+        return {
+            "mode": run_metadata.get("posted_window_mode"),
+            "effective_days": run_metadata.get("ingest_days"),
+            "requested_days": run_metadata.get("ingest_days"),
+            "posted_from": run_metadata.get("effective_posted_from"),
+            "posted_to": run_metadata.get("effective_posted_to"),
+            "calendar_span_days": run_metadata.get("calendar_span_days"),
+        }
+    return None
+
+
 def _resolve_lead_window_kwargs(
     *,
     date_from: Optional[str] = None,
@@ -251,7 +289,21 @@ def ingest_usaspending_cli(
 @ingest_app.command("samgov")
 @ingest_app.command("sam")
 def ingest_samgov_cli(
-    days: int = typer.Option(7, help="Days of history to request (lookback window)"),
+    days: Optional[int] = typer.Option(
+        None,
+        "--days",
+        help="Days of history to request when --posted-from/--posted-to are not supplied (defaults to 7).",
+    ),
+    posted_from: Optional[str] = typer.Option(
+        None,
+        "--posted-from",
+        help="Explicit SAM postedDate start in YYYY-MM-DD format. Must be used with --posted-to.",
+    ),
+    posted_to: Optional[str] = typer.Option(
+        None,
+        "--posted-to",
+        help="Explicit SAM postedDate end in YYYY-MM-DD format. Must be used with --posted-from.",
+    ),
     pages: int = typer.Option(1, help="Maximum API pages to request"),
     page_size: int = typer.Option(100, "--page-size", help="Records per API page (max 1000)"),
     max_records: Optional[int] = typer.Option(None, "--max-records", "--limit", help="Total cap across pages (and across keyword union when multiple --keyword are used)."),
@@ -267,11 +319,19 @@ def ingest_samgov_cli(
       - API key is read from SAM_API_KEY unless --api-key is provided.
       - Raw snapshots are written under data/raw/sam/YYYYMMDD/.
     """
+    resolved_window = _resolve_sam_ingest_window_or_raise(
+        days=days,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        default_days=7,
+    )
     resolved_keywords = _resolve_sam_ingest_keywords(keyword=keywords, keywords_file=keywords_file)
     try:
         result = ingest_sam_opportunities(
             api_key=api_key,
-            days=days,
+            days=resolved_window.get("requested_days"),
+            posted_from=resolved_window.get("posted_from"),
+            posted_to=resolved_window.get("posted_to"),
             pages=pages,
             page_size=page_size,
             max_records=max_records,
@@ -293,6 +353,8 @@ def ingest_samgov_cli(
 
     run_id = result.get('run_id')
     typer.echo(f'Run ID: {run_id}')
+    window_payload = result.get("date_window") if isinstance(result.get("date_window"), dict) else resolved_window
+    typer.echo(f"Posted window: {describe_sam_posted_window(window_payload)}")
     typer.echo(
         f"Summary: source=SAM.gov run_id={run_id} fetched={result['fetched']} inserted={result['inserted']} normalized={result['normalized']}"
     )
@@ -1021,6 +1083,9 @@ def _echo_validation_checks(res: dict, *, include_passes: bool = False) -> None:
 
 def _echo_workflow_summary(label: str, res: dict) -> None:
     typer.echo(f"Workflow complete: {label}")
+    sam_posted_window = _extract_sam_posted_window(res)
+    if sam_posted_window is not None:
+        typer.echo(f"Posted window: {describe_sam_posted_window(sam_posted_window)}")
     if res.get("ingest"):
         ing = res["ingest"]
         typer.echo(
@@ -1203,7 +1268,22 @@ def workflow_usaspending(
 @workflow_app.command("samgov")
 @workflow_app.command("sam")
 def workflow_samgov(
-    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
+    ingest_days: Optional[int] = typer.Option(
+        None,
+        "--ingest-days",
+        "--days",
+        help="Ingest: days of history to request when --posted-from/--posted-to are not supplied (defaults to 30).",
+    ),
+    posted_from: Optional[str] = typer.Option(
+        None,
+        "--posted-from",
+        help="Ingest: explicit SAM postedDate start in YYYY-MM-DD format. Must be used with --posted-to.",
+    ),
+    posted_to: Optional[str] = typer.Option(
+        None,
+        "--posted-to",
+        help="Ingest: explicit SAM postedDate end in YYYY-MM-DD format. Must be used with --posted-from.",
+    ),
     pages: int = typer.Option(2, "--pages", help="Ingest: maximum API pages to request"),
     page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
     max_records: Optional[int] = typer.Option(
@@ -1265,6 +1345,12 @@ def workflow_samgov(
     from backend.services.workflow import run_samgov_workflow
 
     export_path = Path(out).expanduser() if out else None
+    resolved_window = _resolve_sam_ingest_window_or_raise(
+        days=ingest_days,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        default_days=30,
+    )
     resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     lead_window_kwargs = _resolve_lead_window_kwargs(
@@ -1277,7 +1363,9 @@ def workflow_samgov(
         since_days=since_days,
     )
     res = run_samgov_workflow(
-        ingest_days=ingest_days,
+        ingest_days=resolved_window.get("requested_days"),
+        posted_from=resolved_window.get("posted_from"),
+        posted_to=resolved_window.get("posted_to"),
         pages=pages,
         page_size=page_size,
         max_records=max_records,
@@ -1328,7 +1416,22 @@ def workflow_samgov(
 
 @workflow_app.command("samgov-validate")
 def workflow_samgov_validate(
-    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
+    ingest_days: Optional[int] = typer.Option(
+        None,
+        "--ingest-days",
+        "--days",
+        help="Ingest: days of history to request when --posted-from/--posted-to are not supplied (defaults to 30).",
+    ),
+    posted_from: Optional[str] = typer.Option(
+        None,
+        "--posted-from",
+        help="Ingest: explicit SAM postedDate start in YYYY-MM-DD format. Must be used with --posted-to.",
+    ),
+    posted_to: Optional[str] = typer.Option(
+        None,
+        "--posted-to",
+        help="Ingest: explicit SAM postedDate end in YYYY-MM-DD format. Must be used with --posted-from.",
+    ),
     pages: int = typer.Option(5, "--pages", help="Ingest: maximum API pages to request"),
     page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
     max_records: Optional[int] = typer.Option(250, "--max-records", "--limit", help="Ingest: total cap across pages"),
@@ -1376,6 +1479,12 @@ def workflow_samgov_validate(
     from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_validation_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    resolved_window = _resolve_sam_ingest_window_or_raise(
+        days=ingest_days,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        default_days=30,
+    )
     resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
@@ -1389,7 +1498,9 @@ def workflow_samgov_validate(
         since_days=since_days,
     )
     res = run_samgov_validation_workflow(
-        ingest_days=ingest_days,
+        ingest_days=resolved_window.get("requested_days"),
+        posted_from=resolved_window.get("posted_from"),
+        posted_to=resolved_window.get("posted_to"),
         pages=pages,
         page_size=page_size,
         max_records=max_records,
@@ -1422,6 +1533,9 @@ def workflow_samgov_validate(
     else:
         _echo_validation_gate_summary("SAM.gov larger-run validation", res)
         typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+        sam_posted_window = _extract_sam_posted_window(res)
+        if sam_posted_window is not None:
+            typer.echo(f"Posted window: {describe_sam_posted_window(sam_posted_window)}")
         artifacts = res.get("artifacts") or {}
         if artifacts.get("bundle_manifest_json"):
             typer.echo(f"Bundle manifest: {Path(artifacts.get('bundle_manifest_json')).resolve()}")
@@ -1433,7 +1547,22 @@ def workflow_samgov_validate(
         raise typer.Exit(code=2)
 @workflow_app.command("samgov-smoke")
 def workflow_samgov_smoke(
-    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
+    ingest_days: Optional[int] = typer.Option(
+        None,
+        "--ingest-days",
+        "--days",
+        help="Ingest: days of history to request when --posted-from/--posted-to are not supplied (defaults to 30).",
+    ),
+    posted_from: Optional[str] = typer.Option(
+        None,
+        "--posted-from",
+        help="Ingest: explicit SAM postedDate start in YYYY-MM-DD format. Must be used with --posted-to.",
+    ),
+    posted_to: Optional[str] = typer.Option(
+        None,
+        "--posted-to",
+        help="Ingest: explicit SAM postedDate end in YYYY-MM-DD format. Must be used with --posted-from.",
+    ),
     pages: int = typer.Option(2, "--pages", help="Ingest: maximum API pages to request"),
     page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
     max_records: Optional[int] = typer.Option(
@@ -1495,6 +1624,12 @@ def workflow_samgov_smoke(
     from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_smoke_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    resolved_window = _resolve_sam_ingest_window_or_raise(
+        days=ingest_days,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        default_days=30,
+    )
     resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
@@ -1508,7 +1643,9 @@ def workflow_samgov_smoke(
         since_days=since_days,
     )
     res = run_samgov_smoke_workflow(
-        ingest_days=ingest_days,
+        ingest_days=resolved_window.get("requested_days"),
+        posted_from=resolved_window.get("posted_from"),
+        posted_to=resolved_window.get("posted_to"),
         pages=pages,
         page_size=page_size,
         max_records=max_records,
@@ -1541,6 +1678,9 @@ def workflow_samgov_smoke(
     else:
         _echo_validation_gate_summary("SAM.gov smoke workflow", res)
         typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+        sam_posted_window = _extract_sam_posted_window(res)
+        if sam_posted_window is not None:
+            typer.echo(f"Posted window: {describe_sam_posted_window(sam_posted_window)}")
         artifacts = res.get("artifacts") or {}
         if artifacts.get("smoke_summary_json"):
             typer.echo(f"Workflow summary: {Path(artifacts.get('smoke_summary_json')).resolve()}")

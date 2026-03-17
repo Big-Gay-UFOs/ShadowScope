@@ -113,6 +113,9 @@ def _sample_payloads(bundle_dir: Path) -> tuple[dict, dict, dict, dict]:
             "workflow_type": "samgov-smoke",
             "run_timestamp": "2026-03-09T12:00:00+00:00",
             "ingest_days": 30,
+            "posted_window_mode": "explicit_dates",
+            "effective_posted_from": "2024-01-01",
+            "effective_posted_to": "2024-03-31",
             "pages": 2,
             "page_size": 100,
             "max_records": 50,
@@ -247,6 +250,8 @@ def test_generate_sam_report_contains_expected_sections(tmp_path: Path):
     assert "Artifacts" in html
     assert "DOC-001" in html
     assert "Acme Federal" in html
+    assert "2024-01-01" in html
+    assert "2024-03-31" in html
 
 
 def test_generate_sam_report_handles_missing_optional_sections(tmp_path: Path):
@@ -288,6 +293,24 @@ def test_generate_sam_report_from_bundle_path(tmp_path: Path):
     html = report_path.read_text(encoding="utf-8")
     assert "DOC-001" in html
     assert "procurement" in html
+
+
+def test_generate_sam_report_from_results_bundle_layout(tmp_path: Path):
+    bundle = tmp_path / "bundle_results_layout"
+    workflow, doctor, smoke, artifacts = _sample_payloads(bundle)
+
+    _write_json(bundle / "results" / "workflow_result.json", {"generated_at": "2026-03-09T12:00:00+00:00", "result": workflow})
+    _write_json(bundle / "results" / "doctor_status.json", {"generated_at": "2026-03-09T12:00:00+00:00", "result": doctor})
+    _write_json(bundle / "results" / "workflow_summary.json", smoke)
+
+    res = generate_sam_report_from_bundle(bundle)
+
+    report_path = Path(res["report_html"])
+    assert res["status"] == "PASS"
+    assert report_path.exists()
+    html = report_path.read_text(encoding="utf-8")
+    assert "2024-01-01" in html
+    assert "2024-03-31" in html
 
 
 def test_generate_sam_report_from_hardened_bundle_manifest_paths(tmp_path: Path):

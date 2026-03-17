@@ -146,3 +146,55 @@ def test_ingest_samgov_keywords_union_does_not_starve_later_terms(tmp_path: Path
     assert "DOE" in calls
     assert "NNSA" in calls
 
+
+def test_ingest_samgov_explicit_posted_window_forwards_connector_filters(tmp_path: Path, monkeypatch):
+    db_url = f"sqlite:///{tmp_path / 'sam_posted_window.db'}"
+    ensure_schema(db_url)
+
+    monkeypatch.setitem(ingest_service.RAW_SOURCES, "sam", tmp_path / "raw_sam_dates")
+
+    captured: dict[str, object] = {}
+
+    def fake_fetch(session, filters, api_key: str, timeout: int = 60):
+        captured["posted_from"] = filters.posted_from
+        captured["posted_to"] = filters.posted_to
+        return {
+            "totalRecords": 1,
+            "limit": int(filters.limit),
+            "offset": int(filters.offset),
+            "opportunitiesData": [
+                {"noticeId": "D1", "postedDate": "2024-01-15", "title": "fixed historical window"}
+            ],
+        }
+
+    monkeypatch.setattr(samgov, "fetch_opportunities_page", fake_fetch)
+
+    res = ingest_service.ingest_sam_opportunities(
+        api_key="dummy",
+        posted_from="2024-01-01",
+        posted_to="2024-03-31",
+        pages=1,
+        page_size=25,
+        start_page=1,
+        database_url=db_url,
+    )
+
+    assert res["status"] == "success"
+    assert captured["posted_from"].isoformat() == "2024-01-01"
+    assert captured["posted_to"].isoformat() == "2024-03-31"
+    assert res["date_window"] == {
+        "mode": "explicit_dates",
+        "requested_days": None,
+        "effective_days": None,
+        "posted_from": "2024-01-01",
+        "posted_to": "2024-03-31",
+        "calendar_span_days": 90,
+    }
+
+    SessionFactory = get_session_factory(db_url)
+    db = SessionFactory()
+    try:
+        run = db.query(IngestRun).order_by(IngestRun.id.desc()).one()
+        assert run.days is None
+    finally:
+        db.close()
