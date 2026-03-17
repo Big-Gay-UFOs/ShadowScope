@@ -896,8 +896,21 @@ def diagnose_samgov_cli(
     if bundle.get("latest_bundle_dir"):
         typer.echo(f"Latest bundle: {Path(bundle.get('latest_bundle_dir')).resolve()}")
         typer.echo(
-            f"Bundle status: {bundle.get('bundle_status')} quality={bundle.get('bundle_quality')}"
+            "Bundle: "
+            f"integrity={bundle.get('bundle_integrity_status')} "
+            f"workflow_status={bundle.get('workflow_status')} "
+            f"quality={bundle.get('bundle_quality')}"
         )
+        required_failure_categories = bundle.get("required_failure_categories") or []
+        advisory_failure_categories = bundle.get("advisory_failure_categories") or []
+        if required_failure_categories:
+            typer.echo(
+                "Required failure categories: " + ", ".join([str(item) for item in required_failure_categories])
+            )
+        if advisory_failure_categories:
+            typer.echo(
+                "Advisory failure categories: " + ", ".join([str(item) for item in advisory_failure_categories])
+            )
 
     retries = int(res.get("rate_limit_retries") or 0)
     if retries > 0:
@@ -923,7 +936,18 @@ def inspect_bundle_cli(
         return
 
     typer.echo(f"Bundle dir: {Path(result.get('bundle_dir')).resolve()}")
-    typer.echo(f"Status: {result.get('status')}")
+    typer.echo(f"Bundle integrity: {result.get('bundle_integrity_status') or result.get('status')}")
+    if result.get("workflow_status") is not None:
+        typer.echo(
+            f"Workflow status: {result.get('workflow_status')} quality={result.get('workflow_quality')}"
+        )
+    check_summary = result.get("check_summary") or {}
+    if check_summary:
+        typer.echo(
+            "Check summary: "
+            f"required_failed={check_summary.get('failed_required')} "
+            f"advisory_failed={check_summary.get('failed_advisory', check_summary.get('warnings'))}"
+        )
 
     manifest_path = result.get("bundle_manifest_json")
     if manifest_path:
@@ -934,6 +958,67 @@ def inspect_bundle_cli(
         typer.echo("Missing files:")
         for item in missing:
             typer.echo(f"- {item.get('id')}: {item.get('path')}")
+
+
+def _echo_validation_gate_summary(label: str, res: dict) -> None:
+    status = str(res.get("status") or "unknown").upper()
+    failed_required = res.get("failed_required_checks") or []
+    failed_advisory = res.get("failed_advisory_checks") or res.get("warning_checks") or []
+    quality = res.get("quality") or {}
+    typer.echo(f"{label}: {status}")
+    typer.echo(
+        "Gate summary: "
+        f"required_checks_passed={res.get('required_checks_passed', res.get('smoke_passed'))} "
+        f"required_failed={len(failed_required)} "
+        f"advisory_failed={len(failed_advisory)} "
+        f"quality={quality.get('quality')}"
+    )
+
+    required_failure_categories = quality.get("required_failure_categories") or []
+    advisory_failure_categories = quality.get("advisory_failure_categories") or []
+    if required_failure_categories:
+        typer.echo(
+            "Required failure categories: " + ", ".join([str(item) for item in required_failure_categories])
+        )
+    if advisory_failure_categories:
+        typer.echo(
+            "Advisory failure categories: " + ", ".join([str(item) for item in advisory_failure_categories])
+        )
+
+    for group in (res.get("check_groups") or {}).values():
+        if not isinstance(group, dict):
+            continue
+        label_text = group.get("category_label")
+        if label_text is None:
+            continue
+        typer.echo(
+            f"- {label_text}: "
+            f"required_total={group.get('required_total')} "
+            f"advisory_total={group.get('advisory_total')} "
+            f"failed_required={group.get('failed_required')} "
+            f"failed_advisory={group.get('failed_advisory')}"
+        )
+
+
+def _echo_validation_checks(res: dict, *, include_passes: bool = False) -> None:
+    checks = list(res.get("checks") or [])
+    if not include_passes:
+        checks = [item for item in checks if not bool(item.get("passed"))]
+    for chk in checks:
+        typer.echo(
+            f"- [{str(chk.get('result') or '').upper()}]"
+            f"[{str(chk.get('severity') or '').upper()}]"
+            f"[{str(chk.get('policy_level') or '').upper()}]"
+            f"[{chk.get('category_label')}] "
+            f"{chk.get('name')} observed={chk.get('observed')} threshold={chk.get('expected')}"
+        )
+        if not chk.get("passed"):
+            if chk.get("why"):
+                typer.echo(f"  why: {chk.get('why')}")
+            if chk.get("hint"):
+                typer.echo(f"  next: {chk.get('hint')}")
+
+
 def _echo_workflow_summary(label: str, res: dict) -> None:
     typer.echo(f"Workflow complete: {label}")
     if res.get("ingest"):
@@ -1335,13 +1420,14 @@ def workflow_samgov_validate(
     if json_out:
         typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
     else:
-        typer.echo(f"SAM.gov larger-run validation: {str(res.get('status')).upper()}")
+        _echo_validation_gate_summary("SAM.gov larger-run validation", res)
         typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
         artifacts = res.get("artifacts") or {}
         if artifacts.get("bundle_manifest_json"):
             typer.echo(f"Bundle manifest: {Path(artifacts.get('bundle_manifest_json')).resolve()}")
         if artifacts.get("report_html"):
             typer.echo(f"Bundle report: {Path(artifacts.get('report_html')).resolve()}")
+        _echo_validation_checks(res, include_passes=False)
 
     if require_nonzero and res.get("status") == "failed":
         raise typer.Exit(code=2)
@@ -1399,7 +1485,7 @@ def workflow_samgov_smoke(
         None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/smoke/samgov)"
     ),
     require_nonzero: bool = typer.Option(
-        True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required non-zero checks fail"
+        True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required checks fail"
     ),
     threshold: Optional[List[str]] = typer.Option(None, "--threshold", help="Threshold override key=value (repeat)."),
     skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (offline fixture replay)"),
@@ -1453,7 +1539,7 @@ def workflow_samgov_smoke(
     if json_out:
         typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
     else:
-        typer.echo(f"SAM.gov smoke workflow: {str(res.get('status')).upper()}")
+        _echo_validation_gate_summary("SAM.gov smoke workflow", res)
         typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
         artifacts = res.get("artifacts") or {}
         if artifacts.get("smoke_summary_json"):
@@ -1467,18 +1553,7 @@ def workflow_samgov_smoke(
         thresholds_used = res.get("thresholds") or {}
         if thresholds_used:
             typer.echo(f"Threshold contract: {thresholds_used}")
-        for chk in res.get("checks", []):
-            status = str(chk.get("status") or ("pass" if chk.get("ok") else "fail")).upper()
-            req = "" if chk.get("required", True) else " (info)"
-            observed = chk.get("observed", chk.get("actual"))
-            typer.echo(
-                f"- [{status}] {chk.get('name')}{req} observed={observed} expected={chk.get('expected')}"
-            )
-            if not chk.get("ok"):
-                if chk.get("why"):
-                    typer.echo(f"  why: {chk.get('why')}")
-                if chk.get("hint"):
-                    typer.echo(f"  next: {chk.get('hint')}")
+        _echo_validation_checks(res, include_passes=True)
         entities_diag = (res.get("baseline") or {}).get("entity_coverage") or {}
         typer.echo(
             "Entity coverage baseline: "
@@ -1943,7 +2018,4 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
-
-
-
 

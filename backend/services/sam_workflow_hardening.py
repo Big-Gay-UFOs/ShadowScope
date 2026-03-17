@@ -66,6 +66,101 @@ def _snapshot_window_args(
     return parts
 
 
+def _ordered_failure_categories(checks: list[dict[str, Any]]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in checks:
+        category = str(item.get("category") or "").strip()
+        if not category or category in seen:
+            continue
+        seen.add(category)
+        ordered.append(category)
+    return ordered
+
+
+def _summarize_check_groups(checks: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    from backend.services import workflow as workflow_module
+
+    ordered_categories = [
+        "pipeline_health",
+        "source_coverage_context_health",
+        "lead_signal_quality",
+    ]
+    groups: dict[str, dict[str, Any]] = {}
+    for category in ordered_categories:
+        groups[category] = {
+            "category": category,
+            "category_label": workflow_module.SAM_VALIDATION_CATEGORY_LABELS.get(
+                category,
+                category.replace("_", " "),
+            ),
+            "checks": [],
+        }
+
+    for item in checks:
+        category = str(item.get("category") or "pipeline_health")
+        group = groups.setdefault(
+            category,
+            {
+                "category": category,
+                "category_label": workflow_module.SAM_VALIDATION_CATEGORY_LABELS.get(
+                    category,
+                    category.replace("_", " "),
+                ),
+                "checks": [],
+            },
+        )
+        group["checks"].append(item)
+
+    summary: dict[str, dict[str, Any]] = {}
+    for category in ordered_categories + sorted([k for k in groups.keys() if k not in ordered_categories]):
+        group = groups.get(category)
+        if not group:
+            continue
+        category_checks = list(group.get("checks") or [])
+        if not category_checks and category not in ordered_categories:
+            continue
+        failed_required = [item for item in category_checks if bool(item.get("required")) and not bool(item.get("passed"))]
+        failed_advisory = [
+            item for item in category_checks if not bool(item.get("required")) and not bool(item.get("passed"))
+        ]
+        summary[category] = {
+            "category": category,
+            "category_label": group.get("category_label"),
+            "total": len(category_checks),
+            "passed": len([item for item in category_checks if bool(item.get("passed"))]),
+            "failed": len([item for item in category_checks if not bool(item.get("passed"))]),
+            "required_total": len([item for item in category_checks if bool(item.get("required"))]),
+            "advisory_total": len([item for item in category_checks if not bool(item.get("required"))]),
+            "failed_required": len(failed_required),
+            "failed_advisory": len(failed_advisory),
+            "checks": category_checks,
+        }
+    return summary
+
+
+def _build_quality_gate_policy(
+    *,
+    validation_mode: str,
+    checks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    by_category: dict[str, dict[str, Any]] = {}
+    for category, group in _summarize_check_groups(checks).items():
+        by_category[category] = {
+            "category_label": group.get("category_label"),
+            "required_checks": [item.get("name") for item in group.get("checks", []) if bool(item.get("required"))],
+            "advisory_checks": [
+                item.get("name") for item in group.get("checks", []) if not bool(item.get("required"))
+            ],
+        }
+    return {
+        "validation_mode": validation_mode,
+        "required_checks": [item.get("name") for item in checks if bool(item.get("required"))],
+        "advisory_checks": [item.get("name") for item in checks if not bool(item.get("required"))],
+        "by_category": by_category,
+    }
+
+
 def _classify_sam_quality(
     *,
     failed_required_checks: list[dict[str, Any]],
@@ -79,6 +174,8 @@ def _classify_sam_quality(
 ) -> dict[str, Any]:
     rate_limit_retries = _safe_int(ingest_request_diag.get("rate_limit_retries"))
     retry_attempts_total = _safe_int(ingest_request_diag.get("retry_attempts_total"))
+    required_failure_categories = _ordered_failure_categories(failed_required_checks)
+    advisory_failure_categories = _ordered_failure_categories(warning_checks)
 
     partially_useful = (
         events_window > 0
@@ -115,6 +212,14 @@ def _classify_sam_quality(
             quality = "healthy"
 
     operator_messages: list[str] = []
+    if required_failure_categories:
+        operator_messages.append(
+            "Required quality gates failed in: " + ", ".join(required_failure_categories) + "."
+        )
+    elif advisory_failure_categories:
+        operator_messages.append(
+            "Advisory quality misses were observed in: " + ", ".join(advisory_failure_categories) + "."
+        )
     if rate_limit_retries > 0:
         operator_messages.append(
             "SAM.gov retries/429s were observed. Consider tuning SAM_API_TIMEOUT_SECONDS, "
@@ -136,6 +241,11 @@ def _classify_sam_quality(
         "rate_limit_retries": rate_limit_retries,
         "retry_attempts_total": retry_attempts_total,
         "reason_codes": reason_codes,
+        "required_failure_categories": required_failure_categories,
+        "advisory_failure_categories": advisory_failure_categories,
+        "failure_categories": required_failure_categories + [
+            category for category in advisory_failure_categories if category not in required_failure_categories
+        ],
         "operator_messages": operator_messages,
     }
 
@@ -252,8 +362,10 @@ def run_samgov_smoke_workflow_hardened(
         or _safe_int((ingest or {}).get("normalized")) > 0
     )
 
-    thresholds = workflow_module._resolve_sam_smoke_thresholds(threshold_overrides)
-    threshold_required = mode == "smoke"
+    thresholds = workflow_module._resolve_sam_validation_thresholds(
+        threshold_overrides,
+        validation_mode=mode,
+    )
 
     doc = workflow_module.doctor_status(
         days=int(window_days),
@@ -337,97 +449,106 @@ def run_samgov_smoke_workflow_hardened(
 
     checks: list[dict[str, Any]] = []
     checks.append(
-        {
-            "name": "doctor_db_ok",
-            "required": True,
-            "ok": bool(db_ok),
-            "status": "pass" if db_ok else "fail",
-            "observed": (doc.get("db") or {}).get("status"),
-            "actual": (doc.get("db") or {}).get("status"),
-            "expected": "ok",
-            "why": "SAM.gov workflow diagnostics require DB health to read quality signals.",
-            "hint": doctor_cmd,
-        }
+        workflow_module._serialize_check(
+            name="doctor_db_ok",
+            ok=bool(db_ok),
+            observed=(doc.get("db") or {}).get("status"),
+            actual=(doc.get("db") or {}).get("status"),
+            threshold="ok",
+            expected="ok",
+            why="SAM.gov workflow diagnostics require DB health to read quality signals.",
+            hint=doctor_cmd,
+            kind="health",
+            validation_mode=mode,
+        )
     )
 
     if workflow_error:
         checks.append(
-            {
-                "name": "workflow_execution",
-                "required": True,
-                "ok": False,
-                "status": "fail",
-                "observed": workflow_error,
-                "actual": workflow_error,
-                "expected": "workflow executes without exception",
-                "why": "The workflow failed before all artifact stages completed.",
-                "hint": smoke_tune_cmd if mode == "smoke" else larger_validate_cmd,
-            }
+            workflow_module._serialize_check(
+                name="workflow_execution",
+                ok=False,
+                observed=workflow_error,
+                actual=workflow_error,
+                threshold="workflow executes without exception",
+                expected="workflow executes without exception",
+                why="The workflow failed before all artifact stages completed.",
+                hint=smoke_tune_cmd if mode == "smoke" else larger_validate_cmd,
+                kind="health",
+                validation_mode=mode,
+            )
         )
 
     if skip_ingest:
         checks.append(
-            {
-                "name": "ingest_nonzero",
-                "required": False,
-                "ok": True,
-                "status": "info",
-                "observed": "skipped",
-                "actual": "skipped",
-                "expected": "skip_ingest=True",
-                "why": "Ingest was intentionally skipped for offline replay.",
-                "hint": smoke_tune_cmd,
-            }
+            workflow_module._serialize_check(
+                name="ingest_nonzero",
+                ok=True,
+                observed="skipped",
+                actual="skipped",
+                threshold="skip_ingest=True",
+                expected="skip_ingest=True",
+                why="Ingest was intentionally skipped for offline replay.",
+                hint=smoke_tune_cmd,
+                kind="health",
+                validation_mode=mode,
+                required=False,
+                severity="info",
+                status="info",
+            )
         )
     else:
         ingest_ok = bool(ingest_nonzero) and status != "skipped"
         checks.append(
-            {
-                "name": "ingest_nonzero",
-                "required": True,
-                "ok": ingest_ok,
-                "status": "pass" if ingest_ok else "fail",
-                "observed": {
+            workflow_module._serialize_check(
+                name="ingest_nonzero",
+                ok=bool(ingest_ok),
+                observed={
                     "status": (ingest or {}).get("status"),
                     "fetched": _safe_int((ingest or {}).get("fetched")),
                     "inserted": _safe_int((ingest or {}).get("inserted")),
                     "normalized": _safe_int((ingest or {}).get("normalized")),
                 },
-                "actual": {
+                actual={
                     "status": (ingest or {}).get("status"),
                     "fetched": _safe_int((ingest or {}).get("fetched")),
                     "inserted": _safe_int((ingest or {}).get("inserted")),
                     "normalized": _safe_int((ingest or {}).get("normalized")),
                 },
-                "expected": "fetched>0 OR inserted>0 OR normalized>0",
-                "why": "Fresh SAM.gov ingest keeps validation checks tied to current market movement.",
-                "hint": smoke_tune_cmd if mode == "smoke" else larger_validate_cmd,
-            }
+                threshold="fetched>0 OR inserted>0 OR normalized>0",
+                expected="fetched>0 OR inserted>0 OR normalized>0",
+                why="Fresh SAM.gov ingest keeps validation checks tied to current market movement.",
+                hint=smoke_tune_cmd if mode == "smoke" else larger_validate_cmd,
+                kind="health",
+                validation_mode=mode,
+            )
         )
 
     ingest_request_diag = (ingest.get("request_diagnostics") if isinstance(ingest, dict) else {}) or {}
     rate_limit_retries = _safe_int(ingest_request_diag.get("rate_limit_retries"))
     retry_attempts_total = _safe_int(ingest_request_diag.get("retry_attempts_total"))
     checks.append(
-        {
-            "name": "ingest_retry_pressure",
-            "required": False,
-            "ok": rate_limit_retries == 0,
-            "status": "pass" if rate_limit_retries == 0 else "info",
-            "observed": {
+        workflow_module._serialize_check(
+            name="ingest_retry_pressure",
+            ok=rate_limit_retries == 0,
+            observed={
                 "retry_attempts_total": retry_attempts_total,
                 "rate_limit_retries": rate_limit_retries,
                 "retry_sleep_seconds_total": _safe_float(ingest_request_diag.get("retry_sleep_seconds_total")),
             },
-            "actual": {
+            actual={
                 "retry_attempts_total": retry_attempts_total,
                 "rate_limit_retries": rate_limit_retries,
                 "retry_sleep_seconds_total": _safe_float(ingest_request_diag.get("retry_sleep_seconds_total")),
             },
-            "expected": "rate_limit_retries == 0 (best case)",
-            "why": "Retries/429s can make larger SAM windows slow while still producing usable output.",
-            "hint": "Tune SAM_API_TIMEOUT_SECONDS, SAM_API_MAX_RETRIES, and SAM_API_BACKOFF_BASE.",
-        }
+            threshold="rate_limit_retries == 0 (best case)",
+            expected="rate_limit_retries == 0 (best case)",
+            why="Retries/429s can make larger SAM windows slow while still producing usable output.",
+            hint="Tune SAM_API_TIMEOUT_SECONDS, SAM_API_MAX_RETRIES, and SAM_API_BACKOFF_BASE.",
+            kind="health",
+            validation_mode=mode,
+            status="pass" if rate_limit_retries == 0 else "info",
+        )
     )
 
     threshold_specs: list[dict[str, Any]] = [
@@ -560,11 +681,11 @@ def run_samgov_smoke_workflow_hardened(
                 name=spec["name"],
                 observed=spec["observed"],
                 threshold=spec["threshold"],
-                required=threshold_required,
                 unit=str(spec.get("unit") or ""),
                 why=str(spec["why"]),
                 hint=str(spec["hint"]),
                 actual=spec.get("actual"),
+                validation_mode=mode,
             )
         )
 
@@ -574,14 +695,17 @@ def run_samgov_smoke_workflow_hardened(
                 name="larger_run_window_signal",
                 observed=events_window,
                 threshold=max(10.0, thresholds["events_window_min"]),
-                required=False,
                 why="Large-window validation expects more than trivial volume but can still be sparse-valid.",
                 hint=larger_validate_cmd,
+                validation_mode=mode,
             )
         )
 
     failed_required_checks = [c for c in checks if bool(c.get("required", True)) and not bool(c.get("ok"))]
     warning_checks = [c for c in checks if not bool(c.get("required", True)) and not bool(c.get("ok"))]
+    check_groups = _summarize_check_groups(checks)
+    quality_gate_policy = _build_quality_gate_policy(validation_mode=mode, checks=checks)
+    required_checks_passed = len(failed_required_checks) == 0
     smoke_passed = len(failed_required_checks) == 0
 
     quality = _classify_sam_quality(
@@ -654,7 +778,7 @@ def run_samgov_smoke_workflow_hardened(
     workflow_module._write_json(doctor_json, {"generated_at": now.isoformat(), "result": doc})
 
     if failed_required_checks:
-        workflow_status = "failed" if bool(require_nonzero) else "warning"
+        workflow_status = "failed"
     elif warning_checks:
         workflow_status = "warning"
     else:
@@ -668,13 +792,17 @@ def run_samgov_smoke_workflow_hardened(
         "bundle_version": SAM_BUNDLE_VERSION,
         "status": workflow_status,
         "smoke_passed": smoke_passed,
+        "required_checks_passed": required_checks_passed,
         "partially_useful": bool(quality.get("partially_useful")),
         "quality": quality,
         "require_nonzero": bool(require_nonzero),
         "thresholds": thresholds,
+        "quality_gate_policy": quality_gate_policy,
         "failed_required_checks": failed_required_checks,
+        "failed_advisory_checks": warning_checks,
         "warning_checks": warning_checks,
         "checks": checks,
+        "check_groups": check_groups,
         "baseline": baseline,
     }
 
@@ -701,6 +829,7 @@ def run_samgov_smoke_workflow_hardened(
         "status": workflow_status,
         "quality": quality.get("quality"),
         "smoke_passed": smoke_passed,
+        "required_checks_passed": required_checks_passed,
         "partially_useful": bool(quality.get("partially_useful")),
         "events_window": events_window,
         "events_with_keywords": events_with_keywords,
@@ -720,6 +849,7 @@ def run_samgov_smoke_workflow_hardened(
         workflow_type=workflow_type,
         validation_mode=mode,
         checks=checks,
+        check_groups=check_groups,
         failed_required_checks=failed_required_checks,
         warning_checks=warning_checks,
         summary=report_summary,
@@ -746,9 +876,27 @@ def run_samgov_smoke_workflow_hardened(
         },
         "check_summary": {
             "total": len(checks),
+            "passed": len([item for item in checks if bool(item.get("passed"))]),
+            "required_total": len([item for item in checks if bool(item.get("required"))]),
+            "advisory_total": len([item for item in checks if not bool(item.get("required"))]),
             "failed_required": len(failed_required_checks),
+            "failed_advisory": len(warning_checks),
             "warnings": len(warning_checks),
+            "required_failure_categories": quality.get("required_failure_categories") or [],
+            "advisory_failure_categories": quality.get("advisory_failure_categories") or [],
+            "by_category": {
+                category: {
+                    "category_label": group.get("category_label"),
+                    "total": group.get("total"),
+                    "required_total": group.get("required_total"),
+                    "advisory_total": group.get("advisory_total"),
+                    "failed_required": group.get("failed_required"),
+                    "failed_advisory": group.get("failed_advisory"),
+                }
+                for category, group in check_groups.items()
+            },
         },
+        "quality_gate_policy": quality_gate_policy,
         "run_parameters": {
             "ingest_days": int(ingest_days),
             "pages": int(pages),
@@ -775,6 +923,7 @@ def run_samgov_smoke_workflow_hardened(
     return {
         "status": workflow_status,
         "smoke_passed": bool(smoke_passed),
+        "required_checks_passed": bool(required_checks_passed),
         "partially_useful": bool(quality.get("partially_useful")),
         "quality": quality,
         "workflow_type": workflow_type,
@@ -784,7 +933,10 @@ def run_samgov_smoke_workflow_hardened(
         "workflow": workflow_res,
         "doctor": doc,
         "checks": checks,
+        "check_groups": check_groups,
+        "quality_gate_policy": quality_gate_policy,
         "failed_required_checks": failed_required_checks,
+        "failed_advisory_checks": warning_checks,
         "warning_checks": warning_checks,
         "thresholds": thresholds,
         "baseline": baseline,

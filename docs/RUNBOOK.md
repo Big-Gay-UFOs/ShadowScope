@@ -157,8 +157,10 @@ ss inspect bundle --path <bundle_dir> --json
 Interpretation:
 
 - `status=ok`: required checks passed.
-- `status=warning`: partially useful/sparse/degraded but artifacts are available.
+- `status=warning`: required checks passed, but advisory checks missed threshold and artifacts are only partially useful/sparse/degraded.
 - `status=failed`: required checks failed; treat as hard failure.
+- Validation output separates failures into `pipeline_health`, `source_coverage_context_health`, and `lead_signal_quality`.
+- Each check now serializes `name`, `observed`, `threshold`, `severity`, `required` vs `advisory`, and pass/fail.
 
 Bundle contract (`samgov.bundle.v1`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries.
 
@@ -169,4 +171,3 @@ $env:SAM_API_TIMEOUT_SECONDS = "90"
 $env:SAM_API_MAX_RETRIES = "12"
 $env:SAM_API_BACKOFF_BASE = "1.25"
 ```
-

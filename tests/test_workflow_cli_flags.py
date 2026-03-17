@@ -193,6 +193,70 @@ def test_workflow_samgov_validate_profile_maps_dod_foia(monkeypatch):
     assert captured.get("ontology_path") == Path("examples/ontology_sam_dod_foia_companion.json")
 
 
+def test_workflow_samgov_validate_cli_surfaces_required_failures(monkeypatch):
+    def fake_run_samgov_validation_workflow(**_kwargs):
+        return {
+            "status": "failed",
+            "required_checks_passed": False,
+            "validation_mode": "larger",
+            "bundle_dir": "data/exports/validation/samgov/test",
+            "artifacts": {},
+            "quality": {
+                "quality": "hard_failure",
+                "required_failure_categories": ["lead_signal_quality"],
+                "advisory_failure_categories": ["source_coverage_context_health"],
+            },
+            "check_groups": {
+                "lead_signal_quality": {
+                    "category_label": "Lead-signal quality",
+                    "required_total": 2,
+                    "advisory_total": 1,
+                    "failed_required": 1,
+                    "failed_advisory": 0,
+                }
+            },
+            "checks": [
+                {
+                    "name": "snapshot_items_threshold",
+                    "result": "fail",
+                    "severity": "error",
+                    "policy_level": "required",
+                    "category_label": "Lead-signal quality",
+                    "observed": 0,
+                    "expected": ">= 1",
+                    "passed": False,
+                    "why": "Lead snapshots must contain actionable SAM.gov rows for operator review.",
+                    "hint": 'ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200',
+                }
+            ],
+            "failed_required_checks": [
+                {
+                    "name": "snapshot_items_threshold",
+                    "result": "fail",
+                    "severity": "error",
+                    "policy_level": "required",
+                    "category_label": "Lead-signal quality",
+                    "observed": 0,
+                    "expected": ">= 1",
+                    "passed": False,
+                    "why": "Lead snapshots must contain actionable SAM.gov rows for operator review.",
+                    "hint": 'ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200',
+                }
+            ],
+            "failed_advisory_checks": [],
+            "warning_checks": [],
+        }
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_validation_workflow", fake_run_samgov_validation_workflow)
+
+    result = runner.invoke(cli_module.app, ["workflow", "samgov-validate"])
+
+    assert result.exit_code == 2, result.stdout
+    assert "required_failed=1" in result.stdout
+    assert "Required failure categories: lead_signal_quality" in result.stdout
+    assert "[FAIL][ERROR][REQUIRED][Lead-signal quality] snapshot_items_threshold" in result.stdout
+
+
 @pytest.mark.parametrize(
     ("profile", "expected_path"),
     [
@@ -305,6 +369,5 @@ def test_ingest_samgov_keywords_file_merges_with_repeat_keyword(monkeypatch, tmp
 
     assert result.exit_code == 0, result.stdout
     assert captured.get("keywords") == ["alpha", "gamma", "beta"]
-
 
 

@@ -144,15 +144,21 @@ def diagnose_samgov(
     entity_cov = float((doc.get("entities") or {}).get("window_linked_coverage_pct") or 0.0)
 
     rate_limit_retries = 0
-    bundle_status = None
+    bundle_integrity_status = None
+    workflow_status = None
     bundle_quality = None
+    required_failure_categories: list[str] = []
+    advisory_failure_categories: list[str] = []
     if isinstance(bundle_inspection, dict):
-        bundle_status = bundle_inspection.get("status")
+        bundle_integrity_status = bundle_inspection.get("bundle_integrity_status") or bundle_inspection.get("status")
+        workflow_status = bundle_inspection.get("workflow_status")
         manifest = bundle_inspection.get("manifest") if isinstance(bundle_inspection.get("manifest"), dict) else {}
         ingest_diag = manifest.get("ingest_diagnostics") if isinstance(manifest.get("ingest_diagnostics"), dict) else {}
         rate_limit_retries = int(ingest_diag.get("rate_limit_retries") or 0)
         quality_payload = manifest.get("quality") if isinstance(manifest.get("quality"), dict) else {}
         bundle_quality = quality_payload.get("quality")
+        required_failure_categories = list(quality_payload.get("required_failure_categories") or [])
+        advisory_failure_categories = list(quality_payload.get("advisory_failure_categories") or [])
 
     recommendations: list[str] = []
     if events_window == 0:
@@ -207,8 +213,11 @@ def diagnose_samgov(
         "bundle": {
             "latest_bundle_dir": latest_bundle_dir,
             "inspection": bundle_inspection,
-            "bundle_status": bundle_status,
+            "bundle_integrity_status": bundle_integrity_status,
+            "workflow_status": workflow_status,
             "bundle_quality": bundle_quality,
+            "required_failure_categories": required_failure_categories,
+            "advisory_failure_categories": advisory_failure_categories,
         },
         "gaps": {
             "untagged_events": len(untagged_event_ids),

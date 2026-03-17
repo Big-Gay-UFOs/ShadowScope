@@ -51,9 +51,220 @@ DEFAULT_SAM_SMOKE_THRESHOLDS: dict[str, float] = {
     "snapshot_items_min": 1.0,
 }
 
+DEFAULT_SAM_LARGER_THRESHOLDS: dict[str, float] = dict(DEFAULT_SAM_SMOKE_THRESHOLDS)
 
-def _resolve_sam_smoke_thresholds(overrides: Optional[dict[str, Any]]) -> dict[str, float]:
-    resolved = dict(DEFAULT_SAM_SMOKE_THRESHOLDS)
+SAM_VALIDATION_CATEGORY_LABELS: dict[str, str] = {
+    "pipeline_health": "Pipeline health",
+    "source_coverage_context_health": "Source coverage/context health",
+    "lead_signal_quality": "Lead-signal quality",
+}
+
+SAM_VALIDATION_CHECK_POLICIES: dict[str, dict[str, dict[str, Any]]] = {
+    "smoke": {
+        "doctor_db_ok": {
+            "category": "pipeline_health",
+            "severity": "critical",
+            "required": True,
+        },
+        "workflow_execution": {
+            "category": "pipeline_health",
+            "severity": "critical",
+            "required": True,
+        },
+        "ingest_nonzero": {
+            "category": "pipeline_health",
+            "severity": "critical",
+            "required": True,
+        },
+        "ingest_retry_pressure": {
+            "category": "pipeline_health",
+            "severity": "warning",
+            "required": False,
+        },
+        "events_window_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "events_with_keywords_coverage_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "events_with_entity_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "keyword_or_kw_pair_signal_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_research_context_events_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_research_context_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_core_procurement_context_events_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_core_procurement_context_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_avg_context_fields_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_notice_type_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_solicitation_number_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_naics_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "same_sam_naics_lane_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "snapshot_items_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "error",
+            "required": True,
+        },
+    },
+    "larger": {
+        "doctor_db_ok": {
+            "category": "pipeline_health",
+            "severity": "critical",
+            "required": True,
+        },
+        "workflow_execution": {
+            "category": "pipeline_health",
+            "severity": "critical",
+            "required": True,
+        },
+        "ingest_nonzero": {
+            "category": "pipeline_health",
+            "severity": "critical",
+            "required": True,
+        },
+        "ingest_retry_pressure": {
+            "category": "pipeline_health",
+            "severity": "warning",
+            "required": False,
+        },
+        "events_window_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "events_with_keywords_coverage_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "events_with_entity_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "keyword_or_kw_pair_signal_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_research_context_events_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "warning",
+            "required": False,
+        },
+        "sam_research_context_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_core_procurement_context_events_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "warning",
+            "required": False,
+        },
+        "sam_core_procurement_context_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "sam_avg_context_fields_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "warning",
+            "required": False,
+        },
+        "sam_notice_type_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "warning",
+            "required": False,
+        },
+        "sam_solicitation_number_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "warning",
+            "required": False,
+        },
+        "sam_naics_coverage_threshold": {
+            "category": "source_coverage_context_health",
+            "severity": "error",
+            "required": True,
+        },
+        "same_sam_naics_lane_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "snapshot_items_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "larger_run_window_signal": {
+            "category": "source_coverage_context_health",
+            "severity": "warning",
+            "required": False,
+        },
+    },
+}
+
+
+def _normalize_validation_mode(value: str) -> str:
+    normalized = str(value or "smoke").strip().lower()
+    return normalized if normalized in {"smoke", "larger"} else "smoke"
+
+
+def _resolve_sam_validation_thresholds(
+    overrides: Optional[dict[str, Any]],
+    *,
+    validation_mode: str = "smoke",
+) -> dict[str, float]:
+    mode = _normalize_validation_mode(validation_mode)
+    base = DEFAULT_SAM_SMOKE_THRESHOLDS if mode == "smoke" else DEFAULT_SAM_LARGER_THRESHOLDS
+    resolved = dict(base)
     for key, value in (overrides or {}).items():
         if key not in resolved:
             continue
@@ -66,10 +277,86 @@ def _resolve_sam_smoke_thresholds(overrides: Optional[dict[str, Any]]) -> dict[s
     return resolved
 
 
+def _resolve_sam_larger_thresholds(overrides: Optional[dict[str, Any]]) -> dict[str, float]:
+    return _resolve_sam_validation_thresholds(overrides, validation_mode="larger")
+
+
+def _resolve_sam_smoke_thresholds(overrides: Optional[dict[str, Any]]) -> dict[str, float]:
+    return _resolve_sam_validation_thresholds(overrides, validation_mode="smoke")
+
+
 def _format_threshold_value(value: float) -> str:
     if abs(value - int(value)) < 1e-9:
         return str(int(value))
     return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def _get_sam_validation_check_policy(
+    name: str,
+    *,
+    validation_mode: str = "smoke",
+) -> dict[str, Any]:
+    mode = _normalize_validation_mode(validation_mode)
+    policy = SAM_VALIDATION_CHECK_POLICIES.get(mode, {})
+    fallback_policy = SAM_VALIDATION_CHECK_POLICIES["smoke"]
+    resolved = dict(fallback_policy.get(name) or {})
+    resolved.update(policy.get(name) or {})
+    category = str(resolved.get("category") or "pipeline_health")
+    return {
+        "category": category,
+        "category_label": SAM_VALIDATION_CATEGORY_LABELS.get(category, category.replace("_", " ")),
+        "severity": str(resolved.get("severity") or "warning"),
+        "required": bool(resolved.get("required", True)),
+    }
+
+
+def _serialize_check(
+    *,
+    name: str,
+    ok: bool,
+    observed: Any,
+    threshold: Any,
+    expected: str,
+    why: str,
+    hint: str,
+    actual: Any = None,
+    comparator: Optional[str] = None,
+    unit: str = "",
+    kind: str = "threshold",
+    validation_mode: str = "smoke",
+    required: Optional[bool] = None,
+    severity: Optional[str] = None,
+    category: Optional[str] = None,
+    status: Optional[str] = None,
+) -> dict[str, Any]:
+    policy = _get_sam_validation_check_policy(name, validation_mode=validation_mode)
+    category_name = str(category or policy["category"])
+    category_label = SAM_VALIDATION_CATEGORY_LABELS.get(category_name, category_name.replace("_", " "))
+    required_flag = policy["required"] if required is None else bool(required)
+    severity_name = str(severity or policy["severity"])
+    passed = bool(ok)
+    legacy_status = status or ("pass" if passed else ("fail" if required_flag else "info"))
+    return {
+        "name": name,
+        "kind": kind,
+        "category": category_name,
+        "category_label": category_label,
+        "severity": severity_name,
+        "required": required_flag,
+        "policy_level": "required" if required_flag else "advisory",
+        "ok": passed,
+        "passed": passed,
+        "result": "pass" if passed else "fail",
+        "status": legacy_status,
+        "observed": observed,
+        "actual": observed if actual is None else actual,
+        "threshold": threshold,
+        "expected": expected,
+        "comparator": comparator,
+        "unit": unit,
+        "why": why,
+        "hint": hint,
+    }
 
 
 def _threshold_check(
@@ -78,28 +365,35 @@ def _threshold_check(
     observed: Any,
     threshold: float,
     comparator: str = ">=",
-    required: bool = True,
+    required: Optional[bool] = None,
     unit: str = "",
     why: str,
     hint: str,
     actual: Any = None,
+    validation_mode: str = "smoke",
+    severity: Optional[str] = None,
+    category: Optional[str] = None,
 ) -> dict[str, Any]:
     observed_num = _safe_float(observed, default=0.0)
     ok = observed_num >= threshold if comparator == ">=" else False
-    status = "pass" if ok else ("fail" if required else "info")
     expected = f"{comparator} {_format_threshold_value(threshold)}{unit}"
-    return {
-        "name": name,
-        "required": bool(required),
-        "ok": bool(ok),
-        "status": status,
-        "observed": observed,
-        "actual": observed if actual is None else actual,
-        "threshold": threshold,
-        "expected": expected,
-        "why": why,
-        "hint": hint,
-    }
+    return _serialize_check(
+        name=name,
+        ok=bool(ok),
+        observed=observed,
+        threshold=threshold,
+        expected=expected,
+        why=why,
+        hint=hint,
+        actual=actual,
+        comparator=comparator,
+        unit=unit,
+        kind="threshold",
+        validation_mode=validation_mode,
+        required=required,
+        severity=severity,
+        category=category,
+    )
 
 def _normalize_for_json(value: Any) -> Any:
     if isinstance(value, Path):

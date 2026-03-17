@@ -87,6 +87,8 @@ def test_inspect_bundle_reads_manifest_and_files(tmp_path: Path):
     inspected = inspect_bundle(bundle_dir)
 
     assert inspected["status"] == "ok"
+    assert inspected["bundle_integrity_status"] == "ok"
+    assert inspected["workflow_status"] == res["status"]
     manifest = inspected.get("manifest") or {}
     assert manifest.get("bundle_version") == "samgov.bundle.v1"
     generated_files = inspected.get("generated_files") or {}
@@ -140,6 +142,8 @@ def test_diagnose_samgov_reports_bundle_and_gap_metrics(tmp_path: Path):
     bundle = diag.get("bundle") or {}
     inspection = bundle.get("inspection") or {}
     assert inspection.get("status") == "ok"
+    assert bundle.get("bundle_integrity_status") == "ok"
+    assert bundle.get("workflow_status") == smoke.get("status")
 
     gaps = diag.get("gaps") or {}
     assert "untagged_events" in gaps

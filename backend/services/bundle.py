@@ -185,6 +185,7 @@ def render_sam_bundle_report(
     workflow_type: str,
     validation_mode: str,
     checks: list[dict[str, Any]],
+    check_groups: dict[str, dict[str, Any]],
     failed_required_checks: list[dict[str, Any]],
     warning_checks: list[dict[str, Any]],
     summary: dict[str, Any],
@@ -198,18 +199,48 @@ def render_sam_bundle_report(
 
     summary_rows = "".join([_row(k, v) for k, v in summary.items()])
 
-    checks_rows: list[str] = []
-    for chk in checks:
-        checks_rows.append(
+    category_rows: list[str] = []
+    for category, group in check_groups.items():
+        category_rows.append(
             "<tr>"
-            f"<td>{html.escape(str(chk.get('status')))}</td>"
-            f"<td>{html.escape(str(chk.get('name')))}</td>"
-            f"<td>{html.escape(str(chk.get('observed', chk.get('actual'))))}</td>"
-            f"<td>{html.escape(str(chk.get('expected')))}</td>"
-            f"<td>{html.escape(str(chk.get('hint') or ''))}</td>"
+            f"<td>{html.escape(str(group.get('category_label') or category))}</td>"
+            f"<td>{html.escape(str(group.get('required_total') or 0))}</td>"
+            f"<td>{html.escape(str(group.get('advisory_total') or 0))}</td>"
+            f"<td>{html.escape(str(group.get('failed_required') or 0))}</td>"
+            f"<td>{html.escape(str(group.get('failed_advisory') or 0))}</td>"
             "</tr>"
         )
-    checks_table = "".join(checks_rows) or "<tr><td colspan='5'>No checks found.</td></tr>"
+    category_table = "".join(category_rows) or "<tr><td colspan='5'>No category data found.</td></tr>"
+
+    def _render_check_table(items: list[dict[str, Any]]) -> str:
+        rows: list[str] = []
+        for chk in items:
+            rows.append(
+                "<tr>"
+                f"<td>{html.escape(str(chk.get('result')))}</td>"
+                f"<td>{html.escape(str(chk.get('severity')))}</td>"
+                f"<td>{html.escape(str(chk.get('policy_level')))}</td>"
+                f"<td>{html.escape(str(chk.get('name')))}</td>"
+                f"<td>{html.escape(str(chk.get('observed', chk.get('actual'))))}</td>"
+                f"<td>{html.escape(str(chk.get('expected', chk.get('threshold'))))}</td>"
+                f"<td>{html.escape(str(chk.get('hint') or ''))}</td>"
+                "</tr>"
+            )
+        return "".join(rows) or "<tr><td colspan='7'>No checks found.</td></tr>"
+
+    check_sections: list[str] = []
+    for category, group in check_groups.items():
+        label = str(group.get("category_label") or category)
+        check_sections.append(
+            f"<h3>{html.escape(label)}</h3>"
+            "<table>"
+            "<thead><tr><th>Result</th><th>Severity</th><th>Policy</th><th>Name</th><th>Observed</th><th>Threshold</th><th>Next</th></tr></thead>"
+            f"<tbody>{_render_check_table(list(group.get('checks') or []))}</tbody>"
+            "</table>"
+        )
+    checks_markup = "".join(check_sections) or (
+        "<table><tbody><tr><td colspan='7'>No checks found.</td></tr></tbody></table>"
+    )
 
     file_rows: list[str] = []
     files = flatten_bundle_files(artifacts=artifacts, bundle_dir=bundle_dir)
@@ -230,7 +261,7 @@ def render_sam_bundle_report(
   <title>{html.escape(title)}</title>
   <style>
     body {{ font-family: Segoe UI, Arial, sans-serif; margin: 20px; color: #111; }}
-    h1, h2 {{ margin-bottom: 0.3rem; }}
+    h1, h2, h3 {{ margin-bottom: 0.3rem; }}
     .meta {{ color: #333; margin-bottom: 1rem; }}
     .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: 600; background: #e8eef7; }}
     table {{ border-collapse: collapse; width: 100%; margin-bottom: 1.2rem; }}
@@ -251,11 +282,12 @@ def render_sam_bundle_report(
   <table><tbody>{summary_rows}</tbody></table>
 
   <h2>Checks</h2>
-  <div class=\"meta\">failed_required={len(failed_required_checks)} warning_checks={len(warning_checks)}</div>
+  <div class=\"meta\">failed_required={len(failed_required_checks)} failed_advisory={len(warning_checks)}</div>
   <table>
-    <thead><tr><th>Status</th><th>Name</th><th>Observed</th><th>Expected</th><th>Next</th></tr></thead>
-    <tbody>{checks_table}</tbody>
+    <thead><tr><th>Category</th><th>Required</th><th>Advisory</th><th>Failed Required</th><th>Failed Advisory</th></tr></thead>
+    <tbody>{category_table}</tbody>
   </table>
+  {checks_markup}
 
   <h2>Bundle Files</h2>
   <table>
@@ -311,9 +343,18 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
         if not exists:
             missing_files.append({"id": str(file_id), "path": str(abs_path)})
 
+    quality_payload = manifest.get("quality") if isinstance(manifest.get("quality"), dict) else {}
+    check_summary = manifest.get("check_summary") if isinstance(manifest.get("check_summary"), dict) else {}
+    integrity_status = "ok" if not missing_files else "missing_files"
     payload.update(
         {
-            "status": "ok" if not missing_files else "missing_files",
+            "status": integrity_status,
+            "bundle_integrity_status": integrity_status,
+            "workflow_status": manifest.get("status"),
+            "workflow_quality": quality_payload.get("quality"),
+            "required_failure_categories": quality_payload.get("required_failure_categories") or [],
+            "advisory_failure_categories": quality_payload.get("advisory_failure_categories") or [],
+            "check_summary": check_summary,
             "manifest": manifest,
             "generated_files": file_status,
             "missing_files": missing_files,
