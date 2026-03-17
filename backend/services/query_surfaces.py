@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import Float, Integer, String, cast, desc, func, or_, select
+from sqlalchemy import Float, Integer, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.db.models import Correlation, CorrelationLink, Event
