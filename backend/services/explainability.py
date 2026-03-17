@@ -55,6 +55,22 @@ def coerce_number(value: Any, default: float = 0.0) -> int | float:
     return round(float(numeric), 6)
 
 
+def optional_number(value: Any) -> int | float | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return coerce_number(value, default=0.0)
+
+
+def optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return safe_int(value)
+
+
 def humanize_keyword(keyword: Any) -> str:
     text = str(keyword or "").strip()
     if not text:
@@ -294,6 +310,17 @@ def _kw_pair_metadata(
         "pair_label": pair_label,
         "event_count": event_count,
         "contribution": contribution,
+        "c12": optional_int(lane_payload.get("c12")),
+        "keyword_1_df": optional_int(lane_payload.get("keyword_1_df")),
+        "keyword_2_df": optional_int(lane_payload.get("keyword_2_df")),
+        "total_events": optional_int(lane_payload.get("total_events")),
+        "score_kind": str(lane_payload.get("score_kind")).strip() or None
+        if lane_payload.get("score_kind") is not None
+        else None,
+        "score_secondary": optional_number(lane_payload.get("score_secondary")),
+        "score_secondary_kind": str(lane_payload.get("score_secondary_kind")).strip() or None
+        if lane_payload.get("score_secondary_kind") is not None
+        else None,
     }
 
 
