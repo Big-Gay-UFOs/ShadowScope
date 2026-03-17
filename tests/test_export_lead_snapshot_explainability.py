@@ -13,12 +13,23 @@ def test_export_lead_snapshot_includes_explainability(tmp_path):
     SessionFactory = get_session_factory(db_url)
 
     with SessionFactory() as db:
-        e1 = Event(category="award", source="USAspending", hash="ev_x_1", snippet="s1", place_text="p1", doc_id="d1", source_url="http://x/1", raw_json={}, keywords=["k1"], clauses=[])
-        db.add(e1)
+        event = Event(
+            category="award",
+            source="USAspending",
+            hash="ev_x_1",
+            snippet="s1",
+            place_text="p1",
+            doc_id="d1",
+            source_url="http://x/1",
+            raw_json={},
+            keywords=["k1"],
+            clauses=[{"pack": "focus", "rule": "signal", "weight": 5, "field": "snippet", "match": "s1"}],
+        )
+        db.add(event)
         db.commit()
-        db.refresh(e1)
+        db.refresh(event)
 
-        c = Correlation(
+        correlation = Correlation(
             correlation_key="kw_pair|USAspending|30|pair:aaaaaaaaaaaaaaaa",
             score="0.577400",
             window_days=30,
@@ -38,29 +49,29 @@ def test_export_lead_snapshot_includes_explainability(tmp_path):
                 "score_secondary_kind": "log_odds",
             },
         )
-        db.add(c)
+        db.add(correlation)
         db.commit()
-        db.refresh(c)
+        db.refresh(correlation)
 
-        db.add(CorrelationLink(correlation_id=int(c.id), event_id=int(e1.id)))
+        db.add(CorrelationLink(correlation_id=int(correlation.id), event_id=int(event.id)))
         db.commit()
 
-        snap = LeadSnapshot(source="USAspending", min_score=1, scoring_version="v2")
-        db.add(snap)
+        snapshot = LeadSnapshot(source="USAspending", min_score=1, scoring_version="v2")
+        db.add(snapshot)
         db.commit()
-        db.refresh(snap)
+        db.refresh(snapshot)
 
         db.add(
             LeadSnapshotItem(
-                snapshot_id=int(snap.id),
-                event_id=int(e1.id),
-                event_hash=e1.hash,
+                snapshot_id=int(snapshot.id),
+                event_id=int(event.id),
+                event_hash=event.hash,
                 rank=1,
                 score=12,
                 score_details={
                     "scoring_version": "v2",
-                    "clause_score": 0,
-                    "keyword_score": 3,
+                    "clause_score": 5,
+                    "keyword_score": 0,
                     "entity_bonus": 0,
                     "pair_bonus": 6,
                     "pair_count": 1,
@@ -73,12 +84,19 @@ def test_export_lead_snapshot_includes_explainability(tmp_path):
         db.commit()
 
     out_dir = tmp_path / "out"
-    res = export_lead_snapshot(snapshot_id=int(snap.id), database_url=db_url, output=out_dir)
-    payload = json.loads(res["json"].read_text(encoding="utf-8"))
+    result = export_lead_snapshot(snapshot_id=int(snapshot.id), database_url=db_url, output=out_dir)
+    payload = json.loads(result["json"].read_text(encoding="utf-8"))
     assert payload["count"] == 1
     item = payload["items"][0]
     assert "why_summary" in item
-    assert "top_kw_pairs_json" in item
+    assert item["scoring_version"] == "v2"
+    assert item["pair_bonus_applied"] == 6
+    assert item["noise_penalty_applied"] == 0
+    assert "contributing_correlations_json" in item
+    correlations = json.loads(item["contributing_correlations_json"])
+    assert correlations and correlations[0]["lane"] == "kw_pair"
+    assert "matched_ontology_rules_json" in item
+    assert json.loads(item["matched_ontology_rules_json"]) == ["focus:signal"]
     pairs = json.loads(item["top_kw_pairs_json"])
     assert pairs and pairs[0]["keyword_1"] == "alpha"
     assert pairs[0]["score_signal"] == 0.5774

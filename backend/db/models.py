@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import os
 from contextlib import contextmanager
 from typing import Iterator, Optional
@@ -254,7 +254,7 @@ class LeadSnapshot(Base):
     source = Column(String(32))
     min_score = Column(Integer, nullable=False, default=1)
     limit = Column("max_items", Integer, nullable=False, default=200)
-    scoring_version = Column(String(32), nullable=False, default="v1")
+    scoring_version = Column(String(32), nullable=False, default="v2")
     notes = Column(Text)
 
     items = relationship("LeadSnapshotItem", back_populates="snapshot", cascade="all, delete-orphan")

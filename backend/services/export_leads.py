@@ -3,25 +3,16 @@ from __future__ import annotations
 
 import csv
 import json
-import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from sqlalchemy import select
 
-from backend.correlate.scorer import (
-    DEFAULT_KW_PAIR_BONUS_MIN_EVENT_COUNT,
-    DEFAULT_KW_PAIR_BONUS_MIN_SIGNAL,
-    kw_pair_bonus_contribution,
-    kw_pair_event_count,
-    kw_pair_lane_payload,
-    kw_pair_score_secondary,
-    kw_pair_score_signal,
-)
-from backend.db.models import Correlation, CorrelationLink, Event, LeadSnapshot, LeadSnapshotItem, get_session_factory
+from backend.db.models import Event, LeadSnapshot, LeadSnapshotItem, get_session_factory
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
 from backend.services.deltas import compute_lead_deltas
+from backend.services.explainability import enrich_lead_score_details, load_event_correlation_evidence
 
 
 def _score_part(details: dict[str, Any], key: str, default: Any = 0) -> Any:
@@ -29,104 +20,121 @@ def _score_part(details: dict[str, Any], key: str, default: Any = 0) -> Any:
     return default if v is None else v
 
 
+def _json_text(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _list_text(values: list[Any], *, limit: int = 5) -> str:
+    return "; ".join([str(v) for v in values[: int(limit)] if str(v).strip()])
+
+
 def _top_clauses_text(details: dict[str, Any], limit: int = 5) -> str:
-    items = details.get("top_clauses") or []
+    items = details.get("matched_ontology_clauses") or details.get("top_clauses") or []
     out: list[str] = []
     if isinstance(items, list):
-        for c in items[: int(limit)]:
-            if not isinstance(c, dict):
+        for clause in items[: int(limit)]:
+            if not isinstance(clause, dict):
                 continue
-            pack = c.get("pack") or ""
-            rule = c.get("rule") or ""
-            w = c.get("weight")
-            if pack and rule:
-                out.append(f"{pack}:{rule}({w})")
+            pack = clause.get("pack") or ""
+            rule = clause.get("rule") or ""
+            weight = clause.get("weight")
+            avg_weight = clause.get("avg_weight")
+            event_count = clause.get("event_count")
+            if pack and rule and avg_weight is not None:
+                out.append(f"{pack}:{rule}(events={event_count},avg={avg_weight})")
+            elif pack and rule:
+                out.append(f"{pack}:{rule}({weight})")
             elif pack:
-                out.append(f"{pack}({w})")
+                out.append(f"{pack}({weight})")
             else:
-                out.append(f"clause({w})")
+                out.append(f"clause({weight})")
     return "; ".join(out)
 
 
+def _correlation_text(correlation: dict[str, Any]) -> str:
+    lane = str(correlation.get("lane") or "")
+    label = str(correlation.get("pair_label") or correlation.get("correlation_key") or "")
+    event_count = correlation.get("event_count")
+    score_signal = correlation.get("score_signal")
+    if label and event_count is not None and score_signal is not None:
+        return f"{lane}:{label}(signal={score_signal},n={event_count})"
+    if label:
+        return f"{lane}:{label}" if lane else label
+    return lane or "correlation"
 
-def _legacy_kw_pair_contribution(event_count: int) -> float:
-    if int(event_count) <= 0:
-        return 0.0
-    return 1.0 / math.sqrt(float(event_count))
 
+def _why_summary(details: dict[str, Any]) -> str:
+    clause_score = _score_part(details, "clause_score", 0)
+    clause_score_raw = _score_part(details, "clause_score_raw", None)
+    keyword_score = _score_part(details, "keyword_score", 0)
+    entity_bonus = _score_part(details, "entity_bonus", 0)
+    pair_bonus = _score_part(details, "pair_bonus_applied", _score_part(details, "pair_bonus", 0))
+    pair_count = _score_part(details, "pair_count", 0)
+    pair_strength = _score_part(details, "pair_strength", 0.0)
+    noise_penalty = _score_part(details, "noise_penalty_applied", _score_part(details, "noise_penalty", 0))
+    matched_rules = details.get("matched_ontology_rules") or []
+    contributing_correlations = details.get("contributing_correlations") or []
 
-
-def _fetch_kw_pair_correlations(db, *, event_ids: list[int], source: Optional[str]) -> dict[int, list[dict[str, Any]]]:
-    if not event_ids:
-        return {}
-    like_pat = f"kw_pair|{source}|%|pair:%" if source else "kw_pair|%|%|pair:%"
-
-    q = (
-        db.query(
-            CorrelationLink.event_id,
-            Correlation.id,
-            Correlation.score,
-            Correlation.window_days,
-            Correlation.correlation_key,
-            Correlation.lanes_hit,
+    why_bits: list[str] = []
+    if clause_score_raw is not None:
+        why_bits.append(f"clauses={clause_score} (raw={clause_score_raw})")
+    else:
+        why_bits.append(f"clauses={clause_score}")
+    if keyword_score:
+        why_bits.append(f"keywords={keyword_score}")
+    if entity_bonus:
+        why_bits.append(f"entity_bonus={entity_bonus}")
+    if pair_bonus:
+        why_bits.append(f"pair_bonus={pair_bonus} (pairs={pair_count}, strength={pair_strength})")
+    if noise_penalty:
+        why_bits.append(f"noise_penalty=-{noise_penalty}")
+    if matched_rules:
+        why_bits.append(f"rules: {_list_text(matched_rules)}")
+    if contributing_correlations:
+        why_bits.append(
+            "correlations: " + _list_text([_correlation_text(c) for c in contributing_correlations], limit=5)
         )
-        .join(Correlation, Correlation.id == CorrelationLink.correlation_id)
-        .filter(Correlation.correlation_key.like(like_pat))
-        .filter(CorrelationLink.event_id.in_(event_ids))
-    )
+    return " | ".join(why_bits)
 
-    by_event: dict[int, list[dict[str, Any]]] = {}
-    for event_id, cid, cscore, window_days, ckey, lanes_hit in q.all():
-        eid = int(event_id)
-        payload = kw_pair_lane_payload(lanes_hit)
-        kw1 = payload.get("keyword_1") or payload.get("k1")
-        kw2 = payload.get("keyword_2") or payload.get("k2")
-        ec_i = kw_pair_event_count(lanes_hit, fallback_score=cscore)
-        if not kw1 or not kw2 or ec_i <= 0:
-            continue
 
-        score_signal = kw_pair_score_signal(lanes_hit)
-        score_secondary = kw_pair_score_secondary(lanes_hit)
-        contribution = kw_pair_bonus_contribution(
-            score_signal=score_signal,
-            event_count=ec_i,
-            min_signal=DEFAULT_KW_PAIR_BONUS_MIN_SIGNAL,
-            min_event_count=DEFAULT_KW_PAIR_BONUS_MIN_EVENT_COUNT,
-        )
-        pair_bonus_eligible = contribution > 0
-        if contribution <= 0 and score_signal is None:
-            contribution = _legacy_kw_pair_contribution(ec_i)
-            pair_bonus_eligible = contribution > 0
+def _flatten_details(prefix: str, details: dict[str, Any]) -> dict[str, Any]:
+    contributing_lanes = details.get("contributing_lanes") or []
+    contributing_correlations = details.get("contributing_correlations") or []
+    matched_rules = details.get("matched_ontology_rules") or []
+    matched_clauses = details.get("matched_ontology_clauses") or []
+    return {
+        f"{prefix}_scoring_version": details.get("scoring_version"),
+        f"{prefix}_clause_score": _score_part(details, "clause_score", 0),
+        f"{prefix}_clause_score_raw": _score_part(details, "clause_score_raw", None),
+        f"{prefix}_keyword_score": _score_part(details, "keyword_score", 0),
+        f"{prefix}_entity_bonus": _score_part(details, "entity_bonus", 0),
+        f"{prefix}_pair_bonus": _score_part(details, "pair_bonus", 0),
+        f"{prefix}_pair_bonus_applied": _score_part(details, "pair_bonus_applied", _score_part(details, "pair_bonus", 0)),
+        f"{prefix}_pair_count": _score_part(details, "pair_count", 0),
+        f"{prefix}_pair_strength": _score_part(details, "pair_strength", 0.0),
+        f"{prefix}_noise_penalty": _score_part(details, "noise_penalty", 0),
+        f"{prefix}_noise_penalty_applied": _score_part(details, "noise_penalty_applied", _score_part(details, "noise_penalty", 0)),
+        f"{prefix}_contributing_lanes_text": _list_text([str(v) for v in contributing_lanes], limit=20),
+        f"{prefix}_contributing_lanes_json": _json_text(contributing_lanes),
+        f"{prefix}_contributing_correlations_text": _list_text([_correlation_text(c) for c in contributing_correlations], limit=5),
+        f"{prefix}_contributing_correlations_json": _json_text(contributing_correlations),
+        f"{prefix}_matched_ontology_rules_text": _list_text([str(v) for v in matched_rules], limit=10),
+        f"{prefix}_matched_ontology_rules_json": _json_text(matched_rules),
+        f"{prefix}_matched_ontology_clauses_json": _json_text(matched_clauses),
+        f"{prefix}_why_summary": _why_summary(details),
+        f"{prefix}_score_details_json": _json_text(details or {}),
+    }
 
-        by_event.setdefault(eid, []).append(
-            {
-                "correlation_id": int(cid),
-                "correlation_key": ckey,
-                "window_days": int(window_days or 0),
-                "keyword_1": str(kw1),
-                "keyword_2": str(kw2),
-                "event_count": int(ec_i),
-                "score_signal": None if score_signal is None else round(float(score_signal), 6),
-                "score_kind": payload.get("score_kind"),
-                "score_secondary": None if score_secondary is None else round(float(score_secondary), 6),
-                "score_secondary_kind": payload.get("score_secondary_kind"),
-                "contribution": round(float(contribution), 6),
-                "pair_bonus_eligible": bool(pair_bonus_eligible),
-            }
-        )
 
-    for eid in list(by_event.keys()):
-        by_event[eid].sort(
-            key=lambda d: (
-                1 if d.get("pair_bonus_eligible") else 0,
-                d.get("contribution", 0.0),
-                -1.0 if d.get("score_signal") is None else d.get("score_signal", 0.0),
-                d.get("event_count", 0),
-            ),
-            reverse=True,
-        )
-
-    return by_event
+def _load_event_context(database_url: Optional[str], event_ids: list[int]) -> tuple[dict[int, Event], dict[int, list[dict[str, Any]]]]:
+    SessionFactory = get_session_factory(database_url)
+    with SessionFactory() as db:
+        events_by_id: dict[int, Event] = {}
+        if event_ids:
+            rows = db.execute(select(Event).where(Event.id.in_(event_ids))).scalars().all()
+            events_by_id = {int(event.id): event for event in rows}
+        correlations_by_event = load_event_correlation_evidence(db, event_ids=event_ids)
+    return events_by_id, correlations_by_event
 
 
 def export_lead_snapshot(
@@ -138,12 +146,6 @@ def export_lead_snapshot(
     """
     Export a lead snapshot (lead_snapshots + lead_snapshot_items + event metadata)
     to CSV + JSON.
-
-    Adds explainability fields:
-      - score component columns (clause/entity/pair/noise)
-      - top clause hits
-      - top kw_pair correlations contributing to pair_bonus
-      - why_summary (human readable)
     """
     ensure_runtime_directories()
     SessionFactory = get_session_factory(database_url)
@@ -163,13 +165,8 @@ def export_lead_snapshot(
             .all()
         )
 
-        event_ids = [int(i.event_id) for i in items]
-        events_by_id: dict[int, Event] = {}
-        if event_ids:
-            rows = db.execute(select(Event).where(Event.id.in_(event_ids))).scalars().all()
-            events_by_id = {int(e.id): e for e in rows}
-
-        kw_pairs_by_event = _fetch_kw_pair_correlations(db, event_ids=event_ids, source=getattr(snap, "source", None))
+    event_ids = [int(i.event_id) for i in items]
+    events_by_id, correlations_by_event = _load_event_context(database_url, event_ids)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     base_name = f"lead_snapshot_{int(snapshot_id)}_{ts}"
@@ -190,47 +187,32 @@ def export_lead_snapshot(
 
     rows_out: list[dict[str, Any]] = []
     for it in items:
-        e = events_by_id.get(int(it.event_id))
+        event = events_by_id.get(int(it.event_id))
         details = it.score_details if isinstance(it.score_details, dict) else {}
+        details = enrich_lead_score_details(
+            clauses=None if event is None else event.clauses,
+            base_details=details,
+            correlations=correlations_by_event.get(int(it.event_id), []),
+        )
 
-        clause_score = _score_part(details, "clause_score", 0)
-        clause_score_raw = _score_part(details, "clause_score_raw", None)
-        keyword_score = _score_part(details, "keyword_score", 0)
-        entity_bonus = _score_part(details, "entity_bonus", 0)
-        pair_bonus = _score_part(details, "pair_bonus", 0)
-        pair_count = _score_part(details, "pair_count", 0)
-        pair_strength = _score_part(details, "pair_strength", 0.0)
-        has_noise = bool(_score_part(details, "has_noise", False))
-        noise_penalty = _score_part(details, "noise_penalty", 0)
-
+        pair_correlations = [
+            c for c in (details.get("contributing_correlations") or []) if str(c.get("lane") or "") == "kw_pair"
+        ]
+        top_pairs = pair_correlations[:5]
+        top_pairs_text = "; ".join(
+            [
+                f"{p.get('pair_label') or p.get('pair_label_raw') or p.get('correlation_key')}(n={p.get('event_count')})"
+                for p in top_pairs
+            ]
+        )
+        matched_rules = details.get("matched_ontology_rules") or []
+        matched_rules_text = _list_text([str(v) for v in matched_rules], limit=10)
+        contributing_lanes = details.get("contributing_lanes") or []
+        contributing_lanes_text = _list_text([str(v) for v in contributing_lanes], limit=20)
+        contributing_correlations = details.get("contributing_correlations") or []
+        contributing_correlations_text = _list_text([_correlation_text(c) for c in contributing_correlations], limit=5)
         top_clauses_text = _top_clauses_text(details, limit=5)
-
-        pairs = kw_pairs_by_event.get(int(it.event_id), []) or []
-        top_pairs = pairs[:5]
-        top_pairs_text = "; ".join([
-            f"{p['keyword_1']}+{p['keyword_2']}(signal={p['score_signal'] if p.get('score_signal') is not None else 'legacy'}, n={p['event_count']})"
-            for p in top_pairs
-        ])
-
-        why_bits: list[str] = []
-        if clause_score_raw is not None:
-            why_bits.append(f"clauses={clause_score} (raw={clause_score_raw})")
-        else:
-            why_bits.append(f"clauses={clause_score}")
-        if keyword_score:
-            why_bits.append(f"keywords={keyword_score}")
-        if entity_bonus:
-            why_bits.append(f"entity_bonus={entity_bonus}")
-        if pair_bonus:
-            why_bits.append(f"pair_bonus={pair_bonus} (pairs={pair_count}, strength={pair_strength})")
-        if has_noise and noise_penalty:
-            why_bits.append(f"noise_penalty=-{noise_penalty}")
-        if top_pairs_text:
-            why_bits.append(f"top_pairs: {top_pairs_text}")
-        if top_clauses_text:
-            why_bits.append(f"top_clauses: {top_clauses_text}")
-
-        why_summary = " | ".join(why_bits)
+        why_summary = _why_summary(details)
 
         rows_out.append(
             {
@@ -239,29 +221,38 @@ def export_lead_snapshot(
                 "score": int(it.score),
                 "event_id": int(it.event_id),
                 "event_hash": it.event_hash,
-                "source": None if e is None else e.source,
-                "doc_id": None if e is None else e.doc_id,
-                "source_url": None if e is None else e.source_url,
-                "occurred_at": None if (e is None or e.occurred_at is None) else e.occurred_at.isoformat(),
-                "created_at": None if (e is None or e.created_at is None) else e.created_at.isoformat(),
-                "entity_id": None if e is None else e.entity_id,
-                "snippet": None if e is None else (e.snippet or ""),
-                "place_text": None if e is None else (e.place_text or ""),
+                "source": None if event is None else event.source,
+                "doc_id": None if event is None else event.doc_id,
+                "source_url": None if event is None else event.source_url,
+                "occurred_at": None if (event is None or event.occurred_at is None) else event.occurred_at.isoformat(),
+                "created_at": None if (event is None or event.created_at is None) else event.created_at.isoformat(),
+                "entity_id": None if event is None else event.entity_id,
+                "snippet": None if event is None else (event.snippet or ""),
+                "place_text": None if event is None else (event.place_text or ""),
                 "scoring_version": details.get("scoring_version"),
-                "clause_score": clause_score,
-                "clause_score_raw": clause_score_raw,
-                "keyword_score": keyword_score,
-                "entity_bonus": entity_bonus,
-                "pair_bonus": pair_bonus,
-                "pair_count": pair_count,
-                "pair_strength": pair_strength,
-                "has_noise": has_noise,
-                "noise_penalty": noise_penalty,
+                "clause_score": _score_part(details, "clause_score", 0),
+                "clause_score_raw": _score_part(details, "clause_score_raw", None),
+                "keyword_score": _score_part(details, "keyword_score", 0),
+                "entity_bonus": _score_part(details, "entity_bonus", 0),
+                "pair_bonus": _score_part(details, "pair_bonus", 0),
+                "pair_bonus_applied": _score_part(details, "pair_bonus_applied", _score_part(details, "pair_bonus", 0)),
+                "pair_count": _score_part(details, "pair_count", 0),
+                "pair_strength": _score_part(details, "pair_strength", 0.0),
+                "has_noise": bool(_score_part(details, "has_noise", False)),
+                "noise_penalty": _score_part(details, "noise_penalty", 0),
+                "noise_penalty_applied": _score_part(details, "noise_penalty_applied", _score_part(details, "noise_penalty", 0)),
+                "contributing_lanes_text": contributing_lanes_text,
+                "contributing_lanes_json": _json_text(contributing_lanes),
+                "contributing_correlations_text": contributing_correlations_text,
+                "contributing_correlations_json": _json_text(contributing_correlations),
+                "matched_ontology_rules_text": matched_rules_text,
+                "matched_ontology_rules_json": _json_text(matched_rules),
+                "matched_ontology_clauses_json": _json_text(details.get("matched_ontology_clauses") or []),
                 "top_clauses_text": top_clauses_text,
                 "top_kw_pairs_text": top_pairs_text,
-                "top_kw_pairs_json": json.dumps(top_pairs, ensure_ascii=False),
+                "top_kw_pairs_json": _json_text(top_pairs),
                 "why_summary": why_summary,
-                "score_details_json": json.dumps(details or {}, ensure_ascii=False),
+                "score_details_json": _json_text(details or {}),
             }
         )
 
@@ -300,9 +291,6 @@ def export_lead_deltas(
 ) -> Dict[str, Any]:
     """
     Export lead deltas between two snapshots to CSV + JSON.
-
-    CSV: one row per change/new/removed with flattened columns for easy analysis.
-    JSON: full structured payload from compute_lead_deltas plus exported_at and file metadata.
     """
     ensure_runtime_directories()
     deltas = compute_lead_deltas(
@@ -310,6 +298,16 @@ def export_lead_deltas(
         to_snapshot_id=int(to_snapshot_id),
         database_url=database_url,
     )
+
+    event_ids: list[int] = []
+    for item in deltas.get("new", []):
+        event_ids.append(int(item.get("event_id") or 0))
+    for item in deltas.get("removed", []):
+        event_ids.append(int(item.get("event_id") or 0))
+    for item in deltas.get("changed", []):
+        event_ids.append(int(item.get("event_id") or 0))
+    event_ids = [event_id for event_id in sorted(set(event_ids)) if event_id > 0]
+    events_by_id, correlations_by_event = _load_event_context(database_url, event_ids)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     base_name = f"lead_deltas_{int(from_snapshot_id)}_{int(to_snapshot_id)}_{ts}"
@@ -349,65 +347,78 @@ def export_lead_deltas(
             "place_text": ev.get("place_text"),
         }
 
+    def _enrich(event_id: Any, details: Any) -> dict[str, Any]:
+        event = events_by_id.get(int(event_id or 0))
+        base_details = details if isinstance(details, dict) else {}
+        return enrich_lead_score_details(
+            clauses=None if event is None else event.clauses,
+            base_details=base_details,
+            correlations=correlations_by_event.get(int(event_id or 0), []),
+        )
+
     rows: list[dict[str, Any]] = []
 
-    for it in deltas.get("new", []):
-        ev = it.get("event")
+    for item in deltas.get("new", []):
+        event = item.get("event")
+        to_details = _enrich(item.get("event_id"), item.get("score_details"))
         rows.append(
             {
                 "change_type": "new",
-                "event_hash": it.get("event_hash"),
-                "event_id": it.get("event_id"),
+                "event_hash": item.get("event_hash"),
+                "event_id": item.get("event_id"),
                 "from_rank": None,
                 "from_score": None,
-                "to_rank": it.get("rank"),
-                "to_score": it.get("score"),
+                "to_rank": item.get("rank"),
+                "to_score": item.get("score"),
                 "delta_rank": None,
                 "delta_score": None,
-                "from_score_details_json": None,
-                "to_score_details_json": json.dumps(it.get("score_details") or {}, ensure_ascii=False),
-                **_event_cols(ev),
+                **_flatten_details("from", {}),
+                **_flatten_details("to", to_details),
+                **_event_cols(event),
             }
         )
 
-    for it in deltas.get("removed", []):
-        ev = it.get("event")
+    for item in deltas.get("removed", []):
+        event = item.get("event")
+        from_details = _enrich(item.get("event_id"), item.get("score_details"))
         rows.append(
             {
                 "change_type": "removed",
-                "event_hash": it.get("event_hash"),
-                "event_id": it.get("event_id"),
-                "from_rank": it.get("rank"),
-                "from_score": it.get("score"),
+                "event_hash": item.get("event_hash"),
+                "event_id": item.get("event_id"),
+                "from_rank": item.get("rank"),
+                "from_score": item.get("score"),
                 "to_rank": None,
                 "to_score": None,
                 "delta_rank": None,
                 "delta_score": None,
-                "from_score_details_json": json.dumps(it.get("score_details") or {}, ensure_ascii=False),
-                "to_score_details_json": None,
-                **_event_cols(ev),
+                **_flatten_details("from", from_details),
+                **_flatten_details("to", {}),
+                **_event_cols(event),
             }
         )
 
-    for it in deltas.get("changed", []):
-        ev = it.get("event")
-        frm = it.get("from") or {}
-        to = it.get("to") or {}
-        d = it.get("delta") or {}
+    for item in deltas.get("changed", []):
+        event = item.get("event")
+        frm = item.get("from") or {}
+        to = item.get("to") or {}
+        delta = item.get("delta") or {}
+        from_details = _enrich(item.get("event_id"), frm.get("score_details"))
+        to_details = _enrich(item.get("event_id"), to.get("score_details"))
         rows.append(
             {
                 "change_type": "changed",
-                "event_hash": it.get("event_hash"),
-                "event_id": it.get("event_id"),
-                "from_rank": (frm.get("rank")),
-                "from_score": (frm.get("score")),
-                "to_rank": (to.get("rank")),
-                "to_score": (to.get("score")),
-                "delta_rank": d.get("rank"),
-                "delta_score": d.get("score"),
-                "from_score_details_json": json.dumps(frm.get("score_details") or {}, ensure_ascii=False),
-                "to_score_details_json": json.dumps(to.get("score_details") or {}, ensure_ascii=False),
-                **_event_cols(ev),
+                "event_hash": item.get("event_hash"),
+                "event_id": item.get("event_id"),
+                "from_rank": frm.get("rank"),
+                "from_score": frm.get("score"),
+                "to_rank": to.get("rank"),
+                "to_score": to.get("score"),
+                "delta_rank": delta.get("rank"),
+                "delta_score": delta.get("score"),
+                **_flatten_details("from", from_details),
+                **_flatten_details("to", to_details),
+                **_event_cols(event),
             }
         )
 
@@ -430,10 +441,9 @@ def _write_csv(path: Path, rows):
         return
     fieldnames = list(rows[0].keys())
     with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        w.writerows(rows)
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 __all__ = ["export_lead_snapshot", "export_lead_deltas"]
-

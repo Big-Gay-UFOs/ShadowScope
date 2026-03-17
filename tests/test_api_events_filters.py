@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -26,13 +26,12 @@ def test_api_events_filters(tmp_path):
 
         now = datetime.now(timezone.utc)
 
-        # Old event with a UNIQUE keyword that should still be findable
         e_old = Event(
             category="award",
             source="USAspending",
             hash="ev_old",
             snippet="old",
-            place_text="",
+            place_text="Old region",
             doc_id="d_old",
             source_url="http://example.com/old",
             raw_json={},
@@ -43,7 +42,6 @@ def test_api_events_filters(tmp_path):
         db.add(e_old)
         db.commit()
 
-        # Add >200 newer non-matching rows so the old implementation would miss e_old for limit=1 (scan=200)
         fillers = []
         for i in range(250):
             fillers.append(Event(
@@ -64,15 +62,18 @@ def test_api_events_filters(tmp_path):
             source="USAspending",
             hash="ev1",
             snippet="e1",
-            place_text="",
+            place_text="Northern Virginia, USA",
             doc_id="d1",
             document_id="DOC-X",
             award_id="AWARD-X",
             piid="PIID-X",
             source_record_id="SRC-1",
             awarding_agency_code="DOE",
+            awarding_agency_name="Department of Energy",
             naics_code="541330",
+            naics_description="Engineering Services",
             psc_code="R425",
+            psc_description="Engineering and Technical Services",
             notice_award_type="award",
             place_of_performance_state="VA",
             place_of_performance_country="USA",
@@ -80,6 +81,7 @@ def test_api_events_filters(tmp_path):
             raw_json={},
             keywords=["alpha", "beta"],
             clauses=[],
+            created_at=now - timedelta(hours=2),
         )
 
         e2 = Event(
@@ -87,7 +89,7 @@ def test_api_events_filters(tmp_path):
             source="USAspending",
             hash="ev2",
             snippet="e2",
-            place_text="",
+            place_text="Maryland, USA",
             doc_id="d2",
             piid="PIID-X",
             source_url="http://example.com/2",
@@ -95,6 +97,7 @@ def test_api_events_filters(tmp_path):
             keywords=["beta"],
             clauses=[],
             entity_id=ent.id,
+            created_at=now - timedelta(hours=1),
         )
 
         e3 = Event(
@@ -102,12 +105,13 @@ def test_api_events_filters(tmp_path):
             source="Other",
             hash="ev3",
             snippet="e3",
-            place_text="",
+            place_text="Other region",
             doc_id="d3",
             source_url="http://example.com/3",
             raw_json={},
             keywords=["gamma"],
             clauses=[],
+            created_at=now - timedelta(minutes=30),
         )
 
         db.add_all(fillers + [e1, e2, e3])
@@ -118,7 +122,6 @@ def test_api_events_filters(tmp_path):
     os.environ["DATABASE_URL"] = db_url
 
     with TestClient(app) as c:
-        # Critical: must find the OLD needle event even with many newer non-matching events
         r = c.get("/api/events?limit=1&keyword=needle")
         assert r.status_code == 200
         j = r.json()
@@ -145,7 +148,6 @@ def test_api_events_filters(tmp_path):
         hashes = {e["hash"] for e in r.json()}
         assert "ev_old" not in hashes
 
-        # New normalized field filters.
         r = c.get("/api/events?limit=100&award_id=AWARD-X")
         assert r.status_code == 200
         assert {e["hash"] for e in r.json()} == {"ev1"}
@@ -162,10 +164,27 @@ def test_api_events_filters(tmp_path):
         assert r.status_code == 200
         assert {e["hash"] for e in r.json()} == {"ev1"}
 
-        r = c.get("/api/events?limit=100&agency_code=DOE")
+        r = c.get("/api/events?limit=100&agency=Department of Energy")
         assert r.status_code == 200
         assert {e["hash"] for e in r.json()} == {"ev1"}
 
-        r = c.get("/api/events?limit=100&place_state=VA&place_country=USA")
+        r = c.get("/api/events?limit=100&psc=Engineering and Technical Services")
         assert r.status_code == 200
         assert {e["hash"] for e in r.json()} == {"ev1"}
+
+        r = c.get("/api/events?limit=100&place_region=VA,USA")
+        assert r.status_code == 200
+        assert {e["hash"] for e in r.json()} == {"ev1"}
+
+        r = c.get("/api/events", params={"limit": 100, "date_from": (now - timedelta(days=2)).isoformat()})
+        assert r.status_code == 200
+        hashes = {e["hash"] for e in r.json()}
+        assert "ev_old" not in hashes
+
+        r = c.get("/api/events", params={"limit": 10, "date_to": (now - timedelta(days=5)).isoformat()})
+        assert r.status_code == 200
+        assert [e["hash"] for e in r.json()] == ["ev_old"]
+
+        r = c.get("/api/events", params={"limit": 1, "sort_by": "created_at", "sort_dir": "asc"})
+        assert r.status_code == 200
+        assert r.json()[0]["hash"] == "ev_old"

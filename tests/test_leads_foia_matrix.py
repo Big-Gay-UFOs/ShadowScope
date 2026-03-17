@@ -148,8 +148,6 @@ def test_compute_leads_keeps_noise_penalty_while_exposing_foia_metadata(tmp_path
     assert details["foia_potential_tier"] == "high"
     assert score == 10
 
-
-
 def test_compute_leads_pair_bonus_requires_signal_and_event_count_thresholds(tmp_path):
     db_url = f"sqlite:///{(tmp_path / 'leads_pair_signal_thresholds.db').as_posix()}"
     ensure_schema(db_url)
@@ -200,7 +198,6 @@ def test_compute_leads_pair_bonus_requires_signal_and_event_count_thresholds(tmp
     assert details["pair_signal_threshold"] == 0.15
     assert details["pair_event_count_threshold"] == 2
     assert score == 13
-
 def test_compute_leads_treats_proxy_noise_pack_as_noise(tmp_path):
     db_url = f"sqlite:///{(tmp_path / 'leads_proxy_noise.db').as_posix()}"
     ensure_schema(db_url)

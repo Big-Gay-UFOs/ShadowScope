@@ -1,10 +1,11 @@
-"""Typer-based command line interface for ShadowScope."""
+﻿"""Typer-based command line interface for ShadowScope."""
 from __future__ import annotations
 
 import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Optional, List
@@ -151,6 +152,16 @@ def _resolve_sam_ingest_keywords(*, keyword: Optional[List[str]], keywords_file:
     return _merge_terms(keyword, file_terms)
 
 
+def _parse_datetime_option(value: Optional[str], *, option_name: str) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise typer.BadParameter(f"{option_name} must be an ISO-8601 datetime") from exc
+
+
 @db_app.command("init")
 def db_init(database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command.")):
     status = sync_database(database_url)
@@ -272,15 +283,46 @@ def ingest_samgov_cli(
 @export_app.command("events")
 def export_events_cli(
     out: Optional[str] = typer.Option(None, "--out", help="Output directory or CSV file path"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Optional max events to export after filtering"),
+    offset: int = typer.Option(0, "--offset", help="Skip this many filtered events before export"),
+    source: Optional[str] = typer.Option(None, "--source", help="Filter by event source"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Inclusive ISO-8601 start datetime"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Inclusive ISO-8601 end datetime"),
+    entity_id: Optional[int] = typer.Option(None, "--entity-id", help="Filter by entity_id"),
+    keyword: Optional[str] = typer.Option(None, "--keyword", help="Filter by keyword tag"),
+    agency: Optional[str] = typer.Option(None, "--agency", help="Filter by agency code or name"),
+    psc: Optional[str] = typer.Option(None, "--psc", help="Filter by PSC code or description"),
+    naics: Optional[str] = typer.Option(None, "--naics", help="Filter by NAICS code or description"),
+    award_id: Optional[str] = typer.Option(None, "--award-id", help="Filter by award id"),
+    recipient_uei: Optional[str] = typer.Option(None, "--recipient-uei", help="Filter by recipient UEI"),
+    place_region: Optional[str] = typer.Option(None, "--place-region", help="Filter by state/country region"),
+    sort_by: str = typer.Option("occurred_at", "--sort-by", help="Sort by occurred_at, created_at, id, or source"),
+    sort_dir: str = typer.Option("desc", "--sort-dir", help="Sort direction asc or desc"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
     export_path = Path(out).expanduser() if out else None
-    results = export_events(database_url=database_url, output=export_path)
+    results = export_events(
+        database_url=database_url,
+        output=export_path,
+        limit=limit,
+        offset=int(offset),
+        source=source,
+        date_from=_parse_datetime_option(date_from, option_name="date_from"),
+        date_to=_parse_datetime_option(date_to, option_name="date_to"),
+        entity_id=entity_id,
+        keyword=keyword,
+        agency=agency,
+        psc=psc,
+        naics=naics,
+        award_id=award_id,
+        recipient_uei=recipient_uei,
+        place_region=place_region,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
     typer.echo(f"Events CSV: {results['csv'].resolve()}")
     typer.echo(f"Events JSONL: {results['jsonl'].resolve()}")
     typer.echo(f"Rows exported: {results['count']}")
-
-
 @export_app.command("entities")
 def export_entities_cli(
     out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
@@ -296,6 +338,7 @@ def export_entities_cli(
     typer.echo(f"Event->Entity JSON: {res['event_entities_json'].resolve()}")
     typer.echo(f"Entities: {res['entities_count']}  Event mappings: {res['event_entities_count']}")
 
+@export_app.command("leads")
 @export_app.command("lead-snapshot")
 def export_lead_snapshot_cli(
     snapshot_id: int = typer.Option(..., "--snapshot-id", help="Lead snapshot ID to export"),
@@ -321,6 +364,30 @@ def export_lead_deltas_cli(
     typer.echo(f"Lead deltas JSON: {results['json'].resolve()}")
     typer.echo(f"Rows exported: {results['count']}")
 
+@export_app.command("evidence-package")
+def export_evidence_package_cli(
+    snapshot_id: Optional[int] = typer.Option(None, "--snapshot-id", help="Lead snapshot ID when exporting a lead package"),
+    lead_event_id: Optional[int] = typer.Option(None, "--lead-event-id", help="Lead event_id within the snapshot"),
+    lead_rank: Optional[int] = typer.Option(None, "--lead-rank", help="Lead rank within the snapshot (alternative to --lead-event-id)"),
+    correlation_id: Optional[int] = typer.Option(None, "--correlation-id", help="Correlation ID to export instead of a lead"),
+    out: Optional[str] = typer.Option(None, "--out", help="Output directory or JSON file path"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    from backend.services.evidence_package import export_evidence_package
+
+    export_path = Path(out).expanduser() if out else None
+    results = export_evidence_package(
+        snapshot_id=snapshot_id,
+        lead_event_id=lead_event_id,
+        lead_rank=lead_rank,
+        correlation_id=correlation_id,
+        database_url=database_url,
+        output=export_path,
+    )
+    typer.echo(f"Evidence package JSON: {results['json'].resolve()}")
+    typer.echo(f"Package type: {results['package_type']}")
+    typer.echo(f"Source records packaged: {results['source_record_count']}")
+@export_app.command("kw-pair-clusters")
 @export_app.command("kw-pairs")
 def export_kw_pairs_cli(
     out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
@@ -432,7 +499,7 @@ def leads_snapshot(
     min_score: int = typer.Option(1, "--min-score", help="Minimum score to include"),
     limit: int = typer.Option(200, "--limit", help="Max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="How many recent events to scan before ranking"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Scoring version label"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Scoring version (v1 or v2)"),
     notes: Optional[str] = typer.Option(None, "--notes", help="Optional snapshot notes"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
@@ -481,6 +548,91 @@ def leads_delta(
     if json_out:
         typer.echo(json.dumps(res, indent=2))
 
+@leads_app.command("query")
+def leads_query(
+    limit: int = typer.Option(50, "--limit", help="Max leads to return"),
+    offset: int = typer.Option(0, "--offset", help="Skip this many matching leads"),
+    min_score: int = typer.Option(1, "--min-score", help="Minimum lead score"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="How many filtered events to score before paging"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Scoring version (v1 or v2)"),
+    source: Optional[str] = typer.Option(None, "--source", help="Filter by event source"),
+    exclude_source: Optional[str] = typer.Option(None, "--exclude-source", help="Exclude an event source"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Inclusive ISO-8601 start datetime"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Inclusive ISO-8601 end datetime"),
+    entity_id: Optional[int] = typer.Option(None, "--entity-id", help="Filter by entity_id"),
+    keyword: Optional[str] = typer.Option(None, "--keyword", help="Filter by keyword tag"),
+    agency: Optional[str] = typer.Option(None, "--agency", help="Filter by agency code or name"),
+    psc: Optional[str] = typer.Option(None, "--psc", help="Filter by PSC code or description"),
+    naics: Optional[str] = typer.Option(None, "--naics", help="Filter by NAICS code or description"),
+    award_id: Optional[str] = typer.Option(None, "--award-id", help="Filter by award id"),
+    recipient_uei: Optional[str] = typer.Option(None, "--recipient-uei", help="Filter by recipient UEI"),
+    place_region: Optional[str] = typer.Option(None, "--place-region", help="Filter by state/country region"),
+    lane: Optional[str] = typer.Option(None, "--lane", help="Require a contributing lane"),
+    min_event_count: Optional[int] = typer.Option(None, "--min-event-count", help="Minimum contributing correlation event_count"),
+    min_score_signal: Optional[float] = typer.Option(None, "--min-score-signal", help="Minimum contributing correlation score_signal"),
+    sort_by: str = typer.Option("score", "--sort-by", help="Sort by score, occurred_at, created_at, id, pair_strength, pair_count, or source"),
+    sort_dir: str = typer.Option("desc", "--sort-dir", help="Sort direction asc or desc"),
+    include_details: bool = typer.Option(True, "--include-details/--no-include-details", help="Include score_details in JSON output"),
+    json_out: bool = typer.Option(False, "--json", help="Print the full JSON payload"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    from backend.db.models import get_session_factory
+    from backend.services.leads import normalize_scoring_version
+    from backend.services.query_surfaces import query_leads
+
+    limit_i = int(limit)
+    offset_i = int(offset)
+    scan_i = int(scan_limit)
+    if limit_i < 1 or limit_i > 200:
+        raise typer.BadParameter("limit must be between 1 and 200")
+    if offset_i < 0:
+        raise typer.BadParameter("offset must be >= 0")
+    if scan_i < 1 or scan_i > 5000:
+        raise typer.BadParameter("scan_limit must be between 1 and 5000")
+    if scan_i < (limit_i + offset_i):
+        scan_i = limit_i + offset_i
+    scoring_version = normalize_scoring_version(scoring_version)
+
+    SessionFactory = get_session_factory(database_url)
+    with SessionFactory() as db:
+        payload = query_leads(
+            db,
+            limit=limit_i,
+            offset=offset_i,
+            min_score=int(min_score),
+            scan_limit=scan_i,
+            scoring_version=scoring_version,
+            source=source,
+            exclude_source=exclude_source,
+            date_from=_parse_datetime_option(date_from, option_name="date_from"),
+            date_to=_parse_datetime_option(date_to, option_name="date_to"),
+            entity_id=entity_id,
+            keyword=keyword,
+            agency=agency,
+            psc=psc,
+            naics=naics,
+            award_id=award_id,
+            recipient_uei=recipient_uei,
+            place_region=place_region,
+            lane=lane,
+            min_event_count=min_event_count,
+            min_score_signal=min_score_signal,
+            include_details=include_details,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+
+    if json_out:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+        return
+
+    typer.echo(f"Lead query: total={payload.get('total')} scanned={payload.get('scanned')} returned={len(payload.get('items') or [])}")
+    for item in payload.get("items") or []:
+        typer.echo(
+            f"- score={item.get('score')} id={item.get('id')} source={item.get('source')} "
+            f"doc_id={item.get('doc_id')} occurred_at={item.get('occurred_at')} "
+            f"lanes={','.join([str(v) for v in item.get('contributing_lanes') or []])}"
+        )
 @entities_app.command("link")
 def entities_link(
     source: str = typer.Option("USAspending", "--source", help="Event source to link (default USAspending)"),
@@ -840,7 +992,7 @@ def workflow_usaspending(
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot: how many recent events to scan"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version (v1 or v2)"),
     notes: Optional[str] = typer.Option(None, "--notes", help="Snapshot: optional snapshot notes"),
     out: Optional[str] = typer.Option(None, "--out", help="Exports: output directory or base file path"),
     export_events_flag: bool = typer.Option(False, "--export-events", help="Exports: also export events CSV/JSONL"),
@@ -937,7 +1089,7 @@ def workflow_samgov(
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot: how many recent events to scan"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version (v1 or v2)"),
     notes: Optional[str] = typer.Option(None, "--notes", help="Snapshot: optional snapshot notes"),
     out: Optional[str] = typer.Option(None, "--out", help="Exports: output directory or base file path"),
     export_events_flag: bool = typer.Option(True, "--export-events/--no-export-events", help="Exports: include events CSV/JSONL"),
@@ -1035,7 +1187,7 @@ def workflow_samgov_validate(
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot/doctor scan window"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version (v1 or v2)"),
     notes: Optional[str] = typer.Option("samgov larger-run validation", "--notes", help="Snapshot: optional notes"),
     bundle_root: Optional[str] = typer.Option(None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/validation/samgov)"),
     require_nonzero: bool = typer.Option(True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required checks fail"),
@@ -1132,7 +1284,7 @@ def workflow_samgov_smoke(
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot/doctor scan window"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version (v1 or v2)"),
     notes: Optional[str] = typer.Option("samgov smoke workflow", "--notes", help="Snapshot: optional notes"),
     bundle_root: Optional[str] = typer.Option(
         None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/smoke/samgov)"
@@ -1624,25 +1776,54 @@ def export_candidate_joins_cmd(
 def export_correlations_cmd(
     out: str = typer.Option("data/exports/correlations.json", "--out", help="Output JSON path"),
     source: str = typer.Option("USAspending", "--source", help="Event source filter (blank for all)"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Inclusive ISO-8601 start datetime"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Inclusive ISO-8601 end datetime"),
+    entity_id: Optional[int] = typer.Option(None, "--entity-id", help="Filter linked events by entity_id"),
+    keyword: Optional[str] = typer.Option(None, "--keyword", help="Filter linked events by keyword tag"),
+    min_score: int = typer.Option(None, "--min-score", help="Minimum numeric score"),
+    agency: Optional[str] = typer.Option(None, "--agency", help="Filter linked events by agency code or name"),
+    psc: Optional[str] = typer.Option(None, "--psc", help="Filter linked events by PSC code or description"),
+    naics: Optional[str] = typer.Option(None, "--naics", help="Filter linked events by NAICS code or description"),
+    award_id: Optional[str] = typer.Option(None, "--award-id", help="Filter linked events by award id"),
+    recipient_uei: Optional[str] = typer.Option(None, "--recipient-uei", help="Filter linked events by recipient UEI"),
+    place_region: Optional[str] = typer.Option(None, "--place-region", help="Filter linked events by state/country region"),
     lane: str = typer.Option("", "--lane", help="Correlation lane filter (blank for all; e.g., same_entity, same_uei)"),
     window_days: int = typer.Option(None, "--window-days", help="Filter correlations by window_days"),
-    min_score: int = typer.Option(None, "--min-score", help="Minimum numeric score"),
+    min_event_count: Optional[int] = typer.Option(None, "--min-event-count", help="Minimum linked events within the active filters"),
+    min_score_signal: Optional[float] = typer.Option(None, "--min-score-signal", help="Minimum score_signal / lane score"),
+    sort_by: str = typer.Option("score_signal", "--sort-by", help="Sort by score_signal, event_count, created_at, or id"),
+    sort_dir: str = typer.Option("desc", "--sort-dir", help="Sort direction asc or desc"),
+    offset: int = typer.Option(0, "--offset", help="Skip this many matching correlations"),
     limit: int = typer.Option(500, "--limit", help="Max correlations to export"),
     database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
 ):
     from backend.services.export_correlations import export_correlations
+
     res = export_correlations(
         out_path=out,
         source=source if source else None,
+        date_from=_parse_datetime_option(date_from, option_name="date_from"),
+        date_to=_parse_datetime_option(date_to, option_name="date_to"),
+        entity_id=entity_id,
+        keyword=keyword,
+        min_score=min_score,
+        agency=agency,
+        psc=psc,
+        naics=naics,
+        award_id=award_id,
+        recipient_uei=recipient_uei,
+        place_region=place_region,
         lane=lane if lane else None,
         window_days=window_days,
-        min_score=min_score,
+        min_event_count=min_event_count,
+        min_score_signal=min_score_signal,
+        offset=offset,
         limit=limit,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
-
-
 
 
 

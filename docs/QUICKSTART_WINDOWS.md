@@ -1,4 +1,4 @@
-# ShadowScope Windows Quick Start
+﻿# ShadowScope Windows Quick Start
 
 ## Prerequisites
 - Windows PowerShell 5+ or PowerShell 7

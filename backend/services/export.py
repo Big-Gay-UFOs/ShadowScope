@@ -1,29 +1,83 @@
-﻿"""Export utilities for ShadowScope datasets."""
+"""Export utilities for ShadowScope datasets."""
 from __future__ import annotations
 
 import csv
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
-from backend.db.models import EVENT_PROMOTED_FIELDS, Event, get_session_factory
+from backend.db.models import get_session_factory
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
+from backend.services.query_surfaces import query_events
 
 
 def export_events(
-    database_url: Optional[str] = None, output: Optional[Path] = None
+    database_url: Optional[str] = None,
+    output: Optional[Path] = None,
+    *,
+    limit: Optional[int] = None,
+    offset: int = 0,
+    source: Optional[str] = None,
+    date_from: Any = None,
+    date_to: Any = None,
+    entity_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+    agency: Optional[str] = None,
+    psc: Optional[str] = None,
+    naics: Optional[str] = None,
+    award_id: Optional[str] = None,
+    recipient_uei: Optional[str] = None,
+    place_region: Optional[str] = None,
+    sort_by: Optional[str] = "occurred_at",
+    sort_dir: Optional[str] = "desc",
 ) -> Dict[str, Path]:
     ensure_runtime_directories()
     SessionFactory = get_session_factory(database_url)
     with SessionFactory() as session:
-        events = (
-            session.query(Event)
-            .order_by(Event.occurred_at.desc().nullslast(), Event.id.desc())
-            .all()
+        if limit is None:
+            probe = query_events(
+                session,
+                limit=1,
+                offset=offset,
+                source=source,
+                date_from=date_from,
+                date_to=date_to,
+                entity_id=entity_id,
+                keyword=keyword,
+                agency=agency,
+                psc=psc,
+                naics=naics,
+                award_id=award_id,
+                recipient_uei=recipient_uei,
+                place_region=place_region,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
+            )
+            effective_limit = max(int(probe.get("total") or 0) - int(offset), 0)
+        else:
+            effective_limit = max(int(limit), 0)
+
+        payload = query_events(
+            session,
+            limit=effective_limit,
+            offset=offset,
+            source=source,
+            date_from=date_from,
+            date_to=date_to,
+            entity_id=entity_id,
+            keyword=keyword,
+            agency=agency,
+            psc=psc,
+            naics=naics,
+            award_id=award_id,
+            recipient_uei=recipient_uei,
+            place_region=place_region,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     if output:
         output = output.expanduser()
         if output.suffix:
@@ -43,35 +97,12 @@ def export_events(
         csv_path = export_dir / f"{base_name}.csv"
     jsonl_path = csv_path.with_suffix(".jsonl")
 
-    rows = [_serialize_event(event) for event in events]
+    rows = list(payload.get("items") or [])
     _write_csv(csv_path, rows)
     _write_jsonl(jsonl_path, rows)
 
     return {"csv": csv_path, "jsonl": jsonl_path, "count": len(rows)}
 
-
-def _serialize_event(event: Event) -> Dict[str, object]:
-    row: Dict[str, object] = {
-        "id": event.id,
-        "entity_id": event.entity_id,
-        "category": event.category,
-        "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
-        "lat": event.lat,
-        "lon": event.lon,
-        "source": event.source,
-        "source_url": event.source_url,
-        "doc_id": event.doc_id,
-        "keywords": json.dumps(event.keywords or []),
-        "clauses": json.dumps(event.clauses or []),
-        "place_text": event.place_text,
-        "snippet": event.snippet,
-        "raw_json": json.dumps(event.raw_json or {}),
-        "hash": event.hash,
-        "created_at": event.created_at.isoformat() if event.created_at else None,
-    }
-    for field_name in EVENT_PROMOTED_FIELDS:
-        row[field_name] = getattr(event, field_name, None)
-    return row
 
 
 def _write_csv(path: Path, rows):
@@ -88,8 +119,10 @@ def _write_csv(path: Path, rows):
 def _write_jsonl(path: Path, rows):
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
-            handle.write(json.dumps(row))
+            handle.write(json.dumps(row, ensure_ascii=False))
             handle.write("\n")
 
 
 __all__ = ["export_events"]
+
+
