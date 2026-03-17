@@ -252,9 +252,9 @@ def _lead_matches_correlation_filters(
 def _lead_sort_value(item: tuple[int, Event, dict[str, Any]], sort_by: str) -> Any:
     score, event, details = item
     if sort_by == "created_at":
-        return event.created_at or datetime.min.replace(tzinfo=timezone.utc)
+        return _lead_sort_datetime(event.created_at)
     if sort_by == "occurred_at":
-        return event.occurred_at or event.created_at or datetime.min.replace(tzinfo=timezone.utc)
+        return _lead_sort_datetime(event.occurred_at or event.created_at)
     if sort_by == "id":
         return int(event.id)
     if sort_by == "pair_strength":
@@ -264,6 +264,19 @@ def _lead_sort_value(item: tuple[int, Event, dict[str, Any]], sort_by: str) -> A
     if sort_by == "source":
         return str(event.source or "")
     return int(score)
+
+
+def _lead_sort_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _lead_sort_components(event: Event) -> tuple[Any, ...]:
+    relevant_at = _lead_sort_datetime(event.occurred_at or event.created_at)
+    occurred_at = _lead_sort_datetime(event.occurred_at)
+    created_at = _lead_sort_datetime(event.created_at)
+    return relevant_at, occurred_at, created_at, int(event.id)
 
 
 def query_leads(
@@ -278,6 +291,11 @@ def query_leads(
     exclude_source: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    occurred_after: datetime | None = None,
+    occurred_before: datetime | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    since_days: int | None = None,
     entity_id: int | None = None,
     keyword: str | None = None,
     agency: str | None = None,
@@ -304,6 +322,11 @@ def query_leads(
         scoring_version=scoring_version,
         date_from=date_from,
         date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
         entity_id=entity_id,
         keyword=keyword,
         agency=agency,
@@ -330,10 +353,7 @@ def query_leads(
         sort_key = "score"
     reverse = _normalize_sort_dir(sort_dir) == "desc"
     filtered.sort(
-        key=lambda item: (
-            _lead_sort_value(item, sort_key),
-            int(item[1].id),
-        ),
+        key=lambda item: (_lead_sort_value(item, sort_key),) + _lead_sort_components(item[1]),
         reverse=reverse,
     )
 

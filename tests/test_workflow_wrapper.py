@@ -1,8 +1,8 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from backend.db.models import Event, ensure_schema, get_session_factory
+from backend.db.models import Event, LeadSnapshotItem, ensure_schema, get_session_factory
 import backend.services.workflow as workflow_module
 from backend.services.workflow import (
     run_samgov_smoke_workflow,
@@ -370,6 +370,82 @@ def test_samgov_workflow_fixture_runs_end_to_end(tmp_path: Path):
     assert any(item.get("source") == "SAM.gov" for item in lead_payload.get("items", []))
     assert any(item.get("doc_id") for item in lead_payload.get("items", []))
     assert any(item.get("source_url") for item in lead_payload.get("items", []))
+
+
+def test_samgov_workflow_snapshot_respects_explicit_occurred_window(tmp_path: Path):
+    db_path = tmp_path / "sam_workflow_occurred_window.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        db.add_all(
+            [
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_window_recent",
+                    occurred_at=now - timedelta(days=1),
+                    created_at=now - timedelta(days=7),
+                    snippet="Recent SAM event inside explicit occurred_at window",
+                    raw_json={},
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_window_old",
+                    occurred_at=now - timedelta(days=10),
+                    created_at=now - timedelta(hours=1),
+                    snippet="Old SAM event outside explicit occurred_at window",
+                    raw_json={},
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="award",
+                    source="USAspending",
+                    hash="usa_window_latest",
+                    occurred_at=now - timedelta(minutes=5),
+                    created_at=now - timedelta(minutes=5),
+                    snippet="Recent cross-source event that should not affect SAM snapshot filtering",
+                    raw_json={},
+                    keywords=[],
+                    clauses=[],
+                ),
+            ]
+        )
+        db.commit()
+
+    res = run_samgov_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        skip_ontology=True,
+        skip_entities=True,
+        skip_correlations=True,
+        skip_exports=True,
+        occurred_after=now - timedelta(days=2),
+        min_score=0,
+        snapshot_limit=10,
+        scan_limit=10,
+        scoring_version="v1",
+    )
+
+    assert res["snapshot"]["items"] == 1
+    assert res["snapshot"]["scanned"] == 1
+
+    with SessionFactory() as db:
+        snapshot_items = (
+            db.query(LeadSnapshotItem)
+            .filter(LeadSnapshotItem.snapshot_id == int(res["snapshot"]["snapshot_id"]))
+            .order_by(LeadSnapshotItem.rank.asc())
+            .all()
+        )
+
+    assert [item.event_hash for item in snapshot_items] == ["sam_window_recent"]
 
 
 def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):

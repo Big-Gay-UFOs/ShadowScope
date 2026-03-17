@@ -34,6 +34,38 @@ def _normalize_validation_mode(mode: str) -> str:
     return value if value in {"smoke", "larger"} else "smoke"
 
 
+def _iso_or_none(value: Any) -> Any:
+    return value.isoformat() if hasattr(value, "isoformat") else value
+
+
+def _snapshot_window_args(
+    *,
+    date_from: Any = None,
+    date_to: Any = None,
+    occurred_after: Any = None,
+    occurred_before: Any = None,
+    created_after: Any = None,
+    created_before: Any = None,
+    since_days: Optional[int] = None,
+) -> list[str]:
+    parts: list[str] = []
+    if date_from is not None:
+        parts.append(f"--date-from {_iso_or_none(date_from)}")
+    if date_to is not None:
+        parts.append(f"--date-to {_iso_or_none(date_to)}")
+    if occurred_after is not None:
+        parts.append(f"--occurred-after {_iso_or_none(occurred_after)}")
+    if occurred_before is not None:
+        parts.append(f"--occurred-before {_iso_or_none(occurred_before)}")
+    if created_after is not None:
+        parts.append(f"--created-after {_iso_or_none(created_after)}")
+    if created_before is not None:
+        parts.append(f"--created-before {_iso_or_none(created_before)}")
+    if since_days is not None:
+        parts.append(f"--since-days {int(since_days)}")
+    return parts
+
+
 def _classify_sam_quality(
     *,
     failed_required_checks: list[dict[str, Any]],
@@ -126,6 +158,13 @@ def run_samgov_smoke_workflow_hardened(
     min_events_keywords: int = 2,
     max_events_keywords: int = 200,
     max_keywords_per_event: int = 10,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    occurred_after: Optional[datetime] = None,
+    occurred_before: Optional[datetime] = None,
+    created_after: Optional[datetime] = None,
+    created_before: Optional[datetime] = None,
+    since_days: Optional[int] = None,
     min_score: int = 1,
     snapshot_limit: int = 200,
     scan_limit: int = 5000,
@@ -172,6 +211,13 @@ def run_samgov_smoke_workflow_hardened(
             min_events_keywords=int(min_events_keywords),
             max_events_keywords=int(max_events_keywords),
             max_keywords_per_event=int(max_keywords_per_event),
+            date_from=date_from,
+            date_to=date_to,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            created_after=created_after,
+            created_before=created_before,
+            since_days=since_days,
             min_score=int(min_score),
             snapshot_limit=int(snapshot_limit),
             scan_limit=int(scan_limit),
@@ -271,7 +317,23 @@ def run_samgov_smoke_workflow_hardened(
         f'ss correlate rebuild-sam-naics --window-days {int(window_days)} --source "SAM.gov" '
         f"--min-events {int(min_events_keywords)} --max-events {int(max_events_keywords)}"
     )
-    rerun_snapshot_cmd = f'ss leads snapshot --source "SAM.gov" --min-score {int(min_score)} --limit {int(snapshot_limit)}'
+    rerun_snapshot_parts = [
+        'ss leads snapshot --source "SAM.gov"',
+        f"--min-score {int(min_score)}",
+        f"--limit {int(snapshot_limit)}",
+    ]
+    rerun_snapshot_parts.extend(
+        _snapshot_window_args(
+            date_from=date_from,
+            date_to=date_to,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            created_after=created_after,
+            created_before=created_before,
+            since_days=since_days,
+        )
+    )
+    rerun_snapshot_cmd = " ".join(rerun_snapshot_parts)
 
     checks: list[dict[str, Any]] = []
     checks.append(
@@ -696,6 +758,13 @@ def run_samgov_smoke_workflow_hardened(
             "keywords": list(keywords or []),
             "window_days": int(window_days),
             "scan_limit": int(scan_limit),
+            "date_from": _iso_or_none(date_from),
+            "date_to": _iso_or_none(date_to),
+            "occurred_after": _iso_or_none(occurred_after),
+            "occurred_before": _iso_or_none(occurred_before),
+            "created_after": _iso_or_none(created_after),
+            "created_before": _iso_or_none(created_before),
+            "since_days": int(since_days) if since_days is not None else None,
         },
         "ingest_diagnostics": ingest_request_diag,
         "generated_files": flatten_bundle_files(artifacts=artifacts, bundle_dir=bundle_dir),
@@ -741,6 +810,13 @@ def run_samgov_validation_workflow_hardened(
     min_events_keywords: int = 2,
     max_events_keywords: int = 200,
     max_keywords_per_event: int = 10,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    occurred_after: Optional[datetime] = None,
+    occurred_before: Optional[datetime] = None,
+    created_after: Optional[datetime] = None,
+    created_before: Optional[datetime] = None,
+    since_days: Optional[int] = None,
     min_score: int = 1,
     snapshot_limit: int = 200,
     scan_limit: int = 5000,
@@ -769,6 +845,13 @@ def run_samgov_validation_workflow_hardened(
         min_events_keywords=int(min_events_keywords),
         max_events_keywords=int(max_events_keywords),
         max_keywords_per_event=int(max_keywords_per_event),
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
         min_score=int(min_score),
         snapshot_limit=int(snapshot_limit),
         scan_limit=int(scan_limit),
@@ -788,4 +871,3 @@ __all__ = [
     "run_samgov_smoke_workflow_hardened",
     "run_samgov_validation_workflow_hardened",
 ]
-
