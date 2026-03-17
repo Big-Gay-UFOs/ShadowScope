@@ -310,6 +310,27 @@ def _get_sam_validation_check_policy(
     }
 
 
+def _list_sam_validation_policy_checks(*, validation_mode: str = "smoke") -> list[dict[str, Any]]:
+    mode = _normalize_validation_mode(validation_mode)
+    fallback_policy = SAM_VALIDATION_CHECK_POLICIES["smoke"]
+    mode_policy = SAM_VALIDATION_CHECK_POLICIES.get(mode, {})
+    ordered_names = list(dict.fromkeys(list(fallback_policy.keys()) + list(mode_policy.keys())))
+    checks: list[dict[str, Any]] = []
+    for name in ordered_names:
+        policy = _get_sam_validation_check_policy(name, validation_mode=mode)
+        checks.append(
+            {
+                "name": name,
+                "category": policy["category"],
+                "category_label": policy["category_label"],
+                "severity": policy["severity"],
+                "required": policy["required"],
+                "policy_level": "required" if bool(policy["required"]) else "advisory",
+            }
+        )
+    return checks
+
+
 def _serialize_check(
     *,
     name: str,

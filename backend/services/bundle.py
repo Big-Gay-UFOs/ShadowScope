@@ -312,11 +312,13 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
 
     if not root.exists():
         payload["status"] = "missing_bundle_dir"
+        payload["bundle_status"] = "missing_bundle_dir"
         payload["errors"] = [f"Bundle directory not found: {root}"]
         return payload
 
     if not manifest_path.exists():
         payload["status"] = "missing_manifest"
+        payload["bundle_status"] = "missing_manifest"
         payload["errors"] = [f"Manifest not found: {manifest_path}"]
         legacy_files = {
             "workflow_result_json": root / "workflow_result.json",
@@ -330,6 +332,7 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception as exc:
         payload["status"] = "invalid_manifest_json"
+        payload["bundle_status"] = "invalid_manifest_json"
         payload["errors"] = [str(exc)]
         return payload
 
@@ -349,6 +352,7 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
     payload.update(
         {
             "status": integrity_status,
+            "bundle_status": integrity_status,
             "bundle_integrity_status": integrity_status,
             "workflow_status": manifest.get("status"),
             "workflow_quality": quality_payload.get("quality"),

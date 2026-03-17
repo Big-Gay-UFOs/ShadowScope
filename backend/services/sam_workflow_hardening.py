@@ -139,25 +139,86 @@ def _summarize_check_groups(checks: list[dict[str, Any]]) -> dict[str, dict[str,
     return summary
 
 
+def _summarize_policy_groups(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    from backend.services import workflow as workflow_module
+
+    ordered_categories = [
+        "pipeline_health",
+        "source_coverage_context_health",
+        "lead_signal_quality",
+    ]
+    groups: dict[str, dict[str, Any]] = {}
+    for category in ordered_categories:
+        groups[category] = {
+            "category_label": workflow_module.SAM_VALIDATION_CATEGORY_LABELS.get(
+                category,
+                category.replace("_", " "),
+            ),
+            "required_checks": [],
+            "advisory_checks": [],
+        }
+
+    for item in items:
+        category = str(item.get("category") or "pipeline_health")
+        group = groups.setdefault(
+            category,
+            {
+                "category_label": workflow_module.SAM_VALIDATION_CATEGORY_LABELS.get(
+                    category,
+                    category.replace("_", " "),
+                ),
+                "required_checks": [],
+                "advisory_checks": [],
+            },
+        )
+        target = "required_checks" if bool(item.get("required")) else "advisory_checks"
+        group[target].append(item.get("name"))
+
+    summary: dict[str, dict[str, Any]] = {}
+    for category in ordered_categories + sorted([k for k in groups.keys() if k not in ordered_categories]):
+        group = groups.get(category)
+        if not group:
+            continue
+        required_checks = [str(item) for item in group.get("required_checks") or [] if str(item).strip()]
+        advisory_checks = [str(item) for item in group.get("advisory_checks") or [] if str(item).strip()]
+        if not required_checks and not advisory_checks and category not in ordered_categories:
+            continue
+        summary[category] = {
+            "category_label": group.get("category_label"),
+            "required_checks": required_checks,
+            "advisory_checks": advisory_checks,
+        }
+    return summary
+
+
 def _build_quality_gate_policy(
     *,
     validation_mode: str,
     checks: list[dict[str, Any]],
+    policy_overrides: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
-    by_category: dict[str, dict[str, Any]] = {}
-    for category, group in _summarize_check_groups(checks).items():
-        by_category[category] = {
-            "category_label": group.get("category_label"),
-            "required_checks": [item.get("name") for item in group.get("checks", []) if bool(item.get("required"))],
-            "advisory_checks": [
-                item.get("name") for item in group.get("checks", []) if not bool(item.get("required"))
-            ],
-        }
+    from backend.services import workflow as workflow_module
+
+    declared_checks = workflow_module._list_sam_validation_policy_checks(validation_mode=validation_mode)
+    effective_groups = _summarize_check_groups(checks)
     return {
         "validation_mode": validation_mode,
-        "required_checks": [item.get("name") for item in checks if bool(item.get("required"))],
-        "advisory_checks": [item.get("name") for item in checks if not bool(item.get("required"))],
-        "by_category": by_category,
+        "required_checks": [item.get("name") for item in declared_checks if bool(item.get("required"))],
+        "advisory_checks": [item.get("name") for item in declared_checks if not bool(item.get("required"))],
+        "by_category": _summarize_policy_groups(declared_checks),
+        "effective_required_checks": [item.get("name") for item in checks if bool(item.get("required"))],
+        "effective_advisory_checks": [item.get("name") for item in checks if not bool(item.get("required"))],
+        "effective_by_category": {
+            category: {
+                "category_label": group.get("category_label"),
+                "required_checks": [item.get("name") for item in group.get("checks", []) if bool(item.get("required"))],
+                "advisory_checks": [
+                    item.get("name") for item in group.get("checks", []) if not bool(item.get("required"))
+                ],
+            }
+            for category, group in effective_groups.items()
+        },
+        "policy_overrides": list(policy_overrides or []),
     }
 
 
@@ -448,6 +509,7 @@ def run_samgov_smoke_workflow_hardened(
     rerun_snapshot_cmd = " ".join(rerun_snapshot_parts)
 
     checks: list[dict[str, Any]] = []
+    policy_overrides: list[dict[str, Any]] = []
     checks.append(
         workflow_module._serialize_check(
             name="doctor_db_ok",
@@ -463,23 +525,30 @@ def run_samgov_smoke_workflow_hardened(
         )
     )
 
-    if workflow_error:
-        checks.append(
-            workflow_module._serialize_check(
-                name="workflow_execution",
-                ok=False,
-                observed=workflow_error,
-                actual=workflow_error,
-                threshold="workflow executes without exception",
-                expected="workflow executes without exception",
-                why="The workflow failed before all artifact stages completed.",
-                hint=smoke_tune_cmd if mode == "smoke" else larger_validate_cmd,
-                kind="health",
-                validation_mode=mode,
-            )
+    checks.append(
+        workflow_module._serialize_check(
+            name="workflow_execution",
+            ok=workflow_error is None,
+            observed="ok" if workflow_error is None else workflow_error,
+            actual="ok" if workflow_error is None else workflow_error,
+            threshold="workflow executes without exception",
+            expected="workflow executes without exception",
+            why="The workflow must complete all stages to produce trustworthy SAM.gov validation artifacts.",
+            hint=smoke_tune_cmd if mode == "smoke" else larger_validate_cmd,
+            kind="health",
+            validation_mode=mode,
         )
+    )
 
     if skip_ingest:
+        policy_overrides.append(
+            {
+                "name": "ingest_nonzero",
+                "declared_policy_level": "required",
+                "effective_policy_level": "advisory",
+                "reason": "skip_ingest=True reuses existing local SAM.gov data instead of requiring fresh ingest volume.",
+            }
+        )
         checks.append(
             workflow_module._serialize_check(
                 name="ingest_nonzero",
@@ -704,7 +773,11 @@ def run_samgov_smoke_workflow_hardened(
     failed_required_checks = [c for c in checks if bool(c.get("required", True)) and not bool(c.get("ok"))]
     warning_checks = [c for c in checks if not bool(c.get("required", True)) and not bool(c.get("ok"))]
     check_groups = _summarize_check_groups(checks)
-    quality_gate_policy = _build_quality_gate_policy(validation_mode=mode, checks=checks)
+    quality_gate_policy = _build_quality_gate_policy(
+        validation_mode=mode,
+        checks=checks,
+        policy_overrides=policy_overrides,
+    )
     required_checks_passed = len(failed_required_checks) == 0
     smoke_passed = len(failed_required_checks) == 0
 

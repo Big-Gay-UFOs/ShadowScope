@@ -41,6 +41,56 @@ def _find_latest_sam_bundle(bundle_path: Optional[Path] = None) -> Optional[Path
     return bundle_dirs[0]
 
 
+def _classify_sam_diagnostics(
+    *,
+    db_ok: bool,
+    db_query_error: Optional[str],
+    bundle_integrity_status: Optional[str],
+    workflow_status: Optional[str],
+    bundle_quality: Optional[str],
+    required_failure_categories: list[str],
+    advisory_failure_categories: list[str],
+    rate_limit_retries: int,
+    events_window: int,
+    keyword_cov: float,
+    entity_cov: float,
+) -> str:
+    if not db_ok or db_query_error:
+        return "broken"
+    if bundle_integrity_status not in {None, "ok"}:
+        return "broken"
+    if workflow_status == "failed":
+        if "pipeline_health" in required_failure_categories:
+            return "broken"
+        return "degraded"
+    if workflow_status == "warning":
+        if bundle_quality == "rate_limited_degraded" or rate_limit_retries > 0:
+            return "rate_limited_degraded"
+        if bundle_quality == "sparse_valid" or events_window == 0:
+            return "sparse_valid"
+        if bundle_quality in {"partially_useful", "degraded"}:
+            return str(bundle_quality)
+        return "degraded"
+    if workflow_status == "ok":
+        if bundle_quality == "rate_limited_degraded" or rate_limit_retries > 0:
+            return "rate_limited_degraded"
+        if bundle_quality == "sparse_valid" or events_window == 0:
+            return "sparse_valid"
+        if bundle_quality in {"partially_useful", "degraded"}:
+            return str(bundle_quality)
+        if bundle_quality == "healthy":
+            return "healthy"
+        if advisory_failure_categories:
+            return "degraded"
+    if rate_limit_retries > 0:
+        return "rate_limited_degraded"
+    if events_window == 0:
+        return "sparse_valid"
+    if keyword_cov < 40.0 or entity_cov < 40.0:
+        return "partially_useful"
+    return "healthy"
+
+
 def diagnose_samgov(
     *,
     days: int = 30,
@@ -185,21 +235,36 @@ def diagnose_samgov(
         recommendations.append(
             "No SAM bundle found. Run ss workflow samgov-smoke --json or ss workflow samgov-validate --json to generate a normalized bundle."
         )
+    elif workflow_status == "failed" and required_failure_categories:
+        recommendations.append(
+            "Latest SAM bundle failed required quality gates in: "
+            + ", ".join(required_failure_categories)
+            + ". Review the bundle report or rerun ss workflow samgov-validate --json."
+        )
+    elif workflow_status == "warning" and advisory_failure_categories:
+        recommendations.append(
+            "Latest SAM bundle has advisory quality misses in: "
+            + ", ".join(advisory_failure_categories)
+            + ". Review the bundle report before treating the run as fully healthy."
+        )
     if db_query_error:
         recommendations.append(
             "SAM diagnostics query failed while inspecting events/snapshots. Verify DATABASE_URL and local schema health (for example: ss db init)."
         )
 
-    if (doc.get("db") or {}).get("status") != "ok" or db_query_error:
-        classification = "broken"
-    elif rate_limit_retries > 0:
-        classification = "rate_limited_degraded"
-    elif events_window == 0:
-        classification = "sparse_valid"
-    elif keyword_cov < 40.0 or entity_cov < 40.0:
-        classification = "partially_useful"
-    else:
-        classification = "healthy"
+    classification = _classify_sam_diagnostics(
+        db_ok=((doc.get("db") or {}).get("status") == "ok"),
+        db_query_error=db_query_error,
+        bundle_integrity_status=bundle_integrity_status,
+        workflow_status=workflow_status,
+        bundle_quality=bundle_quality,
+        required_failure_categories=required_failure_categories,
+        advisory_failure_categories=advisory_failure_categories,
+        rate_limit_retries=rate_limit_retries,
+        events_window=events_window,
+        keyword_cov=keyword_cov,
+        entity_cov=entity_cov,
+    )
 
     return {
         "generated_at": now.isoformat(),
@@ -213,6 +278,7 @@ def diagnose_samgov(
         "bundle": {
             "latest_bundle_dir": latest_bundle_dir,
             "inspection": bundle_inspection,
+            "bundle_status": bundle_integrity_status,
             "bundle_integrity_status": bundle_integrity_status,
             "workflow_status": workflow_status,
             "bundle_quality": bundle_quality,

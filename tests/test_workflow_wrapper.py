@@ -578,6 +578,12 @@ def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
     assert res.get("quality_gate_policy", {}).get("required_checks")
     assert res.get("quality_gate_policy", {}).get("advisory_checks")
     assert res.get("status") in {"ok", "warning"}
+    assert "workflow_execution" in (res.get("quality_gate_policy", {}).get("required_checks") or [])
+    assert "ingest_nonzero" in (res.get("quality_gate_policy", {}).get("required_checks") or [])
+    assert "workflow_execution" in (res.get("quality_gate_policy", {}).get("effective_required_checks") or [])
+    assert "ingest_nonzero" in (res.get("quality_gate_policy", {}).get("effective_advisory_checks") or [])
+    overrides = res.get("quality_gate_policy", {}).get("policy_overrides") or []
+    assert any(item.get("name") == "ingest_nonzero" for item in overrides)
 
     artifacts = res.get("artifacts") or {}
     manifest_path = Path(artifacts.get("bundle_manifest_json"))
@@ -599,6 +605,8 @@ def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     checks_by_name = {item.get("name"): item for item in summary_payload.get("checks", [])}
+    assert checks_by_name["workflow_execution"]["policy_level"] == "required"
+    assert checks_by_name["workflow_execution"]["passed"] is True
     assert checks_by_name["events_window_threshold"]["policy_level"] == "required"
     assert checks_by_name["events_window_threshold"]["severity"] == "error"
     assert checks_by_name["events_with_keywords_coverage_threshold"]["policy_level"] == "advisory"

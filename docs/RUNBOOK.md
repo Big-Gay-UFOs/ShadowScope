@@ -161,6 +161,7 @@ Interpretation:
 - `status=failed`: required checks failed; treat as hard failure.
 - Validation output separates failures into `pipeline_health`, `source_coverage_context_health`, and `lead_signal_quality`.
 - Each check now serializes `name`, `observed`, `threshold`, `severity`, `required` vs `advisory`, and pass/fail.
+- `ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now read the manifest/gate status directly so larger-run warnings and failures are not flattened into legacy smoke-style PASS output.
 
 Bundle contract (`samgov.bundle.v1`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries.
 

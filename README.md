@@ -495,6 +495,8 @@ ss diagnose samgov --days 30 --json
 ss inspect bundle --path <bundle_dir> --json
 ```
 
+`ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now honor the manifest-driven workflow gate status, required/advisory split, and category failures instead of relying on smoke-only pass heuristics.
+
 Normalized SAM bundle contract (`samgov.bundle.v1`):
 
 ```text
@@ -537,7 +539,6 @@ Retry tuning knobs for larger SAM windows:
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
-
 
 
 

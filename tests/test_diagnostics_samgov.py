@@ -1,4 +1,5 @@
-﻿from datetime import datetime, timezone
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.db.models import Event, ensure_schema, get_session_factory
@@ -58,6 +59,11 @@ def _seed_events(db, now: datetime) -> None:
     )
 
 
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def test_inspect_bundle_reads_manifest_and_files(tmp_path: Path):
     db_path = tmp_path / "diag_bundle.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
@@ -87,6 +93,7 @@ def test_inspect_bundle_reads_manifest_and_files(tmp_path: Path):
     inspected = inspect_bundle(bundle_dir)
 
     assert inspected["status"] == "ok"
+    assert inspected["bundle_status"] == "ok"
     assert inspected["bundle_integrity_status"] == "ok"
     assert inspected["workflow_status"] == res["status"]
     manifest = inspected.get("manifest") or {}
@@ -142,6 +149,7 @@ def test_diagnose_samgov_reports_bundle_and_gap_metrics(tmp_path: Path):
     bundle = diag.get("bundle") or {}
     inspection = bundle.get("inspection") or {}
     assert inspection.get("status") == "ok"
+    assert bundle.get("bundle_status") == "ok"
     assert bundle.get("bundle_integrity_status") == "ok"
     assert bundle.get("workflow_status") == smoke.get("status")
 
@@ -153,7 +161,6 @@ def test_diagnose_samgov_reports_bundle_and_gap_metrics(tmp_path: Path):
 
 
 def test_diagnose_samgov_handles_db_query_failures_gracefully(tmp_path: Path):
-    # Intentionally avoid schema setup so raw diagnostics queries fail.
     db_path = tmp_path / "diag_broken.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
 
@@ -172,3 +179,76 @@ def test_diagnose_samgov_handles_db_query_failures_gracefully(tmp_path: Path):
 
     recommendations = diag.get("recommendations") or []
     assert any("diagnostics query failed" in str(item).lower() for item in recommendations)
+
+
+def test_diagnose_samgov_honors_failed_required_quality_bundle(tmp_path: Path):
+    db_path = tmp_path / "diag_quality_fail.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_events(db, now)
+        db.commit()
+
+    bundle_dir = tmp_path / "validation_bundle"
+    _write_json(bundle_dir / "results" / "workflow_result.json", {"generated_at": now.isoformat(), "result": {"status": "ok"}})
+    _write_json(
+        bundle_dir / "results" / "doctor_status.json",
+        {"generated_at": now.isoformat(), "result": {"db": {"status": "ok"}}},
+    )
+    _write_json(
+        bundle_dir / "results" / "workflow_summary.json",
+        {
+            "generated_at": now.isoformat(),
+            "source": "SAM.gov",
+            "workflow_type": "samgov-validation",
+            "validation_mode": "larger",
+            "status": "failed",
+            "required_checks_passed": False,
+            "quality": {
+                "quality": "hard_failure",
+                "required_failure_categories": ["lead_signal_quality"],
+                "advisory_failure_categories": [],
+            },
+        },
+    )
+    _write_json(
+        bundle_dir / "bundle_manifest.json",
+        {
+            "bundle_version": "samgov.bundle.v1",
+            "source": "SAM.gov",
+            "workflow_type": "samgov-validation",
+            "validation_mode": "larger",
+            "generated_at": now.isoformat(),
+            "status": "failed",
+            "quality": {
+                "quality": "hard_failure",
+                "required_failure_categories": ["lead_signal_quality"],
+                "advisory_failure_categories": [],
+            },
+            "generated_files": {
+                "workflow_result_json": "results/workflow_result.json",
+                "doctor_status_json": "results/doctor_status.json",
+                "workflow_summary_json": "results/workflow_summary.json",
+            },
+        },
+    )
+
+    diag = diagnose_samgov(
+        days=30,
+        scan_limit=200,
+        max_keywords_per_event=10,
+        database_url=db_url,
+        bundle_path=bundle_dir,
+    )
+
+    assert diag.get("classification") == "degraded"
+    bundle = diag.get("bundle") or {}
+    assert bundle.get("bundle_status") == "ok"
+    assert bundle.get("workflow_status") == "failed"
+    assert bundle.get("required_failure_categories") == ["lead_signal_quality"]
+    recommendations = diag.get("recommendations") or []
+    assert any("failed required quality gates" in str(item).lower() for item in recommendations)

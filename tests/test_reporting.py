@@ -124,6 +124,99 @@ def _sample_payloads(bundle_dir: Path) -> tuple[dict, dict, dict, dict]:
     return workflow, doctor, smoke, artifacts
 
 
+def _write_hardened_bundle(bundle_dir: Path, *, status: str, required_checks_passed: bool, quality_name: str) -> None:
+    workflow, doctor, smoke, _artifacts = _sample_payloads(bundle_dir)
+    results_dir = bundle_dir / "results"
+    workflow_json = results_dir / "workflow_result.json"
+    doctor_json = results_dir / "doctor_status.json"
+    summary_json = results_dir / "workflow_summary.json"
+
+    smoke.update(
+        {
+            "workflow_type": "samgov-validation",
+            "validation_mode": "larger",
+            "status": status,
+            "smoke_passed": required_checks_passed,
+            "required_checks_passed": required_checks_passed,
+            "failed_required_checks": [],
+            "failed_advisory_checks": [
+                {
+                    "name": "events_with_keywords_coverage_threshold",
+                    "category": "lead_signal_quality",
+                    "category_label": "Lead-signal quality",
+                    "policy_level": "advisory",
+                    "passed": False,
+                }
+            ]
+            if status == "warning"
+            else [],
+            "quality": {
+                "quality": quality_name,
+                "required_failure_categories": [],
+                "advisory_failure_categories": ["lead_signal_quality"] if status == "warning" else [],
+            },
+            "check_groups": {
+                "pipeline_health": {
+                    "category_label": "Pipeline health",
+                    "required_total": 3,
+                    "advisory_total": 1,
+                    "failed_required": 0,
+                    "failed_advisory": 0,
+                },
+                "lead_signal_quality": {
+                    "category_label": "Lead-signal quality",
+                    "required_total": 2,
+                    "advisory_total": 1,
+                    "failed_required": 0,
+                    "failed_advisory": 1 if status == "warning" else 0,
+                },
+            },
+            "artifacts": {
+                "workflow_result_json": str(workflow_json),
+                "doctor_status_json": str(doctor_json),
+                "smoke_summary_json": str(summary_json),
+                "workflow_summary_json": str(summary_json),
+                "bundle_manifest_json": str(bundle_dir / "bundle_manifest.json"),
+                "exports": workflow["exports"],
+            },
+            "run_metadata": {
+                "source": "SAM.gov",
+                "workflow_type": "samgov-validation",
+                "run_timestamp": "2026-03-09T12:00:00+00:00",
+                "ingest_days": 30,
+                "pages": 5,
+                "page_size": 100,
+                "max_records": 250,
+                "start_page": 1,
+                "window_days": 30,
+                "validation_mode": "larger",
+            },
+        }
+    )
+
+    _write_json(workflow_json, {"generated_at": "2026-03-09T12:00:00+00:00", "result": workflow})
+    _write_json(doctor_json, {"generated_at": "2026-03-09T12:00:00+00:00", "result": doctor})
+    _write_json(summary_json, smoke)
+    _write_json(
+        bundle_dir / "bundle_manifest.json",
+        {
+            "bundle_version": "samgov.bundle.v1",
+            "source": "SAM.gov",
+            "workflow_type": "samgov-validation",
+            "validation_mode": "larger",
+            "generated_at": "2026-03-09T12:00:00+00:00",
+            "status": status,
+            "quality": smoke["quality"],
+            "run_parameters": smoke["run_metadata"],
+            "generated_files": {
+                "workflow_result_json": "results/workflow_result.json",
+                "doctor_status_json": "results/doctor_status.json",
+                "workflow_summary_json": "results/workflow_summary.json",
+            },
+        },
+    )
+
+
 def test_generate_sam_report_contains_expected_sections(tmp_path: Path):
     bundle = tmp_path / "bundle"
     workflow, doctor, smoke, artifacts = _sample_payloads(bundle)
@@ -195,6 +288,22 @@ def test_generate_sam_report_from_bundle_path(tmp_path: Path):
     html = report_path.read_text(encoding="utf-8")
     assert "DOC-001" in html
     assert "procurement" in html
+
+
+def test_generate_sam_report_from_hardened_bundle_manifest_paths(tmp_path: Path):
+    bundle = tmp_path / "bundle_hardened"
+    _write_hardened_bundle(bundle, status="warning", required_checks_passed=True, quality_name="partially_useful")
+
+    res = generate_sam_report_from_bundle(bundle)
+
+    report_path = Path(res["report_html"])
+    assert res["status"] == "WARNING"
+    assert report_path.exists()
+    html = report_path.read_text(encoding="utf-8")
+    assert "Validation Categories" in html
+    assert "Workflow Gate Status" in html
+    assert "Lead-signal quality" in html
+    assert "partially_useful" in html
 
 
 def test_find_latest_sam_smoke_bundle_uses_latest_stamp(tmp_path: Path):
