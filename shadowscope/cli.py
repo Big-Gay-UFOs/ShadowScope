@@ -162,6 +162,27 @@ def _parse_datetime_option(value: Optional[str], *, option_name: str) -> Optiona
         raise typer.BadParameter(f"{option_name} must be an ISO-8601 datetime") from exc
 
 
+def _resolve_lead_window_kwargs(
+    *,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    occurred_after: Optional[str] = None,
+    occurred_before: Optional[str] = None,
+    created_after: Optional[str] = None,
+    created_before: Optional[str] = None,
+    since_days: Optional[int] = None,
+) -> dict[str, Optional[object]]:
+    return {
+        "date_from": _parse_datetime_option(date_from, option_name="date_from"),
+        "date_to": _parse_datetime_option(date_to, option_name="date_to"),
+        "occurred_after": _parse_datetime_option(occurred_after, option_name="occurred_after"),
+        "occurred_before": _parse_datetime_option(occurred_before, option_name="occurred_before"),
+        "created_after": _parse_datetime_option(created_after, option_name="created_after"),
+        "created_before": _parse_datetime_option(created_before, option_name="created_before"),
+        "since_days": since_days,
+    }
+
+
 @db_app.command("init")
 def db_init(database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command.")):
     status = sync_database(database_url)
@@ -496,6 +517,13 @@ def leads_snapshot(
     analysis_run_id: Optional[int] = typer.Option(None, "--analysis-run-id", help="Optional link to an analysis_runs.id"),
     source: Optional[str] = typer.Option(None, "--source", help="Filter by event source (e.g. USAspending)"),
     exclude_source: Optional[str] = typer.Option(None, "--exclude-source", help="Exclude an event source"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Event-time lookback window helper"),
     min_score: int = typer.Option(1, "--min-score", help="Minimum score to include"),
     limit: int = typer.Option(200, "--limit", help="Max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="How many recent events to scan before ranking"),
@@ -505,10 +533,20 @@ def leads_snapshot(
 ):
     from backend.services.leads import create_lead_snapshot
 
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     result = create_lead_snapshot(
         analysis_run_id=analysis_run_id,
         source=source,
         exclude_source=exclude_source,
+        **lead_window_kwargs,
         min_score=min_score,
         limit=limit,
         scan_limit=scan_limit,
@@ -559,6 +597,11 @@ def leads_query(
     exclude_source: Optional[str] = typer.Option(None, "--exclude-source", help="Exclude an event source"),
     date_from: Optional[str] = typer.Option(None, "--date-from", help="Inclusive ISO-8601 start datetime"),
     date_to: Optional[str] = typer.Option(None, "--date-to", help="Inclusive ISO-8601 end datetime"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Event-time lookback window helper"),
     entity_id: Optional[int] = typer.Option(None, "--entity-id", help="Filter by entity_id"),
     keyword: Optional[str] = typer.Option(None, "--keyword", help="Filter by keyword tag"),
     agency: Optional[str] = typer.Option(None, "--agency", help="Filter by agency code or name"),
@@ -592,6 +635,15 @@ def leads_query(
     if scan_i < (limit_i + offset_i):
         scan_i = limit_i + offset_i
     scoring_version = normalize_scoring_version(scoring_version)
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
 
     SessionFactory = get_session_factory(database_url)
     with SessionFactory() as db:
@@ -604,8 +656,7 @@ def leads_query(
             scoring_version=scoring_version,
             source=source,
             exclude_source=exclude_source,
-            date_from=_parse_datetime_option(date_from, option_name="date_from"),
-            date_to=_parse_datetime_option(date_to, option_name="date_to"),
+            **lead_window_kwargs,
             entity_id=entity_id,
             keyword=keyword,
             agency=agency,
@@ -988,6 +1039,13 @@ def workflow_usaspending(
     max_keywords_per_event: int = typer.Option(
         10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"
     ),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Snapshot: inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Snapshot: inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Snapshot: inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Snapshot: inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Snapshot: inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Snapshot: inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Snapshot: event-time lookback window helper"),
     entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
@@ -1008,6 +1066,15 @@ def workflow_usaspending(
     from backend.services.workflow import run_usaspending_workflow
 
     export_path = Path(out).expanduser() if out else None
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     res = run_usaspending_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -1023,6 +1090,7 @@ def workflow_usaspending(
         min_events_keywords=min_events_keywords,
         max_events_keywords=max_events_keywords,
         max_keywords_per_event=max_keywords_per_event,
+        **lead_window_kwargs,
         entity_days=entity_days,
         min_score=min_score,
         snapshot_limit=snapshot_limit,
@@ -1085,6 +1153,13 @@ def workflow_samgov(
     max_keywords_per_event: int = typer.Option(
         10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"
     ),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Snapshot: inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Snapshot: inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Snapshot: inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Snapshot: inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Snapshot: inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Snapshot: inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Snapshot: event-time lookback window helper"),
     entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
@@ -1107,6 +1182,15 @@ def workflow_samgov(
     export_path = Path(out).expanduser() if out else None
     resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     res = run_samgov_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -1122,6 +1206,7 @@ def workflow_samgov(
         min_events_keywords=min_events_keywords,
         max_events_keywords=max_events_keywords,
         max_keywords_per_event=max_keywords_per_event,
+        **lead_window_kwargs,
         entity_days=entity_days,
         min_score=min_score,
         snapshot_limit=snapshot_limit,
@@ -1183,6 +1268,13 @@ def workflow_samgov_validate(
     min_events_keywords: int = typer.Option(2, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"),
     max_events_keywords: int = typer.Option(200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"),
     max_keywords_per_event: int = typer.Option(10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Snapshot: inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Snapshot: inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Snapshot: inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Snapshot: inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Snapshot: inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Snapshot: inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Snapshot: event-time lookback window helper"),
     entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
@@ -1202,6 +1294,15 @@ def workflow_samgov_validate(
     resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     res = run_samgov_validation_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -1218,6 +1319,7 @@ def workflow_samgov_validate(
         min_events_keywords=min_events_keywords,
         max_events_keywords=max_events_keywords,
         max_keywords_per_event=max_keywords_per_event,
+        **lead_window_kwargs,
         min_score=min_score,
         snapshot_limit=snapshot_limit,
         scan_limit=scan_limit,
@@ -1280,6 +1382,13 @@ def workflow_samgov_smoke(
     max_keywords_per_event: int = typer.Option(
         10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"
     ),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Snapshot: inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Snapshot: inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Snapshot: inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Snapshot: inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Snapshot: inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Snapshot: inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Snapshot: event-time lookback window helper"),
     entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
@@ -1303,6 +1412,15 @@ def workflow_samgov_smoke(
     resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     res = run_samgov_smoke_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -1319,6 +1437,7 @@ def workflow_samgov_smoke(
         min_events_keywords=min_events_keywords,
         max_events_keywords=max_events_keywords,
         max_keywords_per_event=max_keywords_per_event,
+        **lead_window_kwargs,
         min_score=min_score,
         snapshot_limit=snapshot_limit,
         scan_limit=scan_limit,
@@ -1824,10 +1943,6 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
-
-
-
-
 
 
 

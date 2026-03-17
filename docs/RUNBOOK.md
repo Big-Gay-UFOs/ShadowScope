@@ -103,6 +103,19 @@ Standard offline rebuild loops:
 
 On a fixed window, look for directional improvement in useful keyword density and `kw_pair` signal without degrading pipeline health or existing suppressor behavior.
 
+## Lead window filters
+
+Lead queries, snapshots, and workflow-generated snapshots now accept additive lead-window filters:
+
+- `--date-from` / `--date-to`: filter on event time using `occurred_at` with `created_at` fallback.
+- `--occurred-after` / `--occurred-before`: filter only on `occurred_at`.
+- `--created-after` / `--created-before`: filter only on `created_at`.
+- `--since-days`: quick event-time lookback helper for source-specific snapshots.
+
+Examples:
+- `ss leads snapshot --source "SAM.gov" --occurred-after 2026-03-01T00:00:00+00:00 --min-score 1 --limit 200 --scan-limit 5000`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --occurred-after 2026-03-01T00:00:00+00:00`
+
 ## 5) Fixture verification (offline)
 
 - `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
@@ -156,5 +169,4 @@ $env:SAM_API_TIMEOUT_SECONDS = "90"
 $env:SAM_API_MAX_RETRIES = "12"
 $env:SAM_API_BACKOFF_BASE = "1.25"
 ```
-
 

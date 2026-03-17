@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import math
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import select
@@ -27,13 +28,14 @@ from backend.services.explainability import (
     enrich_lead_score_details,
     load_event_correlation_evidence,
 )
-from backend.services.investigator_filters import investigator_event_conditions
+from backend.services.investigator_filters import event_time_expr, investigator_event_conditions
 
 
 _DOD_PACK_PREFIX = "sam_dod_"
 _NOISE_PACK_PREFIXES = ("operational_noise_terms:", "sam_proxy_noise_expansion:")
 _FOIA_MATRIX_BONUS_CAP = 3
 _VALID_SCORING_VERSIONS = {"v1", "v2"}
+_MIN_SORT_DT = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def normalize_scoring_version(value: Any, *, default: str = "v2") -> str:
@@ -96,6 +98,81 @@ def _legacy_pair_bonus_contribution(event_count: int) -> float:
     return 1.0 / math.sqrt(float(event_count))
 
 
+def _lead_candidate_conditions(
+    *,
+    source: Optional[str] = None,
+    exclude_source: Optional[str] = None,
+    date_from: Optional[Any] = None,
+    date_to: Optional[Any] = None,
+    occurred_after: Optional[Any] = None,
+    occurred_before: Optional[Any] = None,
+    created_after: Optional[Any] = None,
+    created_before: Optional[Any] = None,
+    since_days: Optional[int] = None,
+    entity_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+    agency: Optional[str] = None,
+    psc: Optional[str] = None,
+    naics: Optional[str] = None,
+    award_id: Optional[str] = None,
+    recipient_uei: Optional[str] = None,
+    place_region: Optional[str] = None,
+) -> list[Any]:
+    conditions = investigator_event_conditions(
+        source=source,
+        date_from=date_from,
+        date_to=date_to,
+        entity_id=entity_id,
+        keyword=keyword,
+        agency=agency,
+        psc=psc,
+        naics=naics,
+        award_id=award_id,
+        recipient_uei=recipient_uei,
+        place_region=place_region,
+    )
+
+    if exclude_source:
+        conditions.append(Event.source != exclude_source)
+
+    if occurred_after is not None:
+        conditions.append(Event.occurred_at >= occurred_after)
+    if occurred_before is not None:
+        conditions.append(Event.occurred_at <= occurred_before)
+    if created_after is not None:
+        conditions.append(Event.created_at >= created_after)
+    if created_before is not None:
+        conditions.append(Event.created_at <= created_before)
+    if since_days is not None:
+        since = datetime.now(timezone.utc) - timedelta(days=max(int(since_days), 0))
+        conditions.append(event_time_expr(Event) >= since)
+
+    return conditions
+
+
+def _lead_candidate_order_by() -> tuple[Any, ...]:
+    relevant_at = event_time_expr(Event)
+    return (
+        relevant_at.desc().nullslast(),
+        Event.occurred_at.desc().nullslast(),
+        Event.created_at.desc().nullslast(),
+        Event.id.desc(),
+    )
+
+
+def _sortable_dt(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return _MIN_SORT_DT
+
+
+def _lead_sort_values(event: Event) -> tuple[Any, ...]:
+    relevant_at = _sortable_dt(event.occurred_at or event.created_at)
+    occurred_at = _sortable_dt(event.occurred_at)
+    created_at = _sortable_dt(event.created_at)
+    return relevant_at, occurred_at, created_at, int(event.id)
+
+
 
 def compute_leads(
     db: Session,
@@ -107,6 +184,11 @@ def compute_leads(
     exclude_source: Optional[str] = None,
     date_from: Optional[Any] = None,
     date_to: Optional[Any] = None,
+    occurred_after: Optional[Any] = None,
+    occurred_before: Optional[Any] = None,
+    created_after: Optional[Any] = None,
+    created_before: Optional[Any] = None,
+    since_days: Optional[int] = None,
     entity_id: Optional[int] = None,
     keyword: Optional[str] = None,
     agency: Optional[str] = None,
@@ -124,10 +206,16 @@ def compute_leads(
     pair_event_count_threshold: int = DEFAULT_KW_PAIR_BONUS_MIN_EVENT_COUNT,
 ) -> Tuple[List[Tuple[int, Event, Dict[str, Any]]], int]:
     scoring_version = normalize_scoring_version(scoring_version)
-    conditions = investigator_event_conditions(
+    conditions = _lead_candidate_conditions(
         source=source,
+        exclude_source=exclude_source,
         date_from=date_from,
         date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
         entity_id=entity_id,
         keyword=keyword,
         agency=agency,
@@ -137,11 +225,14 @@ def compute_leads(
         recipient_uei=recipient_uei,
         place_region=place_region,
     )
-    if exclude_source:
-        conditions.append(Event.source != exclude_source)
 
     rows = (
-        db.execute(select(Event).where(*conditions).order_by(Event.id.desc()).limit(int(scan_limit)))
+        db.execute(
+            select(Event)
+            .where(*conditions)
+            .order_by(*_lead_candidate_order_by())
+            .limit(max(int(scan_limit), 0))
+        )
         .scalars()
         .all()
     )
@@ -265,7 +356,7 @@ def compute_leads(
         if int(score) >= int(min_score):
             scored.append((int(score), e, details))
 
-    scored.sort(key=lambda t: (t[0], t[1].id), reverse=True)
+    scored.sort(key=lambda t: (t[0],) + _lead_sort_values(t[1]), reverse=True)
     return scored[: int(limit)], scanned
 
 
@@ -275,6 +366,13 @@ def create_lead_snapshot(
     analysis_run_id: Optional[int] = None,
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
+    date_from: Optional[Any] = None,
+    date_to: Optional[Any] = None,
+    occurred_after: Optional[Any] = None,
+    occurred_before: Optional[Any] = None,
+    created_after: Optional[Any] = None,
+    created_before: Optional[Any] = None,
+    since_days: Optional[int] = None,
     min_score: int = 1,
     limit: int = 200,
     scan_limit: int = 5000,
@@ -304,6 +402,13 @@ def create_lead_snapshot(
             min_score=min_score,
             source=source,
             exclude_source=exclude_source,
+            date_from=date_from,
+            date_to=date_to,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            created_after=created_after,
+            created_before=created_before,
+            since_days=since_days,
             scoring_version=scoring_version,
         )
 
@@ -339,6 +444,13 @@ def create_lead_snapshot(
             "analysis_run_id": analysis_run_id,
             "source": source,
             "exclude_source": exclude_source,
+            "date_from": date_from.isoformat() if hasattr(date_from, "isoformat") else date_from,
+            "date_to": date_to.isoformat() if hasattr(date_to, "isoformat") else date_to,
+            "occurred_after": occurred_after.isoformat() if hasattr(occurred_after, "isoformat") else occurred_after,
+            "occurred_before": occurred_before.isoformat() if hasattr(occurred_before, "isoformat") else occurred_before,
+            "created_after": created_after.isoformat() if hasattr(created_after, "isoformat") else created_after,
+            "created_before": created_before.isoformat() if hasattr(created_before, "isoformat") else created_before,
+            "since_days": int(since_days) if since_days is not None else None,
             "min_score": int(min_score),
             "limit": int(limit),
             "scan_limit": int(scan_limit),

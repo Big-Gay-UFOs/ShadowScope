@@ -150,6 +150,11 @@ def list_leads(
     exclude_source: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    occurred_after: datetime | None = None,
+    occurred_before: datetime | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    since_days: int | None = None,
     entity_id: int | None = None,
     keyword: str | None = None,
     agency: str | None = None,
@@ -201,6 +206,11 @@ def list_leads(
         exclude_source=exclude_source,
         date_from=date_from,
         date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
         entity_id=entity_id,
         keyword=keyword,
         agency=agency,
@@ -367,5 +377,4 @@ def search(
 
 # Mount correlations API under /api/correlations/*
 router.include_router(correlations_router)
-
 
