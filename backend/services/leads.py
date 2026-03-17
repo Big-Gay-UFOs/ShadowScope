@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,11 +23,24 @@ from backend.db.models import (
     LeadSnapshotItem,
     get_session_factory,
 )
+from backend.services.explainability import (
+    enrich_lead_score_details,
+    load_event_correlation_evidence,
+)
+from backend.services.investigator_filters import investigator_event_conditions
 
 
 _DOD_PACK_PREFIX = "sam_dod_"
 _NOISE_PACK_PREFIXES = ("operational_noise_terms:", "sam_proxy_noise_expansion:")
 _FOIA_MATRIX_BONUS_CAP = 3
+_VALID_SCORING_VERSIONS = {"v1", "v2"}
+
+
+def normalize_scoring_version(value: Any, *, default: str = "v2") -> str:
+    raw = str(value or default).strip().lower() or default
+    if raw not in _VALID_SCORING_VERSIONS:
+        raise ValueError("scoring_version must be v1 or v2")
+    return raw
 
 
 
@@ -92,6 +105,16 @@ def compute_leads(
     min_score: int = 1,
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
+    date_from: Optional[Any] = None,
+    date_to: Optional[Any] = None,
+    entity_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+    agency: Optional[str] = None,
+    psc: Optional[str] = None,
+    naics: Optional[str] = None,
+    award_id: Optional[str] = None,
+    recipient_uei: Optional[str] = None,
+    place_region: Optional[str] = None,
     scoring_version: str = "v2",
     pair_bonus_multiplier: int = 6,
     pair_bonus_cap: int = 12,
@@ -100,59 +123,81 @@ def compute_leads(
     pair_signal_threshold: float = DEFAULT_KW_PAIR_BONUS_MIN_SIGNAL,
     pair_event_count_threshold: int = DEFAULT_KW_PAIR_BONUS_MIN_EVENT_COUNT,
 ) -> Tuple[List[Tuple[int, Event, Dict[str, Any]]], int]:
-    rows = db.execute(select(Event).order_by(Event.id.desc()).limit(int(scan_limit))).scalars().all()
-    scanned = len(rows)
+    scoring_version = normalize_scoring_version(scoring_version)
+    conditions = investigator_event_conditions(
+        source=source,
+        date_from=date_from,
+        date_to=date_to,
+        entity_id=entity_id,
+        keyword=keyword,
+        agency=agency,
+        psc=psc,
+        naics=naics,
+        award_id=award_id,
+        recipient_uei=recipient_uei,
+        place_region=place_region,
+    )
+    if exclude_source:
+        conditions.append(Event.source != exclude_source)
 
+    rows = (
+        db.execute(select(Event).where(*conditions).order_by(Event.id.desc()).limit(int(scan_limit)))
+        .scalars()
+        .all()
+    )
+    scanned = len(rows)
+    event_ids = [int(e.id) for e in rows]
+    correlations_by_event = load_event_correlation_evidence(db, event_ids=event_ids) if event_ids else {}
     pair_counts: Dict[int, int] = {}
     pair_counts_total: Dict[int, int] = {}
     pair_strength: Dict[int, float] = {}
 
-    is_v2 = str(scoring_version).lower().startswith("v2")
+    is_v2 = scoring_version == "v2"
 
-    if is_v2:
-        ids = [int(e.id) for e in rows]
-        if ids:
-            like_pat = f"kw_pair|{source}|%|pair:%" if source else "kw_pair|%|%|pair:%"
-            q = (
-                db.query(CorrelationLink.event_id, Correlation.score, Correlation.lanes_hit)
-                .join(Correlation, Correlation.id == CorrelationLink.correlation_id)
-                .filter(Correlation.correlation_key.like(like_pat))
-                .filter(CorrelationLink.event_id.in_(ids))
+    if is_v2 and event_ids:
+        like_pat = f"kw_pair|{source}|%|pair:%" if source else "kw_pair|%|%|pair:%"
+        q = (
+            db.query(CorrelationLink.event_id, Correlation.score, Correlation.lanes_hit)
+            .join(Correlation, Correlation.id == CorrelationLink.correlation_id)
+            .filter(Correlation.correlation_key.like(like_pat))
+            .filter(CorrelationLink.event_id.in_(event_ids))
+        )
+        for event_id, cscore, lanes_hit in q.all():
+            eid = int(event_id)
+            event_count = kw_pair_event_count(lanes_hit, fallback_score=cscore)
+            if event_count <= 0:
+                continue
+
+            pair_counts_total[eid] = pair_counts_total.get(eid, 0) + 1
+
+            score_signal = kw_pair_score_signal(lanes_hit)
+            contribution = kw_pair_bonus_contribution(
+                score_signal=score_signal,
+                event_count=event_count,
+                min_signal=float(pair_signal_threshold),
+                min_event_count=int(pair_event_count_threshold),
             )
-            for event_id, cscore, lanes_hit in q.all():
-                eid = int(event_id)
-                event_count = kw_pair_event_count(lanes_hit, fallback_score=cscore)
-                if event_count <= 0:
-                    continue
+            if contribution <= 0 and score_signal is None:
+                contribution = _legacy_pair_bonus_contribution(event_count)
 
-                pair_counts_total[eid] = pair_counts_total.get(eid, 0) + 1
+            if contribution <= 0:
+                continue
 
-                score_signal = kw_pair_score_signal(lanes_hit)
-                contribution = kw_pair_bonus_contribution(
-                    score_signal=score_signal,
-                    event_count=event_count,
-                    min_signal=float(pair_signal_threshold),
-                    min_event_count=int(pair_event_count_threshold),
-                )
-                if contribution <= 0 and score_signal is None:
-                    contribution = _legacy_pair_bonus_contribution(event_count)
-
-                if contribution <= 0:
-                    continue
-
-                pair_counts[eid] = pair_counts.get(eid, 0) + 1
-                pair_strength[eid] = pair_strength.get(eid, 0.0) + float(contribution)
+            pair_counts[eid] = pair_counts.get(eid, 0) + 1
+            pair_strength[eid] = pair_strength.get(eid, 0.0) + float(contribution)
 
     scored: List[Tuple[int, Event, Dict[str, Any]]] = []
     for e in rows:
-        if source and e.source != source:
-            continue
-        if exclude_source and e.source == exclude_source:
-            continue
 
         kw_list = _norm_list(e.keywords)
-        has_noise = any(isinstance(k, str) and k.startswith(_NOISE_PACK_PREFIXES) for k in kw_list)
+        has_noise = any(
+            (isinstance(k, str) and k.startswith(_NOISE_PACK_PREFIXES))
+            or k == "operational_noise_terms:nasa_sponsoring_agreement_noise"
+            for k in kw_list
+        )
         dod_lane_count, dod_keyword_hit_count = _dod_keyword_metrics(kw_list)
+
+        correlations = correlations_by_event.get(int(e.id), [])
         pair_n = pair_counts.get(int(e.id), 0)
         pair_n_total = pair_counts_total.get(int(e.id), 0)
         strength = pair_strength.get(int(e.id), 0.0)
@@ -211,6 +256,11 @@ def compute_leads(
             dod_keyword_hit_count=int(dod_keyword_hit_count),
             pair_count=int(pair_n),
         )
+        details = enrich_lead_score_details(
+            clauses=e.clauses,
+            base_details=details,
+            correlations=correlations,
+        )
 
         if int(score) >= int(min_score):
             scored.append((int(score), e, details))
@@ -232,6 +282,7 @@ def create_lead_snapshot(
     notes: Optional[str] = None,
     database_url: Optional[str] = None,
 ) -> Dict[str, Any]:
+    scoring_version = normalize_scoring_version(scoring_version)
     SessionFactory = get_session_factory(database_url)
     db: Session = SessionFactory()
     try:
@@ -261,7 +312,7 @@ def create_lead_snapshot(
             source=source,
             min_score=int(min_score),
             limit=int(limit),
-            scoring_version=str(scoring_version),
+            scoring_version=scoring_version,
             notes=notes,
         )
         db.add(snap)
@@ -291,10 +342,9 @@ def create_lead_snapshot(
             "min_score": int(min_score),
             "limit": int(limit),
             "scan_limit": int(scan_limit),
-            "scoring_version": str(scoring_version),
+            "scoring_version": scoring_version,
             "scanned": int(scanned),
             "items": int(inserted),
         }
     finally:
         db.close()
-

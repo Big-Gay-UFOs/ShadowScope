@@ -6,8 +6,9 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from backend.correlate.scorer import kw_pair_event_count, kw_pair_lane_payload, kw_pair_score_secondary, kw_pair_score_signal
 from backend.db.models import Correlation, CorrelationLink, Entity, Event, get_session_factory
+from backend.services.kw_pair_clusters import list_kw_pair_clusters
+from backend.services.query_surfaces import query_correlations
 from pathlib import Path
 
 
@@ -15,100 +16,140 @@ def export_correlations(
     *,
     out_path: str,
     source: Optional[str] = "USAspending",
+    date_from: Any = None,
+    date_to: Any = None,
+    entity_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+    min_score: Optional[int] = None,
+    agency: Optional[str] = None,
+    psc: Optional[str] = None,
+    naics: Optional[str] = None,
+    award_id: Optional[str] = None,
+    recipient_uei: Optional[str] = None,
+    place_region: Optional[str] = None,
     lane: Optional[str] = None,
     window_days: Optional[int] = None,
-    min_score: Optional[float] = None,
+    min_event_count: Optional[int] = None,
+    min_score_signal: Optional[float] = None,
     limit: int = 500,
+    offset: int = 0,
+    sort_by: Optional[str] = "score_signal",
+    sort_dir: Optional[str] = "desc",
     database_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     SessionFactory = get_session_factory(database_url)
     db: Session = SessionFactory()
 
     try:
-        q = db.query(Correlation)
-
-        if lane:
-            q = q.filter(Correlation.correlation_key.like(f"{lane}|%"))
-
-        if window_days is not None:
-            q = q.filter(Correlation.window_days == int(window_days))
-
-        if source:
-            corr_ids = (
-                db.query(CorrelationLink.correlation_id)
-                .join(Event, Event.id == CorrelationLink.event_id)
-                .filter(Event.source == source)
-                .distinct()
+        lane_value = str(lane or "").strip().lower() or None
+        if lane_value == "kw_pair":
+            payload = list_kw_pair_clusters(
+                db,
+                source=source,
+                window_days=window_days,
+                min_score=min_score_signal if min_score_signal is not None else min_score,
+                min_event_count=min_event_count,
+                limit=int(limit),
+                offset=int(offset),
+                include_events=True,
+                date_from=date_from,
+                date_to=date_to,
+                entity_id=entity_id,
+                keyword=keyword,
+                agency=agency,
+                psc=psc,
+                naics=naics,
+                award_id=award_id,
+                recipient_uei=recipient_uei,
+                place_region=place_region,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
             )
-            q = q.filter(Correlation.id.in_(corr_ids))
-
-        q = q.order_by(Correlation.id.desc()).limit(int(limit))
-        rows = q.all()
-
-        items: List[Dict[str, Any]] = []
-        for c in rows:
-            links = (
-                db.query(Event, Entity)
-                .join(CorrelationLink, CorrelationLink.event_id == Event.id)
-                .outerjoin(Entity, Entity.id == Event.entity_id)
-                .filter(CorrelationLink.correlation_id == c.id)
-                .order_by(Event.id.asc())
-                .all()
+            items = list(payload.get("items") or [])
+        else:
+            selected = query_correlations(
+                db,
+                source=source,
+                date_from=date_from,
+                date_to=date_to,
+                entity_id=entity_id,
+                keyword=keyword,
+                min_score=min_score,
+                agency=agency,
+                psc=psc,
+                naics=naics,
+                award_id=award_id,
+                recipient_uei=recipient_uei,
+                place_region=place_region,
+                lane=lane,
+                window_days=window_days,
+                min_event_count=min_event_count,
+                min_score_signal=min_score_signal,
+                limit=int(limit),
+                offset=int(offset),
+                sort_by=sort_by,
+                sort_dir=sort_dir,
             )
-
-            events = []
-            for ev, ent in links:
-                events.append(
+            items = []
+            for item in selected.get("items") or []:
+                corr_id = int(item.get("id"))
+                correlation = db.get(Correlation, corr_id)
+                if correlation is None:
+                    continue
+                links = (
+                    db.query(Event, Entity)
+                    .join(CorrelationLink, CorrelationLink.event_id == Event.id)
+                    .outerjoin(Entity, Entity.id == Event.entity_id)
+                    .filter(CorrelationLink.correlation_id == corr_id)
+                    .order_by(Event.id.asc())
+                    .all()
+                )
+                events = []
+                for event, entity in links:
+                    events.append(
+                        {
+                            "id": event.id,
+                            "hash": event.hash,
+                            "source": event.source,
+                            "doc_id": event.doc_id,
+                            "source_url": event.source_url,
+                            "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
+                            "created_at": event.created_at.isoformat() if event.created_at else None,
+                            "snippet": event.snippet,
+                            "place_text": event.place_text,
+                            "entity": None if entity is None else {"id": entity.id, "name": entity.name, "uei": entity.uei},
+                        }
+                    )
+                items.append(
                     {
-                        "id": ev.id,
-                        "hash": ev.hash,
-                        "source": ev.source,
-                        "doc_id": ev.doc_id,
-                        "source_url": ev.source_url,
-                        "occurred_at": ev.occurred_at.isoformat() if ev.occurred_at else None,
-                        "created_at": ev.created_at.isoformat() if ev.created_at else None,
-                        "snippet": ev.snippet,
-                        "place_text": ev.place_text,
-                        "entity": None
-                        if ent is None
-                        else {"id": ent.id, "name": ent.name, "uei": ent.uei},
+                        **item,
+                        "created_at": correlation.created_at.isoformat() if correlation.created_at else None,
+                        "events": events,
                     }
                 )
-
-            items.append(
-                {
-                    "id": c.id,
-                    "correlation_key": getattr(c, "correlation_key", None),
-                    "score": c.score,
-                    "window_days": c.window_days,
-                    "radius_km": c.radius_km,
-                    "lanes_hit": c.lanes_hit,
-                    "summary": c.summary,
-                    "rationale": c.rationale,
-                    "created_at": c.created_at.isoformat() if c.created_at else None,
-                    "event_count": len(events),
-                    "events": events,
-                }
-            )
-
-        if min_score is not None:
-            ms = float(min_score)
-
-            def _as_float(s: Any) -> Optional[float]:
-                try:
-                    return float(s)
-                except Exception:
-                    return None
-
-            items = [it for it in items if (_as_float(it.get("score")) is not None and _as_float(it.get("score")) >= ms)]
 
         payload = {
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "source": source,
+            "date_from": date_from.isoformat() if hasattr(date_from, "isoformat") else date_from,
+            "date_to": date_to.isoformat() if hasattr(date_to, "isoformat") else date_to,
+            "entity_id": entity_id,
+            "keyword": keyword,
+            "min_score": min_score,
+            "agency": agency,
+            "psc": psc,
+            "naics": naics,
+            "award_id": award_id,
+            "recipient_uei": recipient_uei,
+            "place_region": place_region,
             "lane": lane,
             "window_days": window_days,
-            "min_score": min_score,
-            "limit": limit,
+            "min_event_count": min_event_count,
+            "min_score_signal": min_score_signal,
+            "limit": int(limit),
+            "offset": int(offset),
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
             "count": len(items),
             "items": items,
         }
@@ -127,76 +168,69 @@ def export_kw_pairs(
     min_event_count: int = 2,
 ) -> dict:
     """
-    Export kw_pair correlations to CSV + JSON.
+    Export kw_pair clusters to CSV + JSON.
 
-    event_count is taken from lanes_hit metadata when present.
-    score_signal is exported separately from raw event_count/c12 metadata.
+    Items are ranked investigator-first by score_signal, then event_count.
     """
     from datetime import datetime, timezone
     import csv
     import json
-    from sqlalchemy import select
 
-    from backend.db.models import Correlation, get_session_factory
     from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
+    from backend.services.kw_pair_clusters import list_kw_pair_clusters
 
     ensure_runtime_directories()
     SessionFactory = get_session_factory(database_url)
 
     with SessionFactory() as db:
-        rows = db.execute(select(Correlation).order_by(Correlation.id.desc())).scalars().all()
-
-    items: list[dict] = []
-    for c in rows:
-        payload = kw_pair_lane_payload(c.lanes_hit or {})
-        if not payload:
-            continue
-
-        k1 = payload.get("keyword_1") or payload.get("k1")
-        k2 = payload.get("keyword_2") or payload.get("k2")
-        if not k1 or not k2:
-            continue
-
-        event_count = kw_pair_event_count(c.lanes_hit or {}, fallback_score=c.score)
-        if event_count < int(min_event_count):
-            continue
-
-        score_signal = kw_pair_score_signal(c.lanes_hit or {})
-        score_secondary = kw_pair_score_secondary(c.lanes_hit or {})
-        items.append(
-            {
-                "correlation_id": int(c.id),
-                "correlation_key": c.correlation_key,
-                "keyword_1": k1,
-                "keyword_2": k2,
-                "event_count": int(event_count),
-                "c12": int(payload.get("c12") or event_count),
-                "keyword_1_df": payload.get("keyword_1_df") or payload.get("c1"),
-                "keyword_2_df": payload.get("keyword_2_df") or payload.get("c2"),
-                "total_events": payload.get("total_events"),
-                "window_days": c.window_days,
-                "score": c.score,
-                "score_signal": None if score_signal is None else round(float(score_signal), 6),
-                "score_kind": payload.get("score_kind"),
-                "score_secondary": None if score_secondary is None else round(float(score_secondary), 6),
-                "score_secondary_kind": payload.get("score_secondary_kind"),
-                "expected_count": payload.get("expected_count"),
-                "lift_raw": payload.get("lift_raw"),
-                "pmi": payload.get("pmi"),
-                "npmi": payload.get("npmi"),
-                "log_odds": payload.get("log_odds"),
-            }
+        payload = list_kw_pair_clusters(
+            db,
+            limit=int(limit),
+            offset=0,
+            min_event_count=int(min_event_count),
+            include_events=True,
         )
 
-    items.sort(
-        key=lambda x: (
-            -1.0 if x.get("score_signal") is None else x.get("score_signal", 0.0),
-            x.get("event_count", 0),
-            x.get("correlation_id", 0),
-        ),
-        reverse=True,
-    )
-    items = items[: int(limit)]
+    items = list(payload.get("items") or [])
+
+    rows_out: list[dict[str, Any]] = []
+    for item in items:
+        rows_out.append(
+            {
+                "correlation_id": item.get("correlation_id"),
+                "correlation_key": item.get("correlation_key"),
+                "lane": item.get("lane"),
+                "source": item.get("source"),
+                "window_days": item.get("window_days"),
+                "score": item.get("score"),
+                "score_signal": item.get("score_signal"),
+                "event_count": item.get("event_count"),
+                "keyword_1": item.get("keyword_1"),
+                "keyword_2": item.get("keyword_2"),
+                "pair_label": item.get("pair_label"),
+                "scoring_version": item.get("scoring_version"),
+                "pair_bonus_applied": item.get("pair_bonus_applied"),
+                "noise_penalty_applied": item.get("noise_penalty_applied"),
+                "member_event_ids": ";".join([str(v) for v in item.get("member_event_ids") or []]),
+                "member_event_hashes": ";".join([str(v) for v in item.get("member_event_hashes") or []]),
+                "member_events_json": json.dumps(item.get("member_events") or [], ensure_ascii=False),
+                "top_entities_text": "; ".join([str(v.get("label") or v.get("name") or "") for v in (item.get("top_entities") or [])[:5]]),
+                "top_entities_json": json.dumps(item.get("top_entities") or [], ensure_ascii=False),
+                "top_agencies_text": "; ".join([str(v.get("label") or "") for v in (item.get("top_agencies") or [])[:5]]),
+                "top_agencies_json": json.dumps(item.get("top_agencies") or [], ensure_ascii=False),
+                "top_psc_text": "; ".join([str(v.get("label") or "") for v in (item.get("top_psc") or [])[:5]]),
+                "top_psc_json": json.dumps(item.get("top_psc") or [], ensure_ascii=False),
+                "top_naics_text": "; ".join([str(v.get("label") or "") for v in (item.get("top_naics") or [])[:5]]),
+                "top_naics_json": json.dumps(item.get("top_naics") or [], ensure_ascii=False),
+                "contributing_lanes_json": json.dumps(item.get("contributing_lanes") or [], ensure_ascii=False),
+                "contributing_correlations_json": json.dumps(item.get("contributing_correlations") or [], ensure_ascii=False),
+                "matched_ontology_rules_text": "; ".join([str(v) for v in (item.get("matched_ontology_rules") or [])[:10]]),
+                "matched_ontology_rules_json": json.dumps(item.get("matched_ontology_rules") or [], ensure_ascii=False),
+                "matched_ontology_clauses_json": json.dumps(item.get("matched_ontology_clauses") or [], ensure_ascii=False),
+                "summary": item.get("summary"),
+                "rationale": item.get("rationale"),
+            }
+        )
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     base = "kw_pairs_" + ts
@@ -215,22 +249,22 @@ def export_kw_pairs(
     csv_path = export_dir / (base + ".csv")
     json_path = export_dir / (base + ".json")
 
-    if items:
+    if rows_out:
         with csv_path.open("w", encoding="utf-8", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(items[0].keys()))
-            w.writeheader()
-            w.writerows(items)
+            writer = csv.DictWriter(f, fieldnames=list(rows_out[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows_out)
     else:
         csv_path.write_text("", encoding="utf-8")
 
-    payload = {
+    json_payload = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "limit": int(limit),
         "min_event_count": int(min_event_count),
         "count": len(items),
         "items": items,
     }
-    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    json_path.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return {"csv": csv_path, "json": json_path, "count": len(items)}
 
@@ -492,8 +526,5 @@ def export_candidate_joins(
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return {"csv": csv_path, "json": json_path, "count": len(items)}
-
-
-
 
 
