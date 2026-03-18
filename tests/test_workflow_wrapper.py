@@ -1,7 +1,9 @@
+import csv
 import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from backend.services.adjudication import evaluate_lead_adjudications, export_lead_adjudication_template
 from backend.db.models import Event, LeadSnapshotItem, ensure_schema, get_session_factory
 import backend.services.workflow as workflow_module
 from backend.services.workflow import (
@@ -213,6 +215,20 @@ def _seed_usaspending_events(db, now: datetime) -> None:
             )
         ]
     )
+
+
+def _fill_adjudication_csv(path: Path, updates: dict[int, dict[str, str]]) -> None:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    for row in rows:
+        rank = int(row["rank"])
+        row.update(updates.get(rank, {}))
+
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def test_workflow_wrapper_file_output_does_not_clobber(tmp_path: Path):
@@ -595,6 +611,71 @@ def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
     assert "SAM postedDate window 2024-01-01..2024-03-31" in (lead_snapshot_payload.get("snapshot") or {}).get("notes", "")
     assert "2024-01-01" in report_html
     assert "2024-03-31" in report_html
+
+
+def test_samgov_bundle_reports_include_adjudication_metrics_when_present(tmp_path: Path):
+    db_path = tmp_path / "sam_smoke_adjudications.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_smoke_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        bundle_root=tmp_path / "smoke_adjudication_bundle",
+        require_nonzero=True,
+    )
+
+    bundle_dir = Path(res["bundle_dir"])
+    snapshot_id = int((res["workflow"].get("snapshot") or {}).get("snapshot_id"))
+    template = export_lead_adjudication_template(
+        snapshot_id=snapshot_id,
+        database_url=db_url,
+        bundle_dir=bundle_dir,
+    )
+    adjudications_csv = Path(template["csv"])
+    _fill_adjudication_csv(
+        adjudications_csv,
+        {
+            1: {"decision": "keep", "foia_ready": "yes", "lead_family": "alpha_family"},
+            2: {"decision": "reject", "foia_ready": "no", "reason_code": "low_signal", "lead_family": "beta_family"},
+            3: {"decision": "unclear", "lead_family": "alpha_family"},
+        },
+    )
+
+    metrics = evaluate_lead_adjudications(
+        adjudications=[adjudications_csv],
+        precision_at_k=[1, 2],
+        bundle_dir=bundle_dir,
+    )
+
+    artifacts = metrics.get("artifacts") or {}
+    manifest = json.loads(Path(artifacts["bundle_manifest_json"]).read_text(encoding="utf-8"))
+    generated_files = manifest.get("generated_files") or {}
+    assert "export_lead_adjudications_csv" in generated_files
+    assert "export_lead_adjudication_metrics_json" in generated_files
+
+    bundle_report_html = Path(artifacts["bundle_report_html"]).read_text(encoding="utf-8")
+    report_html = Path(artifacts["report_html"]).read_text(encoding="utf-8")
+    assert "Evaluation" in bundle_report_html
+    assert "Precision @ k" in bundle_report_html
+    assert "low_signal" in bundle_report_html
+    assert "alpha_family" in bundle_report_html
+    assert "Evaluation" in report_html
+    assert "By Scoring Version" in report_html
+    assert "alpha_family" in report_html
 
 
 

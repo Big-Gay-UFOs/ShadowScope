@@ -254,6 +254,83 @@ def test_generate_sam_report_contains_expected_sections(tmp_path: Path):
     assert "2024-03-31" in html
 
 
+def test_generate_sam_report_includes_adjudication_evaluation_when_present(tmp_path: Path):
+    bundle = tmp_path / "bundle_eval"
+    workflow, doctor, smoke, artifacts = _sample_payloads(bundle)
+    adjudications_csv = bundle / "exports" / "lead_adjudications.csv"
+    adjudications_csv.parent.mkdir(parents=True, exist_ok=True)
+    adjudications_csv.write_text(
+        "snapshot_id,snapshot_item_id,rank,decision,foia_ready\n7,1,1,keep,yes\n7,2,2,reject,no\n",
+        encoding="utf-8",
+    )
+    metrics_json = bundle / "exports" / "lead_adjudication_metrics.json"
+    _write_json(
+        metrics_json,
+        {
+            "summary": {
+                "reviewed_count": 2,
+                "decisive_count": 2,
+                "keep_count": 1,
+                "reject_count": 1,
+                "acceptance_rate_pct": 50.0,
+                "foia_ready_yes_count": 1,
+                "precision_at_k": {
+                    "1": {
+                        "k": 1,
+                        "precision_pct": 100.0,
+                        "reviewed_count": 1,
+                        "decisive_count": 1,
+                        "keep_count": 1,
+                        "reject_count": 0,
+                    }
+                },
+            },
+            "by_scoring_version": [
+                {
+                    "scoring_version": "v2",
+                    "row_count": 2,
+                    "keep_count": 1,
+                    "reject_count": 1,
+                    "acceptance_rate_pct": 50.0,
+                }
+            ],
+            "by_lead_family": [
+                {
+                    "lead_family": "alpha_family",
+                    "row_count": 2,
+                    "keep_count": 1,
+                    "reject_count": 1,
+                    "acceptance_rate_pct": 50.0,
+                }
+            ],
+            "rejection_reasons": [
+                {"reason_code": "low_signal", "count": 1, "share_of_rejects_pct": 100.0}
+            ],
+        },
+    )
+    artifacts["export_lead_adjudications_csv"] = str(adjudications_csv)
+    artifacts["export_lead_adjudication_metrics_json"] = str(metrics_json)
+
+    report_path = generate_sam_report(
+        bundle_dir=bundle,
+        workflow_type="samgov-smoke",
+        source="SAM.gov",
+        generated_at="2026-03-09T12:00:00+00:00",
+        run_metadata=smoke["run_metadata"],
+        workflow_result=workflow,
+        doctor_status_result=doctor,
+        smoke_summary=smoke,
+        artifacts=artifacts,
+    )
+
+    html = report_path.read_text(encoding="utf-8")
+    assert "Evaluation" in html
+    assert "Precision @ k" in html
+    assert "alpha_family" in html
+    assert "low_signal" in html
+    assert "v2" in html
+
+
 def test_generate_sam_report_handles_missing_optional_sections(tmp_path: Path):
     bundle = tmp_path / "bundle_missing"
 

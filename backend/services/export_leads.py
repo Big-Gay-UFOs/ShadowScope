@@ -267,17 +267,13 @@ def _load_event_context(
     return events_by_id, correlations_by_event, linked_source_context
 
 
-def export_lead_snapshot(
+def build_lead_snapshot_export(
     *,
     snapshot_id: int,
     database_url: Optional[str] = None,
-    output: Optional[Path] = None,
     lead_family: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Export a lead snapshot (lead_snapshots + lead_snapshot_items + event metadata)
-    to CSV + JSON.
-    """
+    """Collect normalized lead snapshot rows and payload metadata."""
     ensure_runtime_directories()
     SessionFactory = get_session_factory(database_url)
 
@@ -298,23 +294,6 @@ def export_lead_snapshot(
 
     event_ids = [int(i.event_id) for i in items]
     events_by_id, correlations_by_event, linked_source_context = _load_event_context(database_url, event_ids)
-
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    base_name = f"lead_snapshot_{int(snapshot_id)}_{ts}"
-    export_dir = EXPORTS_DIR
-
-    if output:
-        output = output.expanduser()
-        if output.suffix:
-            export_dir = output.parent if output.parent else Path(".")
-            export_dir.mkdir(parents=True, exist_ok=True)
-            base_name = output.stem or base_name
-        else:
-            export_dir = output
-            export_dir.mkdir(parents=True, exist_ok=True)
-
-    csv_path = export_dir / f"{base_name}.csv"
-    json_path = export_dir / f"{base_name}.json"
 
     rows_out: list[dict[str, Any]] = []
     for it in items:
@@ -367,6 +346,7 @@ def export_lead_snapshot(
         rows_out.append(
             {
                 "snapshot_id": int(snapshot_id),
+                "snapshot_item_id": int(it.id),
                 "rank": int(it.rank),
                 "score": int(it.score),
                 "event_id": int(it.event_id),
@@ -431,32 +411,77 @@ def export_lead_snapshot(
             }
         )
 
-    _write_csv(csv_path, rows_out)
-
     max_items = getattr(snap, "max_items", None)
     if max_items is None:
         max_items = getattr(snap, "limit", 0)
 
+    snapshot_payload = {
+        "id": int(snapshot_id),
+        "created_at": snap.created_at.isoformat() if snap.created_at else None,
+        "analysis_run_id": getattr(snap, "analysis_run_id", None),
+        "source": getattr(snap, "source", None),
+        "min_score": int(getattr(snap, "min_score", 0)),
+        "max_items": int(max_items or 0),
+        "scoring_version": getattr(snap, "scoring_version", None),
+        "notes": getattr(snap, "notes", None),
+    }
     payload = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
-        "snapshot": {
-            "id": int(snapshot_id),
-            "created_at": snap.created_at.isoformat() if snap.created_at else None,
-            "analysis_run_id": getattr(snap, "analysis_run_id", None),
-            "source": getattr(snap, "source", None),
-            "min_score": int(getattr(snap, "min_score", 0)),
-            "max_items": int(max_items or 0),
-            "scoring_version": getattr(snap, "scoring_version", None),
-            "notes": getattr(snap, "notes", None),
-        },
+        "snapshot": snapshot_payload,
         "lead_family_filter": lead_family,
         "family_groups": summarize_lead_family_groups(rows_out),
         "count": len(rows_out),
         "items": rows_out,
     }
-    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    return {"csv": csv_path, "json": json_path, "count": len(rows_out), "snapshot_id": int(snapshot_id)}
+    return {
+        "snapshot": snapshot_payload,
+        "lead_family_filter": lead_family,
+        "family_groups": payload["family_groups"],
+        "count": len(rows_out),
+        "items": rows_out,
+        "payload": payload,
+    }
+
+
+def export_lead_snapshot(
+    *,
+    snapshot_id: int,
+    database_url: Optional[str] = None,
+    output: Optional[Path] = None,
+    lead_family: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Export a lead snapshot (lead_snapshots + lead_snapshot_items + event metadata)
+    to CSV + JSON.
+    """
+    export_data = build_lead_snapshot_export(
+        snapshot_id=int(snapshot_id),
+        database_url=database_url,
+        lead_family=lead_family,
+    )
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    base_name = f"lead_snapshot_{int(snapshot_id)}_{ts}"
+    export_dir = EXPORTS_DIR
+
+    if output:
+        output = output.expanduser()
+        if output.suffix:
+            export_dir = output.parent if output.parent else Path(".")
+            export_dir.mkdir(parents=True, exist_ok=True)
+            base_name = output.stem or base_name
+        else:
+            export_dir = output
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = export_dir / f"{base_name}.csv"
+    json_path = export_dir / f"{base_name}.json"
+
+    _write_csv(csv_path, export_data["items"])
+    json_path.write_text(json.dumps(export_data["payload"], ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {"csv": csv_path, "json": json_path, "count": int(export_data["count"]), "snapshot_id": int(snapshot_id)}
 
 
 def export_lead_deltas(
@@ -629,4 +654,4 @@ def _write_csv(path: Path, rows):
         writer.writerows(rows)
 
 
-__all__ = ["export_lead_snapshot", "export_lead_deltas"]
+__all__ = ["build_lead_snapshot_export", "export_lead_snapshot", "export_lead_deltas"]
