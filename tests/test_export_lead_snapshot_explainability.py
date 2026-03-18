@@ -1,7 +1,10 @@
 import json
+from datetime import datetime, timezone
 
 from backend.db.models import Correlation, CorrelationLink, Event, LeadSnapshot, LeadSnapshotItem, ensure_schema, get_session_factory
+from backend.services.explainability import load_event_linked_source_summary
 from backend.services.export_leads import export_lead_snapshot
+from backend.services.lead_families import classify_lead_families
 
 
 
@@ -209,3 +212,127 @@ def test_export_lead_snapshot_preserves_v3_subscore_explainability(tmp_path):
     assert json.loads(item["top_suppressors_json"])[0]["penalty"] == 2
     assert json.loads(item["corroboration_sources_json"])[0]["lane"] == "kw_pair"
     assert json.loads(item["subscore_math_json"])["total_score"] == 22
+
+
+def test_linked_source_summary_orders_records_before_sampling(tmp_path):
+    db_path = tmp_path / "linked_source_order.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        target_event = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="target-link-order",
+            snippet="classified follow-on support",
+            doc_id="target-doc",
+            solicitation_number="ORDER-001",
+            source_url="http://example.com/target-link-order",
+            raw_json={},
+            keywords=[],
+            clauses=[],
+            created_at=now,
+        )
+        db.add(target_event)
+        db.commit()
+        db.refresh(target_event)
+
+        linked_events = []
+        for idx in [6, 2, 5, 1, 4, 3]:
+            linked_event = Event(
+                category="award",
+                source="USAspending",
+                hash=f"linked-{idx}",
+                snippet=f"linked award {idx}",
+                doc_id=f"usa-doc-{idx}",
+                award_id=f"AWARD-{idx}",
+                source_url=f"http://example.com/linked/{idx}",
+                raw_json={},
+                keywords=[],
+                clauses=[],
+                created_at=now,
+            )
+            db.add(linked_event)
+            db.commit()
+            db.refresh(linked_event)
+            linked_events.append(linked_event)
+
+        correlation = Correlation(
+            correlation_key="sam_usaspending_candidate_join|SAM.gov|365|order-001",
+            score="65",
+            window_days=365,
+            radius_km=0.0,
+            lanes_hit={
+                "lane": "sam_usaspending_candidate_join",
+                "event_count": 7,
+                "score_signal": 65,
+            },
+        )
+        db.add(correlation)
+        db.commit()
+        db.refresh(correlation)
+
+        db.add(CorrelationLink(correlation_id=int(correlation.id), event_id=int(target_event.id)))
+        for linked_event in linked_events:
+            db.add(CorrelationLink(correlation_id=int(correlation.id), event_id=int(linked_event.id)))
+        db.commit()
+
+        target_event_id = int(target_event.id)
+        correlation_id = int(correlation.id)
+        context = load_event_linked_source_summary(db, event_ids=[int(target_event.id)])
+
+    event_context = context[target_event_id]
+    linked_records = event_context["linked_records_by_correlation"][correlation_id]
+    assert [record["doc_id"] for record in linked_records] == [
+        "usa-doc-1",
+        "usa-doc-2",
+        "usa-doc-3",
+        "usa-doc-4",
+        "usa-doc-5",
+        "usa-doc-6",
+    ]
+
+    source_summary = event_context["linked_source_summary"][0]
+    assert source_summary["source"] == "USAspending"
+    assert source_summary["sample_doc_ids"] == [
+        "usa-doc-1",
+        "usa-doc-2",
+        "usa-doc-3",
+        "usa-doc-4",
+        "usa-doc-5",
+    ]
+
+    details = classify_lead_families(
+        details={
+            "matched_ontology_clauses": [
+                {
+                    "pack": "sam_proxy_procurement_continuity_classified_followon",
+                    "rule": "sole_source_follow_on_classified_context",
+                    "weight": 2,
+                    "field": "snippet",
+                    "match": "classified follow-on",
+                }
+            ],
+            "contributing_correlations": [
+                {
+                    "correlation_id": correlation_id,
+                    "lane": "sam_usaspending_candidate_join",
+                    "score_signal": 65,
+                    "confidence_score": 65,
+                    "evidence_types": ["identifier_exact"],
+                    "candidate_join_evidence": [{"kind": "identifier_exact", "value": "ORDER-001"}],
+                }
+            ],
+        },
+        linked_source_summary=event_context["linked_source_summary"],
+        linked_records_by_correlation=event_context["linked_records_by_correlation"],
+    )
+    candidate_join = details["corroboration_summary"]["candidate_join_evidence"][0]
+    assert [record["doc_id"] for record in candidate_join["linked_records"]] == [
+        "usa-doc-1",
+        "usa-doc-2",
+        "usa-doc-3",
+    ]

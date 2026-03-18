@@ -369,10 +369,15 @@ def query_leads(
             "score": int(score),
             "event_id": int(event.id),
             "lead_family": details.get("lead_family"),
+            "secondary_lead_families": details.get("secondary_lead_families") or [],
         }
         for idx, (score, event, details) in enumerate(filtered, start=1)
     ]
-    family_groups = summarize_lead_family_groups(family_group_rows) if group_by_family else []
+    family_groups = (
+        summarize_lead_family_groups(family_group_rows, lead_family_filter=lead_family)
+        if group_by_family
+        else []
+    )
 
     sliced = filtered[max(int(offset), 0): max(int(offset), 0) + max(int(limit), 0)]
     items: list[dict[str, Any]] = []
