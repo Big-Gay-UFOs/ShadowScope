@@ -12,7 +12,12 @@ from sqlalchemy import select
 from backend.db.models import Event, LeadSnapshot, LeadSnapshotItem, get_session_factory
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
 from backend.services.deltas import compute_lead_deltas
-from backend.services.explainability import enrich_lead_score_details, load_event_correlation_evidence
+from backend.services.explainability import (
+    enrich_lead_score_details,
+    load_event_correlation_evidence,
+    load_event_linked_source_summary,
+)
+from backend.services.lead_families import classify_lead_families, lead_matches_family, summarize_lead_family_groups
 
 
 def _score_part(details: dict[str, Any], key: str, default: Any = 0) -> Any:
@@ -82,6 +87,44 @@ def _suppressor_text(signal: dict[str, Any]) -> str:
     return label or "suppressor"
 
 
+def _family_assignment_text(assignment: dict[str, Any]) -> str:
+    family = str(assignment.get("family") or "").strip()
+    score = assignment.get("score")
+    rationale = str(assignment.get("rationale") or "").strip()
+    if family and score is not None:
+        if rationale:
+            return f"{family}({score}): {rationale}"
+        return f"{family}({score})"
+    return family or rationale or "lead_family"
+
+
+def _candidate_join_text(entry: dict[str, Any]) -> str:
+    evidence_types = [str(item) for item in (entry.get("evidence_types") or []) if str(item).strip()]
+    linked_sources = [str(item) for item in (entry.get("linked_sources") or []) if str(item).strip()]
+    parts = ["candidate"]
+    if evidence_types:
+        parts.append("evidence=" + ",".join(evidence_types))
+    if linked_sources:
+        parts.append("sources=" + ",".join(linked_sources))
+    if entry.get("likely_incumbent"):
+        parts.append("likely_incumbent=true")
+    score_signal = entry.get("score_signal")
+    if score_signal is not None:
+        parts.append(f"score={score_signal}")
+    return " | ".join(parts)
+
+
+def _linked_source_text(entry: dict[str, Any]) -> str:
+    source = str(entry.get("source") or "").strip()
+    count = entry.get("linked_event_count")
+    lanes = [str(item) for item in (entry.get("lanes") or []) if str(item).strip()]
+    if source and count is not None and lanes:
+        return f"{source}(n={count},lanes={','.join(lanes)})"
+    if source and count is not None:
+        return f"{source}(n={count})"
+    return source or "linked_source"
+
+
 def _why_summary(details: dict[str, Any]) -> str:
     if str(details.get("scoring_version") or "").strip().lower() == "v3":
         why_bits = [
@@ -91,6 +134,8 @@ def _why_summary(details: dict[str, Any]) -> str:
             f"structural={_score_part(details, 'structural_context_score', 0)}",
             f"noise_penalty=-{_score_part(details, 'noise_penalty_applied', _score_part(details, 'noise_penalty', 0))}",
         ]
+        if details.get("lead_family"):
+            why_bits.insert(0, f"lead_family={details.get('lead_family')}")
         top_positive_signals = details.get("top_positive_signals") or []
         top_suppressors = details.get("top_suppressors") or []
         corroboration_sources = details.get("corroboration_sources") or []
@@ -120,6 +165,8 @@ def _why_summary(details: dict[str, Any]) -> str:
     contributing_correlations = details.get("contributing_correlations") or []
 
     why_bits: list[str] = []
+    if details.get("lead_family"):
+        why_bits.append(f"lead_family={details.get('lead_family')}")
     if clause_score_raw is not None:
         why_bits.append(f"clauses={clause_score} (raw={clause_score_raw})")
     else:
@@ -149,9 +196,21 @@ def _flatten_details(prefix: str, details: dict[str, Any]) -> dict[str, Any]:
     top_positive_signals = details.get("top_positive_signals") or []
     top_suppressors = details.get("top_suppressors") or []
     corroboration_sources = details.get("corroboration_sources") or []
+    corroboration_summary = details.get("corroboration_summary") or {}
+    candidate_join_evidence = corroboration_summary.get("candidate_join_evidence") or []
+    linked_source_summary = corroboration_summary.get("linked_source_summary") or []
+    correlation_types_hit = corroboration_summary.get("correlation_types_hit") or []
+    family_assignments = details.get("lead_family_assignments") or []
+    secondary_lead_families = details.get("secondary_lead_families") or []
     subscore_math = details.get("subscore_math") or {}
     return {
         f"{prefix}_scoring_version": details.get("scoring_version"),
+        f"{prefix}_lead_family": details.get("lead_family"),
+        f"{prefix}_lead_family_label": details.get("lead_family_label"),
+        f"{prefix}_secondary_lead_families_text": _list_text([str(v) for v in secondary_lead_families], limit=10),
+        f"{prefix}_secondary_lead_families_json": _json_text(secondary_lead_families),
+        f"{prefix}_lead_family_assignments_text": _list_text([_family_assignment_text(item) for item in family_assignments], limit=5),
+        f"{prefix}_lead_family_assignments_json": _json_text(family_assignments),
         f"{prefix}_clause_score": _score_part(details, "clause_score", 0),
         f"{prefix}_clause_score_raw": _score_part(details, "clause_score_raw", None),
         f"{prefix}_keyword_score": _score_part(details, "keyword_score", 0),
@@ -180,13 +239,23 @@ def _flatten_details(prefix: str, details: dict[str, Any]) -> dict[str, Any]:
         f"{prefix}_top_suppressors_json": _json_text(top_suppressors),
         f"{prefix}_corroboration_sources_text": _list_text([_signal_text(signal) for signal in corroboration_sources], limit=5),
         f"{prefix}_corroboration_sources_json": _json_text(corroboration_sources),
+        f"{prefix}_correlation_types_hit_text": _list_text([str(v) for v in correlation_types_hit], limit=10),
+        f"{prefix}_correlation_types_hit_json": _json_text(correlation_types_hit),
+        f"{prefix}_candidate_join_evidence_text": _list_text([_candidate_join_text(item) for item in candidate_join_evidence], limit=5),
+        f"{prefix}_candidate_join_evidence_json": _json_text(candidate_join_evidence),
+        f"{prefix}_linked_source_summary_text": _list_text([_linked_source_text(item) for item in linked_source_summary], limit=5),
+        f"{prefix}_linked_source_summary_json": _json_text(linked_source_summary),
+        f"{prefix}_corroboration_summary_json": _json_text(corroboration_summary),
         f"{prefix}_subscore_math_json": _json_text(subscore_math),
         f"{prefix}_why_summary": _why_summary(details),
         f"{prefix}_score_details_json": _json_text(details or {}),
     }
 
 
-def _load_event_context(database_url: Optional[str], event_ids: list[int]) -> tuple[dict[int, Event], dict[int, list[dict[str, Any]]]]:
+def _load_event_context(
+    database_url: Optional[str],
+    event_ids: list[int],
+) -> tuple[dict[int, Event], dict[int, list[dict[str, Any]]], dict[int, dict[str, Any]]]:
     SessionFactory = get_session_factory(database_url)
     with SessionFactory() as db:
         events_by_id: dict[int, Event] = {}
@@ -194,7 +263,8 @@ def _load_event_context(database_url: Optional[str], event_ids: list[int]) -> tu
             rows = db.execute(select(Event).where(Event.id.in_(event_ids))).scalars().all()
             events_by_id = {int(event.id): event for event in rows}
         correlations_by_event = load_event_correlation_evidence(db, event_ids=event_ids)
-    return events_by_id, correlations_by_event
+        linked_source_context = load_event_linked_source_summary(db, event_ids=event_ids)
+    return events_by_id, correlations_by_event, linked_source_context
 
 
 def export_lead_snapshot(
@@ -202,6 +272,7 @@ def export_lead_snapshot(
     snapshot_id: int,
     database_url: Optional[str] = None,
     output: Optional[Path] = None,
+    lead_family: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Export a lead snapshot (lead_snapshots + lead_snapshot_items + event metadata)
@@ -226,7 +297,7 @@ def export_lead_snapshot(
         )
 
     event_ids = [int(i.event_id) for i in items]
-    events_by_id, correlations_by_event = _load_event_context(database_url, event_ids)
+    events_by_id, correlations_by_event, linked_source_context = _load_event_context(database_url, event_ids)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     base_name = f"lead_snapshot_{int(snapshot_id)}_{ts}"
@@ -254,6 +325,14 @@ def export_lead_snapshot(
             base_details=details,
             correlations=correlations_by_event.get(int(it.event_id), []),
         )
+        context = linked_source_context.get(int(it.event_id), {})
+        details = classify_lead_families(
+            details=details,
+            linked_source_summary=context.get("linked_source_summary"),
+            linked_records_by_correlation=context.get("linked_records_by_correlation"),
+        )
+        if lead_family and not lead_matches_family(details, lead_family):
+            continue
 
         pair_correlations = [
             c for c in (details.get("contributing_correlations") or []) if str(c.get("lane") or "") == "kw_pair"
@@ -277,6 +356,11 @@ def export_lead_snapshot(
         top_suppressors_text = _list_text([_suppressor_text(signal) for signal in top_suppressors], limit=5)
         corroboration_sources = details.get("corroboration_sources") or []
         corroboration_sources_text = _list_text([_signal_text(signal) for signal in corroboration_sources], limit=5)
+        corroboration_summary = details.get("corroboration_summary") or {}
+        candidate_join_evidence = corroboration_summary.get("candidate_join_evidence") or []
+        linked_source_summary = corroboration_summary.get("linked_source_summary") or []
+        correlation_types_hit = corroboration_summary.get("correlation_types_hit") or []
+        lead_family_assignments = details.get("lead_family_assignments") or []
         top_clauses_text = _top_clauses_text(details, limit=5)
         why_summary = _why_summary(details)
 
@@ -296,6 +380,12 @@ def export_lead_snapshot(
                 "snippet": None if event is None else (event.snippet or ""),
                 "place_text": None if event is None else (event.place_text or ""),
                 "scoring_version": details.get("scoring_version"),
+                "lead_family": details.get("lead_family"),
+                "lead_family_label": details.get("lead_family_label"),
+                "secondary_lead_families_text": _list_text([str(v) for v in (details.get("secondary_lead_families") or [])], limit=10),
+                "secondary_lead_families_json": _json_text(details.get("secondary_lead_families") or []),
+                "lead_family_assignments_text": _list_text([_family_assignment_text(item) for item in lead_family_assignments], limit=5),
+                "lead_family_assignments_json": _json_text(lead_family_assignments),
                 "clause_score": _score_part(details, "clause_score", 0),
                 "clause_score_raw": _score_part(details, "clause_score_raw", None),
                 "keyword_score": _score_part(details, "keyword_score", 0),
@@ -325,6 +415,13 @@ def export_lead_snapshot(
                 "top_suppressors_json": _json_text(top_suppressors),
                 "corroboration_sources_text": corroboration_sources_text,
                 "corroboration_sources_json": _json_text(corroboration_sources),
+                "correlation_types_hit_text": _list_text([str(v) for v in correlation_types_hit], limit=10),
+                "correlation_types_hit_json": _json_text(correlation_types_hit),
+                "candidate_join_evidence_text": _list_text([_candidate_join_text(item) for item in candidate_join_evidence], limit=5),
+                "candidate_join_evidence_json": _json_text(candidate_join_evidence),
+                "linked_source_summary_text": _list_text([_linked_source_text(item) for item in linked_source_summary], limit=5),
+                "linked_source_summary_json": _json_text(linked_source_summary),
+                "corroboration_summary_json": _json_text(corroboration_summary),
                 "subscore_math_json": _json_text(details.get("subscore_math") or {}),
                 "top_clauses_text": top_clauses_text,
                 "top_kw_pairs_text": top_pairs_text,
@@ -352,6 +449,8 @@ def export_lead_snapshot(
             "scoring_version": getattr(snap, "scoring_version", None),
             "notes": getattr(snap, "notes", None),
         },
+        "lead_family_filter": lead_family,
+        "family_groups": summarize_lead_family_groups(rows_out),
         "count": len(rows_out),
         "items": rows_out,
     }
@@ -385,7 +484,7 @@ def export_lead_deltas(
     for item in deltas.get("changed", []):
         event_ids.append(int(item.get("event_id") or 0))
     event_ids = [event_id for event_id in sorted(set(event_ids)) if event_id > 0]
-    events_by_id, correlations_by_event = _load_event_context(database_url, event_ids)
+    events_by_id, correlations_by_event, linked_source_context = _load_event_context(database_url, event_ids)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     base_name = f"lead_deltas_{int(from_snapshot_id)}_{int(to_snapshot_id)}_{ts}"
@@ -428,10 +527,16 @@ def export_lead_deltas(
     def _enrich(event_id: Any, details: Any) -> dict[str, Any]:
         event = events_by_id.get(int(event_id or 0))
         base_details = details if isinstance(details, dict) else {}
-        return enrich_lead_score_details(
+        enriched = enrich_lead_score_details(
             clauses=None if event is None else event.clauses,
             base_details=base_details,
             correlations=correlations_by_event.get(int(event_id or 0), []),
+        )
+        context = linked_source_context.get(int(event_id or 0), {})
+        return classify_lead_families(
+            details=enriched,
+            linked_source_summary=context.get("linked_source_summary"),
+            linked_records_by_correlation=context.get("linked_records_by_correlation"),
         )
 
     rows: list[dict[str, Any]] = []

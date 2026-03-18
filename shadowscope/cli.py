@@ -1,4 +1,4 @@
-﻿"""Typer-based command line interface for ShadowScope."""
+"""Typer-based command line interface for ShadowScope."""
 from __future__ import annotations
 
 import json
@@ -428,11 +428,17 @@ def export_entities_cli(
 @export_app.command("lead-snapshot")
 def export_lead_snapshot_cli(
     snapshot_id: int = typer.Option(..., "--snapshot-id", help="Lead snapshot ID to export"),
+    lead_family: Optional[str] = typer.Option(None, "--lead-family", help="Optional lead family filter."),
     out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
     export_path = Path(out).expanduser() if out else None
-    results = export_lead_snapshot(snapshot_id=int(snapshot_id), database_url=database_url, output=export_path)
+    results = export_lead_snapshot(
+        snapshot_id=int(snapshot_id),
+        database_url=database_url,
+        output=export_path,
+        lead_family=lead_family,
+    )
     typer.echo(f"Lead snapshot CSV: {results['csv'].resolve()}")
     typer.echo(f"Lead snapshot JSON: {results['json'].resolve()}")
     typer.echo(f"Rows exported: {results['count']}")

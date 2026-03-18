@@ -6,7 +6,16 @@ from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db_session
 from backend.api.correlations import router as correlations_router
-from backend.services.explainability import enrich_lead_score_details, load_event_correlation_evidence
+from backend.services.explainability import (
+    enrich_lead_score_details,
+    load_event_correlation_evidence,
+    load_event_linked_source_summary,
+)
+from backend.services.lead_families import (
+    classify_lead_families,
+    lead_matches_family,
+    summarize_lead_family_groups,
+)
 from backend.services.leads import normalize_scoring_version
 from backend.db.models import AnalysisRun, Entity, Event, LeadSnapshot, LeadSnapshotItem
 from backend.search.opensearch import opensearch_search
@@ -163,9 +172,11 @@ def list_leads(
     award_id: str | None = None,
     recipient_uei: str | None = None,
     place_region: str | None = None,
+    lead_family: str | None = None,
     lane: str | None = None,
     min_event_count: int | None = None,
     min_score_signal: float | None = None,
+    group_by_family: bool = False,
     sort_by: str | None = "score",
     sort_dir: str | None = "desc",
     include_details: bool = True,
@@ -219,13 +230,24 @@ def list_leads(
         award_id=award_id,
         recipient_uei=recipient_uei,
         place_region=place_region,
+        lead_family=lead_family,
         lane=lane,
         min_event_count=min_event_count,
         min_score_signal=min_score_signal,
         include_details=include_details,
+        group_by_family=group_by_family,
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
+    if group_by_family:
+        return {
+            "items": payload["items"],
+            "family_groups": payload.get("family_groups") or [],
+            "total": payload.get("total"),
+            "limit": payload.get("limit"),
+            "offset": payload.get("offset"),
+            "scanned": payload.get("scanned"),
+        }
     return payload["items"]
 @router.get("/lead-snapshots")
 def list_lead_snapshots(
@@ -295,6 +317,8 @@ def get_lead_snapshot(snapshot_id: int, db: Session = Depends(get_db_session)):
 def list_lead_snapshot_items(
     snapshot_id: int,
     limit: int = 200,
+    lead_family: str | None = None,
+    group_by_family: bool = False,
     include_score_details: bool = True,
     db: Session = Depends(get_db_session),
 ):
@@ -307,12 +331,12 @@ def list_lead_snapshot_items(
         .join(Event, LeadSnapshotItem.event_id == Event.id)
         .filter(LeadSnapshotItem.snapshot_id == snapshot_id)
         .order_by(LeadSnapshotItem.rank.asc())
-        .limit(limit)
         .all()
     )
 
     event_ids = [int(item.event_id) for item, _ev in rows]
     correlations_by_event = load_event_correlation_evidence(db, event_ids=event_ids)
+    linked_source_context = load_event_linked_source_summary(db, event_ids=event_ids)
 
     out = []
     for item, ev in rows:
@@ -321,6 +345,14 @@ def list_lead_snapshot_items(
             base_details=item.score_details if isinstance(item.score_details, dict) else {},
             correlations=correlations_by_event.get(int(item.event_id), []),
         )
+        context = linked_source_context.get(int(item.event_id), {})
+        details = classify_lead_families(
+            details=details,
+            linked_source_summary=context.get("linked_source_summary"),
+            linked_records_by_correlation=context.get("linked_records_by_correlation"),
+        )
+        if lead_family and not lead_matches_family(details, lead_family):
+            continue
         d = {
             "snapshot_id": int(item.snapshot_id),
             "rank": int(item.rank),
@@ -328,6 +360,10 @@ def list_lead_snapshot_items(
             "event_id": int(item.event_id),
             "event_hash": item.event_hash,
             "scoring_version": details.get("scoring_version"),
+            "lead_family": details.get("lead_family"),
+            "lead_family_label": details.get("lead_family_label"),
+            "secondary_lead_families": details.get("secondary_lead_families") or [],
+            "corroboration_summary": details.get("corroboration_summary") or {},
             "pair_bonus_applied": details.get("pair_bonus_applied", details.get("pair_bonus", 0)),
             "noise_penalty_applied": details.get("noise_penalty_applied", details.get("noise_penalty", 0)),
             "contributing_lanes": details.get("contributing_lanes") or [],
@@ -347,6 +383,12 @@ def list_lead_snapshot_items(
         if include_score_details:
             d["score_details"] = details
         out.append(d)
+    out = out[: max(int(limit), 0)]
+    if group_by_family:
+        return {
+            "items": out,
+            "family_groups": summarize_lead_family_groups(out),
+        }
     return out
 
 
@@ -377,4 +419,3 @@ def search(
 
 # Mount correlations API under /api/correlations/*
 router.include_router(correlations_router)
-

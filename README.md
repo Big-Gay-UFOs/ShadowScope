@@ -1,4 +1,4 @@
-﻿# ShadowScope
+# ShadowScope
 
 
 ## Command Matrix (LLM-First)
@@ -427,12 +427,13 @@ Windows execution policy (one-time):
 
 API:
 - `/api/events` now supports investigator filters like `source`, `date_from`, `date_to`, `entity_id`, `keyword`, `agency`, `psc`, `naics`, `award_id`, `recipient_uei`, `place_region`, plus `sort_by` / `sort_dir`.
-- `/api/leads` adds the same event-side filters plus `lane`, `min_event_count`, `min_score_signal`, paging via `offset`, and lead sorting.
+- `/api/leads` adds the same event-side filters plus `lane`, `min_event_count`, `min_score_signal`, `lead_family`, optional `group_by_family=true`, paging via `offset`, and lead sorting.
 - `/api/correlations/` now accepts the same linked-event filters plus `lane`, `min_event_count`, `min_score_signal`, and investigator-friendly sorting.
 
 CLI:
 - `ss export events --source "SAM.gov" --date-from 2026-03-01T00:00:00 --agency DOE --limit 100 --sort-by occurred_at`
 - `ss leads query --source "SAM.gov" --agency DOE --lane kw_pair --min-score-signal 4 --json`
+- `ss export leads --snapshot-id 123 --lead-family vendor_network_contract_lineage --out .\out\lead_snapshot`
 - `ss export correlations --source "SAM.gov" --lane kw_pair --recipient-uei UEI123 --place-region "VA,USA" --sort-by event_count`
 - `ss export evidence-package --snapshot-id <id> --lead-event-id <event_id>` packages a lead from a snapshot.
 - `ss export evidence-package --correlation-id <id>` packages a correlation.
@@ -440,6 +441,7 @@ CLI:
 Evidence package guardrail:
 - The evidence package is packaging only. It includes source-backed records, identifiers, agencies/vendors, ontology matches, score details, lanes, and a mini timeline.
 - It does not draft FOIA letters or infer claims beyond the captured data.
+- Lead snapshot exports and API lead views now expose `lead_family`, secondary families, correlation types hit, candidate-join evidence, and linked-source summaries as separate corroboration fields.
 ## Key FOIA sprint additions
 - Seeded ingest: `--keyword`, `--recipient`
 - FOIA ontology companion: `examples/ontology_sam_dod_foia_companion.json` (precision-first anchor+pair+exact-probe rules + suppressors)

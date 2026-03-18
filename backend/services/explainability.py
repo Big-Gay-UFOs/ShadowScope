@@ -4,11 +4,10 @@ import math
 from typing import Any
 
 from sqlalchemy import func
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm import Session
 
-from backend.db.models import Correlation, CorrelationLink
-
-
+from backend.db.models import Correlation, CorrelationLink, Event
 LANE_PRIORITY: tuple[str, ...] = (
     "kw_pair",
     "same_keyword",
@@ -324,6 +323,21 @@ def _kw_pair_metadata(
     }
 
 
+def _candidate_join_metadata(lane_payload: dict[str, Any], score_value: Any) -> dict[str, Any]:
+    return {
+        "confidence_score": optional_number(lane_payload.get("confidence_score") or score_value),
+        "likely_incumbent": bool(lane_payload.get("likely_incumbent")),
+        "time_delta_days": optional_number(lane_payload.get("time_delta_days")),
+        "evidence_types": [str(item) for item in norm_json_list(lane_payload.get("evidence_types")) if str(item).strip()],
+        "matched_values": lane_payload.get("matched_values") if isinstance(lane_payload.get("matched_values"), dict) else {},
+        "candidate_join_evidence": [
+            dict(item)
+            for item in norm_json_list(lane_payload.get("evidence"))
+            if isinstance(item, dict)
+        ],
+    }
+
+
 def load_event_correlation_evidence(db: Session, *, event_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
     if not event_ids:
         return {}
@@ -387,6 +401,8 @@ def load_event_correlation_evidence(db: Session, *, event_ids: list[int]) -> dic
             )
             item.update(kw_pair)
             item["contributes_pair_bonus"] = safe_int(kw_pair.get("event_count"), default=0) > 0
+        elif lane == "sam_usaspending_candidate_join":
+            item.update(_candidate_join_metadata(payload, score))
 
         by_event.setdefault(safe_int(event_id), []).append(item)
 
@@ -404,6 +420,198 @@ def load_event_correlation_evidence(db: Session, *, event_ids: list[int]) -> dic
         )
 
     return by_event
+
+
+def _agency_label_from_values(
+    *,
+    awarding_name: Any,
+    awarding_code: Any,
+    funding_name: Any,
+    funding_code: Any,
+    contracting_name: Any,
+    contracting_code: Any,
+) -> str | None:
+    candidates = (
+        (awarding_name, awarding_code),
+        (funding_name, funding_code),
+        (contracting_name, contracting_code),
+    )
+    for name, code in candidates:
+        name_text = str(name or "").strip()
+        code_text = str(code or "").strip().upper()
+        if name_text and code_text:
+            return f"{name_text} ({code_text})"
+        if name_text or code_text:
+            return name_text or code_text
+    return None
+
+
+def _place_region_label_from_values(*, state: Any, country: Any) -> str | None:
+    state_text = str(state or "").strip().upper()
+    country_text = str(country or "").strip().upper()
+    if state_text and country_text:
+        return f"{state_text}, {country_text}"
+    if state_text:
+        return state_text
+    if country_text:
+        return country_text
+    return None
+
+
+def _append_unique_value(bucket: list[Any], value: Any, *, limit: int = 5) -> None:
+    if value is None:
+        return
+    text = str(value).strip()
+    if not text:
+        return
+    if text in {str(item).strip() for item in bucket}:
+        return
+    if len(bucket) >= int(limit):
+        return
+    bucket.append(value)
+
+
+def load_event_linked_source_summary(
+    db: Session,
+    *,
+    event_ids: list[int],
+) -> dict[int, dict[str, Any]]:
+    if not event_ids:
+        return {}
+
+    target_link = aliased(CorrelationLink)
+    member_link = aliased(CorrelationLink)
+
+    rows = (
+        db.query(
+            target_link.event_id.label("target_event_id"),
+            target_link.correlation_id.label("correlation_id"),
+            Correlation.correlation_key,
+            Correlation.lanes_hit,
+            Event.id.label("linked_event_id"),
+            Event.source,
+            Event.doc_id,
+            Event.award_id,
+            Event.solicitation_number,
+            Event.source_url,
+            Event.recipient_name,
+            Event.recipient_uei,
+            Event.awarding_agency_name,
+            Event.awarding_agency_code,
+            Event.funding_agency_name,
+            Event.funding_agency_code,
+            Event.contracting_office_name,
+            Event.contracting_office_code,
+            Event.place_of_performance_state,
+            Event.place_of_performance_country,
+        )
+        .join(Correlation, Correlation.id == target_link.correlation_id)
+        .join(member_link, member_link.correlation_id == target_link.correlation_id)
+        .join(Event, Event.id == member_link.event_id)
+        .filter(target_link.event_id.in_(event_ids))
+        .filter(member_link.event_id != target_link.event_id)
+        .all()
+    )
+
+    by_event: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        target_event_id = safe_int(getattr(row, "target_event_id", None), default=0)
+        correlation_id = safe_int(getattr(row, "correlation_id", None), default=0)
+        linked_event_id = safe_int(getattr(row, "linked_event_id", None), default=0)
+        if target_event_id <= 0 or correlation_id <= 0 or linked_event_id <= 0:
+            continue
+
+        lane = infer_correlation_lane(getattr(row, "correlation_key", None), getattr(row, "lanes_hit", None))
+        linked_record = {
+            "event_id": linked_event_id,
+            "source": getattr(row, "source", None),
+            "doc_id": getattr(row, "doc_id", None),
+            "award_id": getattr(row, "award_id", None),
+            "solicitation_number": getattr(row, "solicitation_number", None),
+            "source_url": getattr(row, "source_url", None),
+            "recipient_name": getattr(row, "recipient_name", None),
+            "recipient_uei": getattr(row, "recipient_uei", None),
+            "agency": _agency_label_from_values(
+                awarding_name=getattr(row, "awarding_agency_name", None),
+                awarding_code=getattr(row, "awarding_agency_code", None),
+                funding_name=getattr(row, "funding_agency_name", None),
+                funding_code=getattr(row, "funding_agency_code", None),
+                contracting_name=getattr(row, "contracting_office_name", None),
+                contracting_code=getattr(row, "contracting_office_code", None),
+            ),
+            "place_region": _place_region_label_from_values(
+                state=getattr(row, "place_of_performance_state", None),
+                country=getattr(row, "place_of_performance_country", None),
+            ),
+            "lane": lane,
+        }
+
+        event_bucket = by_event.setdefault(
+            target_event_id,
+            {
+                "linked_records_by_correlation": {},
+                "_source_summary": {},
+            },
+        )
+        correlation_bucket = event_bucket["linked_records_by_correlation"].setdefault(correlation_id, [])
+        if linked_event_id not in {safe_int(item.get("event_id"), default=0) for item in correlation_bucket}:
+            correlation_bucket.append(linked_record)
+
+        source = str(linked_record.get("source") or "").strip() or "unknown"
+        source_bucket = event_bucket["_source_summary"].setdefault(
+            source,
+            {
+                "source": source,
+                "linked_event_count": 0,
+                "lanes": set(),
+                "sample_event_ids": [],
+                "sample_doc_ids": [],
+                "sample_award_ids": [],
+                "sample_recipients": [],
+                "sample_agencies": [],
+                "_seen_event_ids": set(),
+            },
+        )
+        if linked_event_id not in source_bucket["_seen_event_ids"]:
+            source_bucket["_seen_event_ids"].add(linked_event_id)
+            source_bucket["linked_event_count"] += 1
+        source_bucket["lanes"].add(lane)
+        _append_unique_value(source_bucket["sample_event_ids"], linked_event_id)
+        _append_unique_value(source_bucket["sample_doc_ids"], linked_record.get("doc_id"))
+        _append_unique_value(source_bucket["sample_award_ids"], linked_record.get("award_id") or linked_record.get("solicitation_number"))
+        _append_unique_value(source_bucket["sample_recipients"], linked_record.get("recipient_name") or linked_record.get("recipient_uei"))
+        _append_unique_value(source_bucket["sample_agencies"], linked_record.get("agency"))
+
+    out: dict[int, dict[str, Any]] = {}
+    for event_id, payload in by_event.items():
+        source_summary = []
+        for source_payload in payload.get("_source_summary", {}).values():
+            source_summary.append(
+                {
+                    "source": source_payload.get("source"),
+                    "linked_event_count": safe_int(source_payload.get("linked_event_count"), default=0),
+                    "lanes": sorted(str(item) for item in source_payload.get("lanes", set()) if str(item).strip()),
+                    "sample_event_ids": list(source_payload.get("sample_event_ids") or []),
+                    "sample_doc_ids": list(source_payload.get("sample_doc_ids") or []),
+                    "sample_award_ids": list(source_payload.get("sample_award_ids") or []),
+                    "sample_recipients": list(source_payload.get("sample_recipients") or []),
+                    "sample_agencies": list(source_payload.get("sample_agencies") or []),
+                }
+            )
+        source_summary.sort(
+            key=lambda item: (
+                -safe_int(item.get("linked_event_count"), default=0),
+                str(item.get("source") or ""),
+            )
+        )
+        out[event_id] = {
+            "linked_source_summary": source_summary,
+            "linked_records_by_correlation": {
+                int(correlation_id): list(records)
+                for correlation_id, records in payload.get("linked_records_by_correlation", {}).items()
+            },
+        }
+    return out
 
 
 def enrich_lead_score_details(

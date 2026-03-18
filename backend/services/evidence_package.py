@@ -26,9 +26,11 @@ from backend.services.explainability import (
     extract_matched_ontology,
     infer_correlation_lane,
     load_event_correlation_evidence,
+    load_event_linked_source_summary,
     safe_int,
 )
 from backend.services.investigator_filters import event_place_region_label
+from backend.services.lead_families import classify_lead_families
 
 
 def _iso(value: Any) -> str | None:
@@ -372,6 +374,13 @@ def export_lead_evidence_package(
             base_details=item.score_details if isinstance(item.score_details, dict) else {},
             correlations=correlations_by_event.get(int(event.id), []),
         )
+        linked_source_context = load_event_linked_source_summary(db, event_ids=[int(event.id)])
+        context = linked_source_context.get(int(event.id), {})
+        details = classify_lead_families(
+            details=details,
+            linked_source_summary=context.get("linked_source_summary"),
+            linked_records_by_correlation=context.get("linked_records_by_correlation"),
+        )
 
         correlation_ids = [safe_int(entry.get("correlation_id"), default=0) for entry in (details.get("contributing_correlations") or [])]
         correlation_ids = [corr_id for corr_id in correlation_ids if corr_id > 0]
@@ -432,6 +441,9 @@ def export_lead_evidence_package(
                 "source": event.source,
                 "doc_id": event.doc_id,
                 "source_url": event.source_url,
+                "lead_family": details.get("lead_family"),
+                "secondary_lead_families": details.get("secondary_lead_families") or [],
+                "corroboration_summary": details.get("corroboration_summary") or {},
                 "contributing_lanes": details.get("contributing_lanes") or [],
                 "score_details": details,
             },

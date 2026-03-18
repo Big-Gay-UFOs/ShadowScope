@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta, timezone
@@ -30,8 +30,10 @@ from backend.db.models import (
 )
 from backend.services.explainability import (
     enrich_lead_score_details,
+    load_event_linked_source_summary,
     load_event_correlation_evidence,
 )
+from backend.services.lead_families import classify_lead_families
 from backend.services.investigator_filters import event_time_expr, investigator_event_conditions
 
 
@@ -413,7 +415,25 @@ def compute_leads(
             scored.append((int(score), e, details))
 
     scored.sort(key=lambda t: (t[0],) + _lead_sort_values(t[1]), reverse=True)
-    return scored[: int(limit)], scanned
+    selected = scored[: int(limit)]
+    selected_event_ids = [int(event.id) for _score, event, _details in selected]
+    linked_source_context = (
+        load_event_linked_source_summary(db, event_ids=selected_event_ids)
+        if selected_event_ids
+        else {}
+    )
+
+    enriched_selected: list[tuple[int, Event, dict[str, Any]]] = []
+    for score, event, details in selected:
+        context = linked_source_context.get(int(event.id), {})
+        details = classify_lead_families(
+            details=details,
+            linked_source_summary=context.get("linked_source_summary"),
+            linked_records_by_correlation=context.get("linked_records_by_correlation"),
+        )
+        enriched_selected.append((score, event, details))
+
+    return enriched_selected, scanned
 
 
 

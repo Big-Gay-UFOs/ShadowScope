@@ -20,6 +20,7 @@ from backend.services.investigator_filters import (
     investigator_event_conditions,
     investigator_event_filters_present,
 )
+from backend.services.lead_families import lead_family_label, lead_matches_family, summarize_lead_family_groups
 from backend.services.kw_pair_clusters import list_kw_pair_clusters
 from backend.services.leads import compute_leads
 
@@ -31,7 +32,7 @@ _EVENT_SORT_FIELDS: dict[str, Any] = {
     "source": "source",
 }
 
-_LEAD_SORT_FIELDS = {"score", "occurred_at", "created_at", "id", "pair_strength", "pair_count", "source"}
+_LEAD_SORT_FIELDS = {"score", "occurred_at", "created_at", "id", "pair_strength", "pair_count", "source", "lead_family"}
 _CORRELATION_SORT_FIELDS = {"score", "score_signal", "event_count", "created_at", "id"}
 
 
@@ -263,6 +264,8 @@ def _lead_sort_value(item: tuple[int, Event, dict[str, Any]], sort_by: str) -> A
         return safe_int(details.get("pair_count"), default=0)
     if sort_by == "source":
         return str(event.source or "")
+    if sort_by == "lead_family":
+        return str(details.get("lead_family") or "")
     return int(score)
 
 
@@ -304,10 +307,12 @@ def query_leads(
     award_id: str | None = None,
     recipient_uei: str | None = None,
     place_region: str | None = None,
+    lead_family: str | None = None,
     lane: str | None = None,
     min_event_count: int | None = None,
     min_score_signal: float | None = None,
     include_details: bool = True,
+    group_by_family: bool = False,
     sort_by: str | None = "score",
     sort_dir: str | None = "desc",
 ) -> dict[str, Any]:
@@ -346,6 +351,7 @@ def query_leads(
             min_event_count=min_event_count,
             min_score_signal=min_score_signal,
         )
+        and lead_matches_family(item[2], lead_family)
     ]
 
     sort_key = str(sort_by or "score").strip().lower()
@@ -356,6 +362,17 @@ def query_leads(
         key=lambda item: (_lead_sort_value(item, sort_key),) + _lead_sort_components(item[1]),
         reverse=reverse,
     )
+
+    family_group_rows = [
+        {
+            "rank": idx,
+            "score": int(score),
+            "event_id": int(event.id),
+            "lead_family": details.get("lead_family"),
+        }
+        for idx, (score, event, details) in enumerate(filtered, start=1)
+    ]
+    family_groups = summarize_lead_family_groups(family_group_rows) if group_by_family else []
 
     sliced = filtered[max(int(offset), 0): max(int(offset), 0) + max(int(limit), 0)]
     items: list[dict[str, Any]] = []
@@ -376,6 +393,10 @@ def query_leads(
             "clauses": _norm_list(event.clauses),
             "source_url": event.source_url,
             "scoring_version": details.get("scoring_version"),
+            "lead_family": details.get("lead_family"),
+            "lead_family_label": details.get("lead_family_label") or lead_family_label(details.get("lead_family")),
+            "secondary_lead_families": details.get("secondary_lead_families") or [],
+            "corroboration_summary": details.get("corroboration_summary") or {},
             "pair_bonus_applied": details.get("pair_bonus_applied", details.get("pair_bonus", 0)),
             "noise_penalty_applied": details.get("noise_penalty_applied", details.get("noise_penalty", 0)),
             "contributing_lanes": details.get("contributing_lanes") or [],
@@ -391,6 +412,7 @@ def query_leads(
         "offset": int(offset),
         "scanned": int(scanned),
         "items": items,
+        "family_groups": family_groups,
     }
 
 
