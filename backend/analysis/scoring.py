@@ -63,7 +63,7 @@ def _keyword_parts(value: Any) -> tuple[str, str]:
     return pack.strip(), rule.strip()
 
 
-def _classify_pack(pack: Any) -> str:
+def _classify_pack(pack: Any, *, allow_context: bool = False) -> str:
     text = str(pack or "").strip().lower()
     if not text:
         return "neutral"
@@ -73,6 +73,8 @@ def _classify_pack(pack: Any) -> str:
         return "proxy"
     if text.startswith(_DOD_PACK_PREFIX):
         return "dod"
+    if allow_context:
+        return "context"
     return "neutral"
 
 
@@ -112,6 +114,17 @@ def _pack_rule_label(pack: Any, rule: Any) -> str:
     if pack_text and rule_text:
         return f"{pack_text}:{rule_text}"
     return pack_text or rule_text
+
+
+def _clause_signal_magnitude(bucket: str, weight: int) -> int:
+    base = 0
+    if bucket == "proxy":
+        base = 4
+    elif bucket == "dod":
+        base = 3
+    elif bucket == "context":
+        base = 2
+    return base + min(abs(int(weight)), 2)
 
 
 def _copy_signal(
@@ -331,10 +344,13 @@ def score_from_keywords_clauses_v3(
 
     positive_rule_keys: set[str] = set()
     positive_pack_keys: set[str] = set()
+    context_pack_keys: set[str] = set()
     suppressor_rule_keys: set[str] = set()
 
     clause_signal_scores: list[int] = []
     keyword_signal_scores: list[int] = []
+    context_clause_scores: list[int] = []
+    context_keyword_scores: list[int] = []
     suppressor_penalties: list[int] = []
 
     top_positive_signals: list[dict[str, Any]] = []
@@ -360,22 +376,43 @@ def score_from_keywords_clauses_v3(
         item["weight"] = weight
         weighted.append(item)
 
-        bucket = _classify_pack(pack)
+        bucket = _classify_pack(pack, allow_context=True)
         rule_key = _rule_key(pack, rule, match)
         label = _pack_rule_label(pack, rule) or field or "ontology_match"
 
-        if bucket in {"proxy", "dod"}:
+        if bucket in {"proxy", "dod", "context"}:
+            signal_points = _clause_signal_magnitude(bucket, weight)
+            if weight < 0:
+                if rule_key in suppressor_rule_keys:
+                    continue
+                suppressor_rule_keys.add(rule_key)
+                suppressor_penalties.append(signal_points)
+                top_suppressors.append(
+                    _copy_penalty(
+                        label=label,
+                        penalty=signal_points,
+                        signal_type="clause",
+                        pack=pack,
+                        rule=rule,
+                        field=field,
+                        match=match,
+                    )
+                )
+                continue
             if rule_key in positive_rule_keys:
                 continue
             positive_rule_keys.add(rule_key)
-            positive_pack_keys.add(str(pack).strip().lower())
-            signal_points = (4 if bucket == "proxy" else 3) + min(max(weight, 0), 2)
-            clause_signal_scores.append(signal_points)
+            if bucket == "context":
+                context_pack_keys.add(str(pack).strip().lower())
+                context_clause_scores.append(signal_points)
+            else:
+                positive_pack_keys.add(str(pack).strip().lower())
+                clause_signal_scores.append(signal_points)
             top_positive_signals.append(
                 _copy_signal(
                     label=label,
                     contribution=signal_points,
-                    bucket="proxy_relevance",
+                    bucket="structural_context" if bucket == "context" else "proxy_relevance",
                     signal_type="clause",
                     pack=pack,
                     rule=rule,
@@ -413,9 +450,11 @@ def score_from_keywords_clauses_v3(
         pack, rule = _keyword_parts(keyword)
         rule_key = _rule_key(pack, rule)
         label = _pack_rule_label(pack, rule) or str(keyword).strip()
-        bucket = _classify_pack(pack)
+        bucket = _classify_pack(pack, allow_context=bool(rule))
 
         if bucket in {"proxy", "dod"}:
+            if rule_key in suppressor_rule_keys:
+                continue
             if rule_key in positive_rule_keys:
                 continue
             positive_rule_keys.add(rule_key)
@@ -427,6 +466,25 @@ def score_from_keywords_clauses_v3(
                     label=label,
                     contribution=signal_points,
                     bucket="proxy_relevance",
+                    signal_type="keyword",
+                    pack=pack,
+                    rule=rule,
+                )
+            )
+            continue
+
+        if bucket == "context":
+            if rule_key in suppressor_rule_keys or rule_key in positive_rule_keys:
+                continue
+            positive_rule_keys.add(rule_key)
+            context_pack_keys.add(pack)
+            signal_points = 1
+            context_keyword_scores.append(signal_points)
+            top_positive_signals.append(
+                _copy_signal(
+                    label=label,
+                    contribution=signal_points,
+                    bucket="structural_context",
                     signal_type="keyword",
                     pack=pack,
                     rule=rule,
@@ -457,6 +515,10 @@ def score_from_keywords_clauses_v3(
     keyword_score = int(sum(keyword_signal_scores))
     proxy_diversity_bonus = min(3, max(len(positive_pack_keys) - 1, 0))
     proxy_relevance_score = min(20, int(clause_score + keyword_score + proxy_diversity_bonus))
+    context_clause_score = _tiered_sum(context_clause_scores, top_n=3, rest_scale=0.5)
+    context_keyword_score = int(sum(context_keyword_scores))
+    context_diversity_bonus = min(2, max(len(context_pack_keys) - 1, 0))
+    context_ontology_score = min(3, int(context_clause_score + context_keyword_score + context_diversity_bonus))
 
     corroboration_sources: list[dict[str, Any]] = []
     corroboration_signal_scores: list[int] = []
@@ -513,12 +575,12 @@ def score_from_keywords_clauses_v3(
         if lane == "same_keyword":
             keyword_value = _same_keyword_from_correlation_key(item.get("correlation_key"))
             pack, rule = _keyword_parts(keyword_value)
-            bucket = _classify_pack(pack)
+            bucket = _classify_pack(pack, allow_context=bool(rule))
             if bucket == "suppressor":
                 continue
-            if bucket not in {"proxy", "dod"}:
+            if bucket not in {"proxy", "dod", "context"}:
                 continue
-            contribution = 2
+            contribution = 1 if bucket == "context" else 2
             corroboration_signal_scores.append(contribution)
             corroboration_lanes.add(lane)
             corroboration_sources.append(
@@ -648,6 +710,17 @@ def score_from_keywords_clauses_v3(
     structural_signals: list[dict[str, Any]] = []
     structural_signal_scores: list[int] = []
 
+    if context_ontology_score > 0:
+        structural_signal_scores.append(context_ontology_score)
+        structural_signals.append(
+            _copy_signal(
+                label="starter or context ontology support",
+                contribution=context_ontology_score,
+                bucket="structural_context",
+                signal_type="ontology",
+            )
+        )
+
     if _has_text(context.get("naics_code")) or _has_text(context.get("psc_code")):
         structural_signal_scores.append(1)
         structural_signals.append(
@@ -715,7 +788,8 @@ def score_from_keywords_clauses_v3(
 
     if proxy_relevance_score <= 0 and corroboration_score <= 0:
         investigability_score = min(investigability_score, 2)
-        structural_context_score = min(structural_context_score, 1)
+        structural_context_cap = 1 + min(int(context_ontology_score), 1)
+        structural_context_score = min(structural_context_score, structural_context_cap)
 
     noise_penalty_core = _tiered_sum(suppressor_penalties, top_n=3, rest_scale=0.5)
     noise_uncorroborated_surcharge = 4 if suppressor_penalties and proxy_relevance_score < 6 and corroboration_score < 3 else 0
@@ -779,6 +853,10 @@ def score_from_keywords_clauses_v3(
         "structural_correlation_bonus": int(structural_correlation_bonus),
         "noise_uncorroborated_surcharge": int(noise_uncorroborated_surcharge),
         "noise_penalty_core": int(noise_penalty_core),
+        "context_clause_score": int(context_clause_score),
+        "context_keyword_score": int(context_keyword_score),
+        "context_diversity_bonus": int(context_diversity_bonus),
+        "context_ontology_score": int(context_ontology_score),
         "positive_signal_count": len(positive_rule_keys),
         "suppressor_hit_count": len(suppressor_rule_keys),
         "proxy_relevance_score": int(proxy_relevance_score),
@@ -802,6 +880,10 @@ def score_from_keywords_clauses_v3(
                 "clause_score": int(clause_score),
                 "keyword_score": int(keyword_score),
                 "proxy_diversity_bonus": int(proxy_diversity_bonus),
+                "context_clause_score": int(context_clause_score),
+                "context_keyword_score": int(context_keyword_score),
+                "context_diversity_bonus": int(context_diversity_bonus),
+                "context_ontology_score": int(context_ontology_score),
                 "pair_bonus_applied": int(pair_bonus_applied),
                 "corroboration_diversity_bonus": int(corroboration_diversity_bonus),
                 "entity_bonus": int(entity_bonus),

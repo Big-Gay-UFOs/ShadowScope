@@ -438,3 +438,149 @@ def test_compute_leads_v3_score_details_explain_subscores_and_suppressors(tmp_pa
     assert routine_details["top_suppressors"]
     assert any(item.get("is_lore") for item in routine_details["top_suppressors"])
     assert routine_score < secure_score
+
+
+def test_compute_leads_v3_counts_starter_context_ontology_as_structural_signal(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_starter_context.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        starter = Event(
+            category="award",
+            source="USAspending",
+            hash="v3_starter_context",
+            created_at=now - timedelta(hours=2),
+            snippet="Base period of performance with option year support services.",
+            source_url="https://example.com/starter",
+            doc_id="STARTER-1",
+            award_id="AWARD-STARTER-1",
+            awarding_agency_name="Department of Energy",
+            recipient_uei="UEI-STARTER-1",
+            naics_code="541611",
+            psc_code="R408",
+            place_of_performance_state="VA",
+            place_of_performance_country="USA",
+            raw_json={},
+            keywords=["procurement_lifecycle:period_of_performance"],
+            clauses=[_clause("procurement_lifecycle", "period_of_performance")],
+            place_text="Arlington, VA",
+        )
+        blank = Event(
+            category="award",
+            source="USAspending",
+            hash="v3_metadata_only",
+            created_at=now - timedelta(hours=1),
+            snippet="Generic support services.",
+            source_url="https://example.com/blank",
+            doc_id="BLANK-1",
+            award_id="AWARD-BLANK-1",
+            awarding_agency_name="Department of Energy",
+            recipient_uei="UEI-BLANK-1",
+            naics_code="541611",
+            psc_code="R408",
+            place_of_performance_state="VA",
+            place_of_performance_country="USA",
+            raw_json={},
+            keywords=[],
+            clauses=[],
+            place_text="Arlington, VA",
+        )
+        db.add_all([starter, blank])
+        db.commit()
+
+        ranked, scanned = compute_leads(
+            db,
+            source="USAspending",
+            min_score=-10,
+            limit=10,
+            scan_limit=50,
+            scoring_version="v3",
+        )
+
+    assert scanned == 2
+    by_hash = {event.hash: (score, details) for score, event, details in ranked}
+    starter_score, starter_details = by_hash["v3_starter_context"]
+    blank_score, blank_details = by_hash["v3_metadata_only"]
+
+    assert starter_details["context_ontology_score"] > 0
+    assert starter_details["structural_context_score"] >= blank_details["structural_context_score"]
+    assert any(signal.get("bucket") == "structural_context" for signal in starter_details["top_positive_signals"])
+    assert starter_score > blank_score
+
+
+def test_compute_leads_v3_negative_proxy_weights_reduce_score(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_negative_weight.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        positive = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="v3_positive_proxy_weight",
+            created_at=now - timedelta(hours=2),
+            snippet="Secure facility upgrade support.",
+            source_url="https://example.com/pos",
+            doc_id="POS-1",
+            solicitation_number="SOL-POS-1",
+            awarding_agency_name="Department of the Air Force",
+            recipient_uei="UEI-POS-1",
+            raw_json={},
+            keywords=["sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context"],
+            clauses=[
+                _clause(
+                    "sam_proxy_secure_compartmented_facility_engineering",
+                    "icd705_scif_sapf_facility_upgrade_context",
+                    weight=1,
+                )
+            ],
+        )
+        negative = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="v3_negative_proxy_weight",
+            created_at=now - timedelta(hours=1),
+            snippet="Secure facility upgrade support.",
+            source_url="https://example.com/neg",
+            doc_id="NEG-1",
+            solicitation_number="SOL-NEG-1",
+            awarding_agency_name="Department of the Air Force",
+            recipient_uei="UEI-NEG-1",
+            raw_json={},
+            keywords=["sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context"],
+            clauses=[
+                _clause(
+                    "sam_proxy_secure_compartmented_facility_engineering",
+                    "icd705_scif_sapf_facility_upgrade_context",
+                    weight=-4,
+                )
+            ],
+        )
+        db.add_all([positive, negative])
+        db.commit()
+
+        ranked, scanned = compute_leads(
+            db,
+            source="SAM.gov",
+            min_score=-20,
+            limit=10,
+            scan_limit=50,
+            scoring_version="v3",
+        )
+
+    assert scanned == 2
+    by_hash = {event.hash: (score, details) for score, event, details in ranked}
+    positive_score, positive_details = by_hash["v3_positive_proxy_weight"]
+    negative_score, negative_details = by_hash["v3_negative_proxy_weight"]
+
+    assert positive_details["proxy_relevance_score"] > 0
+    assert negative_details["proxy_relevance_score"] == 0
+    assert negative_details["noise_penalty"] > 0
+    assert any(
+        signal.get("pack") == "sam_proxy_secure_compartmented_facility_engineering"
+        for signal in negative_details["top_suppressors"]
+    )
+    assert negative_score < positive_score
