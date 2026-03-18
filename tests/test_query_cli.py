@@ -128,3 +128,69 @@ def test_export_leads_cli_forwards_lead_family(monkeypatch, tmp_path: Path):
     assert captured["snapshot_id"] == 7
     assert captured["lead_family"] == "vendor_network_contract_lineage"
     assert "Rows exported: 1" in result.stdout
+
+
+def test_export_adjudication_template_cli_reports_output(monkeypatch, tmp_path: Path):
+    expected_csv = tmp_path / "lead_adjudications.csv"
+    expected_csv.write_text("snapshot_id,decision\n7,\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_export_template(**kwargs):
+        captured.update(kwargs)
+        return {
+            "csv": expected_csv,
+            "bundle_csv": None,
+            "count": 1,
+            "snapshot": {"id": 7},
+        }
+
+    monkeypatch.setattr(cli_module, "export_lead_adjudication_template", fake_export_template)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["export", "adjudication-template", "--snapshot-id", "7"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["snapshot_id"] == 7
+    assert "Adjudication template CSV:" in result.stdout
+    assert "Rows exported: 1" in result.stdout
+
+
+def test_leads_adjudication_metrics_cli_reports_summary(monkeypatch, tmp_path: Path):
+    adjudications = tmp_path / "adjudications.csv"
+    adjudications.write_text("snapshot_id,decision\n7,keep\n", encoding="utf-8")
+
+    def fake_metrics(**kwargs):
+        return {
+            "summary": {
+                "reviewed_count": 2,
+                "decisive_count": 2,
+                "keep_count": 1,
+                "reject_count": 1,
+                "acceptance_rate_pct": 50.0,
+                "precision_at_k": {
+                    "1": {
+                        "precision_pct": 100.0,
+                        "reviewed_count": 1,
+                        "decisive_count": 1,
+                        "keep_count": 1,
+                        "reject_count": 0,
+                    }
+                },
+            },
+            "artifacts": {
+                "metrics_json": tmp_path / "lead_adjudication_metrics.json",
+            },
+        }
+
+    monkeypatch.setattr(cli_module, "evaluate_lead_adjudications", fake_metrics)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["leads", "adjudication-metrics", "--adjudications", str(adjudications)],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Adjudication metrics:" in result.stdout
+    assert "Precision@1:" in result.stdout

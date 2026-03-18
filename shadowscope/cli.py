@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from backend.db.ops import reset_schema, stamp_head, sync_database
 from backend.logging_config import configure_logging
 from backend.runtime import ensure_runtime_directories
+from backend.services.adjudication import evaluate_lead_adjudications, export_lead_adjudication_template
 from backend.services.export import export_events
 from backend.services.export_correlations import export_kw_pairs
 from backend.services.export_leads import export_lead_snapshot, export_lead_deltas
@@ -443,6 +444,27 @@ def export_lead_snapshot_cli(
     typer.echo(f"Lead snapshot JSON: {results['json'].resolve()}")
     typer.echo(f"Rows exported: {results['count']}")
 
+@export_app.command("adjudication-template")
+def export_adjudication_template_cli(
+    snapshot_id: int = typer.Option(..., "--snapshot-id", help="Lead snapshot ID to turn into a reviewer adjudication template"),
+    out: Optional[str] = typer.Option(None, "--out", help="Output directory or CSV file path"),
+    bundle: Optional[str] = typer.Option(None, "--bundle", help="Optional SAM bundle directory to receive the canonical adjudication CSV"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    export_path = Path(out).expanduser() if out else None
+    bundle_path = Path(bundle).expanduser() if bundle else None
+    results = export_lead_adjudication_template(
+        snapshot_id=int(snapshot_id),
+        database_url=database_url,
+        output=export_path,
+        bundle_dir=bundle_path,
+    )
+    typer.echo(f"Adjudication template CSV: {results['csv'].resolve()}")
+    bundle_csv = results.get("bundle_csv")
+    if bundle_csv is not None and Path(bundle_csv).resolve() != Path(results["csv"]).resolve():
+        typer.echo(f"Bundle adjudications CSV: {Path(bundle_csv).resolve()}")
+    typer.echo(f"Rows exported: {results['count']}")
+
 @export_app.command("lead-deltas")
 def export_lead_deltas_cli(
     from_snapshot_id: int = typer.Option(..., "--from", "--from-snapshot-id", help="From lead snapshot ID"),
@@ -656,6 +678,60 @@ def leads_delta(
     )
     if json_out:
         typer.echo(json.dumps(res, indent=2))
+
+@leads_app.command("adjudication-metrics")
+def leads_adjudication_metrics(
+    adjudications: List[str] = typer.Option(..., "--adjudications", help="CSV/JSONL adjudication file or a directory of adjudication files. Repeat as needed."),
+    k: Optional[List[int]] = typer.Option(None, "--k", help="Precision@k cutoff to compute. Repeat for multiple cutoffs."),
+    out: Optional[str] = typer.Option(None, "--out", help="Optional output directory or metrics JSON file path"),
+    bundle: Optional[str] = typer.Option(None, "--bundle", help="Optional SAM bundle directory to update with adjudication artifacts and refreshed reports"),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload"),
+):
+    adjudication_paths = [Path(value).expanduser() for value in adjudications]
+    output_path = Path(out).expanduser() if out else None
+    bundle_path = Path(bundle).expanduser() if bundle else None
+    res = evaluate_lead_adjudications(
+        adjudications=adjudication_paths,
+        precision_at_k=k,
+        output=output_path,
+        bundle_dir=bundle_path,
+    )
+
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+
+    summary = res.get("summary") or {}
+    typer.echo(
+        "Adjudication metrics: "
+        f"reviewed={summary.get('reviewed_count')} decisive={summary.get('decisive_count')} "
+        f"keep={summary.get('keep_count')} reject={summary.get('reject_count')} "
+        f"acceptance_rate_pct={summary.get('acceptance_rate_pct')}"
+    )
+
+    precision = summary.get("precision_at_k") or {}
+    for key in sorted(precision.keys(), key=lambda item: int(item)):
+        entry = precision.get(key) or {}
+        typer.echo(
+            f"Precision@{key}: pct={entry.get('precision_pct')} reviewed={entry.get('reviewed_count')} "
+            f"decisive={entry.get('decisive_count')} keep={entry.get('keep_count')} reject={entry.get('reject_count')}"
+        )
+
+    artifacts = res.get("artifacts") or {}
+    if artifacts.get("metrics_json"):
+        typer.echo(f"Metrics JSON: {Path(artifacts['metrics_json']).resolve()}")
+    if artifacts.get("normalized_adjudications_csv"):
+        typer.echo(f"Normalized adjudications CSV: {Path(artifacts['normalized_adjudications_csv']).resolve()}")
+    if artifacts.get("bundle_adjudications_csv"):
+        typer.echo(f"Bundle adjudications CSV: {Path(artifacts['bundle_adjudications_csv']).resolve()}")
+    if artifacts.get("bundle_metrics_json"):
+        typer.echo(f"Bundle metrics JSON: {Path(artifacts['bundle_metrics_json']).resolve()}")
+    if artifacts.get("bundle_report_html"):
+        typer.echo(f"Bundle report: {Path(artifacts['bundle_report_html']).resolve()}")
+    if artifacts.get("report_html"):
+        typer.echo(f"Report HTML: {Path(artifacts['report_html']).resolve()}")
+    for message in artifacts.get("refresh_errors") or []:
+        typer.echo(f"Report refresh warning: {message}")
 
 @leads_app.command("query")
 def leads_query(

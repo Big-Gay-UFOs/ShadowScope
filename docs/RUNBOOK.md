@@ -1,4 +1,4 @@
-﻿# ShadowScope Runbook
+# ShadowScope Runbook
 
 This runbook captures the SAM-only operator flow for the current sprint.
 
@@ -128,7 +128,33 @@ Examples:
 
 - `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
 
-## 6) USAspending maintenance check
+## 6) Reviewer adjudication loop
+
+Use this when you want scoring or ontology changes measured against human reviewer decisions instead of anecdotal bundle inspection.
+
+1. Export a reviewer template from the snapshot you want to judge:
+   - `ss export adjudication-template --snapshot-id 123 --out .\reviews\sam_snapshot_123_adjudications.csv`
+2. Fill the CSV locally with:
+   - `decision` (`keep`, `reject`, or `unclear`)
+   - `reason_code`
+   - `reviewer_notes`
+   - `foia_ready` (`yes` or `no`)
+   - optional `lead_family_override`
+3. Compute objective ranking metrics and refresh the bundle report:
+   - `ss leads adjudication-metrics --adjudications .\reviews\sam_snapshot_123_adjudications.csv --k 5 --k 10 --k 25 --bundle .\data\exports\smoke\samgov\20260309_112458 --json`
+
+Outputs:
+
+- `exports/lead_adjudications.csv`: normalized local copy used for bundle/report refresh
+- `exports/lead_adjudication_metrics.json`: acceptance rate, precision@k, rejection reasons, by-family, and by-scoring-version metrics
+
+Interpretation:
+
+- Precision@k uses decisive reviewer labels only (`keep` / `reject`).
+- `unclear` stays visible as uncertainty and does not get converted into either acceptance or rejection.
+- `lead_family_override` lets reviewers correct family grouping without mutating the original snapshot evidence.
+
+## 7) USAspending maintenance check
 
 - `ss doctor status --source USAspending --days 30`
 

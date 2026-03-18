@@ -84,6 +84,16 @@ On a fixed window, treat improvement as directional: we want denser useful keywo
 .\.venv\Scripts\pytest.exe -q tests/test_workflow_wrapper.py
 ```
 
+### 9) Reviewer adjudication loop
+
+- Export a reviewer-editable CSV from a lead snapshot:
+  `ss export adjudication-template --snapshot-id 123 --out .\reviews\sam_snapshot_123_adjudications.csv`
+- Reviewer fills `decision`, `reason_code`, `reviewer_notes`, `foia_ready`, and optional `lead_family_override`.
+- Evaluate ranking quality and refresh a bundle-backed report:
+  `ss leads adjudication-metrics --adjudications .\reviews\sam_snapshot_123_adjudications.csv --k 5 --k 10 --k 25 --bundle .\data\exports\smoke\samgov\20260309_112458 --json`
+- Bundle artifacts are kept local under `exports/lead_adjudications.csv` and `exports/lead_adjudication_metrics.json`.
+- Precision@k uses decisive reviewer labels (`keep` / `reject`) only; `unclear` remains visible without being upgraded into a forced verdict.
+
 ## Quickstart
 
 <!-- SHADOWSCOPE:OVERVIEW:START -->

@@ -346,6 +346,10 @@ def _render_report_html(
         report_path=report_path,
         artifact_payload=artifacts,
     )
+    evaluation_section = _render_evaluation_section(
+        bundle_dir=bundle_dir,
+        artifact_payload=artifacts,
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -497,6 +501,7 @@ def _render_report_html(
         <h2>Hints</h2>
         {_render_table(hint_rows, fallback="No hints reported.")}
       </section>
+      {evaluation_section}
       <section class="section">
         <h2>Artifacts</h2>
         {_render_table(artifact_rows, fallback="No artifacts found for this bundle.")}
@@ -508,6 +513,116 @@ def _render_report_html(
 </body>
 </html>
 """
+
+
+def _format_metric_value(value: Any) -> str:
+    if value is None:
+        return "Unavailable"
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def _render_evaluation_section(*, bundle_dir: Path, artifact_payload: dict[str, Any]) -> str:
+    from backend.services.adjudication import load_bundle_adjudication_state
+
+    state = load_bundle_adjudication_state(bundle_dir=bundle_dir, artifact_payload=artifact_payload)
+    adjudications_csv = state.get("adjudications_csv")
+    metrics = state.get("metrics") if isinstance(state.get("metrics"), dict) else {}
+    if adjudications_csv is None and not metrics:
+        return ""
+
+    summary = metrics.get("summary") if isinstance(metrics.get("summary"), dict) else {}
+    if isinstance(adjudications_csv, Path):
+        try:
+            adjudications_label: Any = adjudications_csv.relative_to(bundle_dir)
+        except ValueError:
+            adjudications_label = adjudications_csv
+    else:
+        adjudications_label = "Unavailable"
+    summary_rows = [
+        ("Adjudications CSV", adjudications_label),
+        ("Reviewed Rows", summary.get("reviewed_count")),
+        ("Decisive Rows", summary.get("decisive_count")),
+        ("Acceptance Rate (%)", _format_metric_value(summary.get("acceptance_rate_pct"))),
+        ("FOIA Ready Yes", summary.get("foia_ready_yes_count")),
+    ]
+
+    if not metrics:
+        body = _render_kv_table(summary_rows)
+        note = "<p class=\"small\">Adjudications are present, but no metrics JSON was found yet.</p>"
+        return f"<section class=\"section\"><h2>Evaluation</h2>{note}{body}</section>"
+
+    precision_rows = []
+    for entry in (summary.get("precision_at_k") or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        precision_rows.append(
+            {
+                "k": entry.get("k"),
+                "precision_pct": _format_metric_value(entry.get("precision_pct")),
+                "reviewed": entry.get("reviewed_count"),
+                "decisive": entry.get("decisive_count"),
+                "keep": entry.get("keep_count"),
+                "reject": entry.get("reject_count"),
+            }
+        )
+
+    scoring_rows = []
+    for entry in metrics.get("by_scoring_version") or []:
+        if not isinstance(entry, dict):
+            continue
+        scoring_rows.append(
+            {
+                "scoring_version": entry.get("scoring_version"),
+                "rows": entry.get("row_count"),
+                "keep": entry.get("keep_count"),
+                "reject": entry.get("reject_count"),
+                "acceptance_pct": _format_metric_value(entry.get("acceptance_rate_pct")),
+            }
+        )
+
+    family_rows = []
+    for entry in (metrics.get("by_lead_family") or [])[:10]:
+        if not isinstance(entry, dict):
+            continue
+        family_rows.append(
+            {
+                "lead_family": entry.get("lead_family"),
+                "rows": entry.get("row_count"),
+                "keep": entry.get("keep_count"),
+                "reject": entry.get("reject_count"),
+                "acceptance_pct": _format_metric_value(entry.get("acceptance_rate_pct")),
+            }
+        )
+
+    rejection_rows = []
+    for entry in (metrics.get("rejection_reasons") or [])[:10]:
+        if not isinstance(entry, dict):
+            continue
+        rejection_rows.append(
+            {
+                "reason_code": entry.get("reason_code"),
+                "count": entry.get("count"),
+                "share_pct": _format_metric_value(entry.get("share_of_rejects_pct")),
+            }
+        )
+
+    return (
+        "<section class=\"section\">"
+        "<h2>Evaluation</h2>"
+        "<p class=\"small\">Reviewer adjudications are local artifacts. Precision@k uses decisive reviewer labels only.</p>"
+        f"{_render_kv_table(summary_rows)}"
+        "<h2>Precision @ k</h2>"
+        f"{_render_table(precision_rows, fallback='Precision metrics unavailable.')}"
+        "<h2>By Scoring Version</h2>"
+        f"{_render_table(scoring_rows, fallback='Scoring-version metrics unavailable.')}"
+        "<h2>By Lead Family</h2>"
+        f"{_render_table(family_rows, fallback='Lead-family metrics unavailable.')}"
+        "<h2>Rejection Reasons</h2>"
+        f"{_render_table(rejection_rows, fallback='No rejection reasons recorded.')}"
+        "</section>"
+    )
 
 
 def _resolve_report_status(*, smoke: dict[str, Any], workflow: dict[str, Any]) -> str:
