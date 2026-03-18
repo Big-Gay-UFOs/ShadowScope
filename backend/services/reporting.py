@@ -296,6 +296,9 @@ def _render_report_html(
         ("Required Failure Categories", required_failure_categories),
         ("Advisory Failure Categories", advisory_failure_categories),
         ("Run Timestamp", generated_at),
+        ("Posted Window Mode", run_metadata.get("posted_window_mode")),
+        ("Posted From", run_metadata.get("effective_posted_from")),
+        ("Posted To", run_metadata.get("effective_posted_to")),
         ("Ingest", _summary_label(ingest, keys=("fetched", "inserted", "normalized"))),
         ("Ontology", _summary_label(ontology, keys=("updated", "unchanged", "scanned"))),
         ("Entities", _summary_label(entities, keys=("linked", "entities_created", "scanned"))),
@@ -310,6 +313,9 @@ def _render_report_html(
         ("Inserted", ingest.get("inserted")),
         ("Normalized", ingest.get("normalized")),
         ("Date Window (days)", run_metadata.get("ingest_days")),
+        ("Posted Window Mode", run_metadata.get("posted_window_mode")),
+        ("Posted From", run_metadata.get("effective_posted_from")),
+        ("Posted To", run_metadata.get("effective_posted_to")),
         ("Pages", run_metadata.get("pages")),
         ("Page Size", run_metadata.get("page_size")),
         ("Limit", run_metadata.get("max_records")),
@@ -854,6 +860,14 @@ def _load_json_payload(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def _load_first_json_payload(*paths: Path) -> dict[str, Any]:
+    for path in paths:
+        payload = _load_json_payload(path)
+        if payload:
+            return payload
+    return {}
 
 
 def _infer_workflow_type(smoke_summary: dict[str, Any]) -> str:

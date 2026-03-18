@@ -36,6 +36,14 @@ Keyword seed files live under `examples/terms/` and can be passed with `--keywor
 
 `--ontology` still overrides profile mapping when you need an explicit file path.
 
+## Historical replay windows
+
+Use `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` on `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, or `ss workflow samgov-validate` when you need a fixed historical slice instead of a rolling lookback.
+
+- Do not combine `--days` with `--posted-from/--posted-to`.
+- Example bounded historical smoke:
+  `ss workflow samgov-smoke --posted-from 2024-01-01 --posted-to 2024-03-31 --pages 2 --limit 50 --window-days 90 --json`
+
 ## 1) Bounded SAM smoke run
 
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`

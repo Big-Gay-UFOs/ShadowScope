@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -12,7 +12,13 @@ from backend.services.export import export_events
 from backend.services.export_correlations import export_kw_pairs
 from backend.services.export_entities import export_entities_bundle
 from backend.services.export_leads import export_lead_snapshot
-from backend.services.ingest import ingest_sam_opportunities, ingest_usaspending
+from backend.services.ingest import (
+    append_sam_posted_window_note,
+    ingest_sam_opportunities,
+    ingest_usaspending,
+    resolve_sam_posted_window,
+    serialize_sam_posted_window,
+)
 from backend.services.leads import create_lead_snapshot
 from backend.services.tagging import apply_ontology_to_events
 
@@ -471,6 +477,33 @@ def _make_output_resolver(output: Optional[Path]) -> Callable[[str, Optional[int
     return _out
 
 
+def _build_sam_workflow_run_metadata(
+    *,
+    date_window: dict[str, object],
+    pages: int,
+    page_size: int,
+    max_records: Optional[int],
+    start_page: int,
+    window_days: int,
+    keywords: Optional[list[str]],
+) -> dict[str, Any]:
+    payload = serialize_sam_posted_window(date_window)
+    return {
+        "source": "SAM.gov",
+        "ingest_days": payload.get("effective_days"),
+        "posted_window_mode": payload.get("mode"),
+        "effective_posted_from": payload.get("posted_from"),
+        "effective_posted_to": payload.get("posted_to"),
+        "calendar_span_days": payload.get("calendar_span_days"),
+        "pages": int(pages),
+        "page_size": int(page_size),
+        "max_records": max_records,
+        "start_page": int(start_page),
+        "window_days": int(window_days),
+        "keywords": list(keywords or []),
+    }
+
+
 def _run_source_workflow(
     *,
     source: str,
@@ -498,6 +531,7 @@ def _run_source_workflow(
     scan_limit: int,
     scoring_version: str,
     notes: Optional[str],
+    notes_resolver: Optional[Callable[[dict[str, Any], Optional[str]], Optional[str]]],
     output: Optional[Path],
     export_events_flag: bool,
     kw_pairs_limit: int,
@@ -646,6 +680,7 @@ def _run_source_workflow(
 
     snapshot_id: Optional[int] = None
     if not skip_snapshot:
+        snapshot_notes = notes_resolver(res, notes) if notes_resolver is not None else notes
         snap = create_lead_snapshot(
             analysis_run_id=arid,
             source=source,
@@ -660,9 +695,10 @@ def _run_source_workflow(
             limit=int(snapshot_limit),
             scan_limit=int(scan_limit),
             scoring_version=str(scoring_version),
-            notes=notes,
+            notes=snapshot_notes,
             database_url=database_url,
         )
+        snap["notes"] = snapshot_notes
         res["snapshot"] = snap
         snapshot_id = _safe_int(snap.get("snapshot_id"), default=0) or None
 
@@ -778,6 +814,7 @@ def run_usaspending_workflow(
         scan_limit=int(scan_limit),
         scoring_version=str(scoring_version),
         notes=notes,
+        notes_resolver=None,
         output=Path(output).expanduser() if output else None,
         export_events_flag=bool(export_events_flag),
         kw_pairs_limit=int(kw_pairs_limit),
@@ -794,7 +831,9 @@ def run_usaspending_workflow(
 
 def run_samgov_workflow(
     *,
-    ingest_days: int = 30,
+    ingest_days: Optional[int] = None,
+    posted_from: Optional[date] = None,
+    posted_to: Optional[date] = None,
     pages: int = 2,
     page_size: int = 100,
     max_records: Optional[int] = 50,
@@ -837,12 +876,23 @@ def run_samgov_workflow(
     abort_on_ingest_skip: bool = True,
 ) -> dict[str, Any]:
     """One-command SAM.gov workflow wrapper."""
-    return _run_source_workflow(
+    requested_window = resolve_sam_posted_window(days=ingest_days, posted_from=posted_from, posted_to=posted_to)
+
+    def _resolve_snapshot_notes(res: dict[str, Any], base_notes: Optional[str]) -> Optional[str]:
+        ingest_window = None
+        ingest_payload = res.get("ingest")
+        if isinstance(ingest_payload, dict) and isinstance(ingest_payload.get("date_window"), dict):
+            ingest_window = ingest_payload.get("date_window")
+        return append_sam_posted_window_note(base_notes, window=ingest_window or requested_window)
+
+    res = _run_source_workflow(
         source="SAM.gov",
         ingest_fn=ingest_sam_opportunities,
         ingest_kwargs={
             "api_key": api_key,
-            "days": int(ingest_days),
+            "days": int(ingest_days) if ingest_days is not None else None,
+            "posted_from": posted_from,
+            "posted_to": posted_to,
             "pages": int(pages),
             "page_size": int(page_size),
             "max_records": max_records,
@@ -871,6 +921,7 @@ def run_samgov_workflow(
         scan_limit=int(scan_limit),
         scoring_version=str(scoring_version),
         notes=notes,
+        notes_resolver=_resolve_snapshot_notes,
         output=Path(output).expanduser() if output else None,
         export_events_flag=bool(export_events_flag),
         kw_pairs_limit=int(kw_pairs_limit),
@@ -884,12 +935,28 @@ def run_samgov_workflow(
         skip_exports=bool(skip_exports),
         abort_on_ingest_skip=bool(abort_on_ingest_skip),
     )
+    effective_window = requested_window
+    ingest_payload = res.get("ingest")
+    if isinstance(ingest_payload, dict) and isinstance(ingest_payload.get("date_window"), dict):
+        effective_window = ingest_payload.get("date_window")  # type: ignore[assignment]
+    res["run_metadata"] = _build_sam_workflow_run_metadata(
+        date_window=effective_window,
+        pages=int(pages),
+        page_size=int(page_size),
+        max_records=max_records,
+        start_page=int(start_page),
+        window_days=int(window_days),
+        keywords=keywords,
+    )
+    return res
 
 
 # Hardened SAM workflow wrappers (bundle normalization + larger-run validation mode)
 def run_samgov_smoke_workflow(
     *,
-    ingest_days: int = 30,
+    ingest_days: Optional[int] = None,
+    posted_from: Optional[date] = None,
+    posted_to: Optional[date] = None,
     pages: int = 2,
     page_size: int = 100,
     max_records: Optional[int] = 50,
@@ -928,7 +995,9 @@ def run_samgov_smoke_workflow(
     from backend.services.sam_workflow_hardening import run_samgov_smoke_workflow_hardened
 
     return run_samgov_smoke_workflow_hardened(
-        ingest_days=int(ingest_days),
+        ingest_days=int(ingest_days) if ingest_days is not None else None,
+        posted_from=posted_from,
+        posted_to=posted_to,
         pages=int(pages),
         page_size=int(page_size),
         max_records=max_records,
@@ -968,7 +1037,9 @@ def run_samgov_smoke_workflow(
 
 def run_samgov_validation_workflow(
     *,
-    ingest_days: int = 30,
+    ingest_days: Optional[int] = None,
+    posted_from: Optional[date] = None,
+    posted_to: Optional[date] = None,
     pages: int = 5,
     page_size: int = 100,
     max_records: Optional[int] = 250,
@@ -1005,7 +1076,9 @@ def run_samgov_validation_workflow(
     from backend.services.sam_workflow_hardening import run_samgov_validation_workflow_hardened
 
     return run_samgov_validation_workflow_hardened(
-        ingest_days=int(ingest_days),
+        ingest_days=int(ingest_days) if ingest_days is not None else None,
+        posted_from=posted_from,
+        posted_to=posted_to,
         pages=int(pages),
         page_size=int(page_size),
         max_records=max_records,

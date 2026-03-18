@@ -46,7 +46,13 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontol
 - Use `--keywords-file <path>` with `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, or `ss workflow samgov-validate` for newline-delimited seed terms.
 - Repeated `--keyword` values are merged with file terms, comments beginning with `#` are ignored, and duplicates are removed while preserving order.
 
-### 6) Offline rebuild loops (after ontology edits)
+### 6) Fixed historical SAM windows
+
+- Use `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` on `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, or `ss workflow samgov-validate` when you need a reproducible historical replay.
+- Use either `--days` or `--posted-from/--posted-to`; do not mix them.
+- Example: `ss workflow samgov-smoke --posted-from 2024-01-01 --posted-to 2024-03-31 --pages 2 --limit 50 --window-days 90 --json`
+
+### 7) Offline rebuild loops (after ontology edits)
 
 Default precision hidden-program proxy loop:
 
@@ -71,7 +77,7 @@ ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000
 
 On a fixed window, treat improvement as directional: we want denser useful keyword and `kw_pair` signal without degrading pipeline health or weakening the existing suppressors.
 
-### 7) Verification commands
+### 8) Verification commands
 
 ```powershell
 .\.venv\Scripts\pytest.exe -q tests/test_example_ontologies.py tests/test_workflow_cli_flags.py tests/test_samgov_ontology_tuning.py tests/test_leads_foia_matrix.py backend/tests/test_tagger.py
@@ -155,6 +161,7 @@ ShadowScope currently focuses on public U.S. government datasets such as:
 3. Run a small ingest:
    - `ss ingest usaspending --pages 1 --limit 25`
    - `ss ingest samgov --days 7 --pages 1 --limit 25` (requires `SAM_API_KEY`)
+   - Fixed historical replay: `ss ingest samgov --posted-from 2024-01-01 --posted-to 2024-03-31 --pages 1 --limit 25`
 
 4. If you're using ontology/correlation features, follow the hints from:
    - `ss doctor status --source "SAM.gov" --days 7`
@@ -394,6 +401,7 @@ More detail: see `docs/RUNBOOK.md`.
 - PowerShell: do not paste placeholders like `<ID>`; use numeric values directly.
 - Correlations: use `--window-days` for rebuild commands (not `--days`).
 - SAM workflows accept both `--ingest-days` and `--days` (alias).
+- SAM ingest/workflow commands also accept `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` for fixed posted-date windows; do not combine them with `--days`.
 - Raw ingest snapshots:
   - USAspending: `data/raw/usaspending/YYYYMMDD/page_*.json`
   - SAM.gov: `data/raw/sam/YYYYMMDD/page_*.json`
@@ -539,11 +547,3 @@ Retry tuning knobs for larger SAM windows:
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
-
-
-
-
-
-
-
-

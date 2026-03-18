@@ -24,6 +24,50 @@ def test_workflow_samgov_accepts_days_alias(monkeypatch):
     assert captured.get("ingest_days") == 11
 
 
+def test_workflow_samgov_accepts_explicit_posted_window(monkeypatch):
+    captured = {}
+
+    def fake_run_samgov_workflow(**kwargs):
+        captured.update(kwargs)
+        return {"status": "ok", "source": "SAM.gov"}
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_workflow", fake_run_samgov_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["workflow", "samgov", "--posted-from", "2024-01-01", "--posted-to", "2024-03-31", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("ingest_days") is None
+    assert captured.get("posted_from").isoformat() == "2024-01-01"
+    assert captured.get("posted_to").isoformat() == "2024-03-31"
+
+
+def test_workflow_samgov_rejects_mixed_days_and_posted_window(monkeypatch):
+    def fake_run_samgov_workflow(**kwargs):
+        return {"status": "ok", "source": "SAM.gov"}
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_workflow", fake_run_samgov_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "workflow",
+            "samgov",
+            "--days",
+            "30",
+            "--posted-from",
+            "2024-01-01",
+            "--posted-to",
+            "2024-03-31",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Use either days or posted_from/posted_to, but not both." in result.output
+
+
 def test_workflow_samgov_profile_defaults_to_starter(monkeypatch):
     captured = {}
 
@@ -104,6 +148,60 @@ def test_workflow_samgov_smoke_accepts_days_alias(monkeypatch):
 
     assert result.exit_code == 0, result.stdout
     assert captured.get("ingest_days") == 9
+
+
+def test_workflow_samgov_smoke_accepts_explicit_posted_window(monkeypatch):
+    captured = {}
+
+    def fake_run_samgov_smoke_workflow(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "ok",
+            "smoke_passed": True,
+            "bundle_dir": "data/exports/smoke/samgov/test",
+            "checks": [],
+            "baseline": {},
+            "artifacts": {},
+            "run_metadata": {
+                "posted_window_mode": "explicit_dates",
+                "effective_posted_from": "2024-01-01",
+                "effective_posted_to": "2024-03-31",
+            },
+        }
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_smoke_workflow", fake_run_samgov_smoke_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["workflow", "samgov-smoke", "--posted-from", "2024-01-01", "--posted-to", "2024-03-31", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("ingest_days") is None
+    assert captured.get("posted_from").isoformat() == "2024-01-01"
+    assert captured.get("posted_to").isoformat() == "2024-03-31"
+
+
+def test_workflow_samgov_smoke_rejects_partial_posted_window(monkeypatch):
+    def fake_run_samgov_smoke_workflow(**kwargs):
+        return {
+            "status": "ok",
+            "smoke_passed": True,
+            "bundle_dir": "data/exports/smoke/samgov/test",
+            "checks": [],
+            "baseline": {},
+            "artifacts": {},
+        }
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_smoke_workflow", fake_run_samgov_smoke_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["workflow", "samgov-smoke", "--posted-from", "2024-01-01"],
+    )
+
+    assert result.exit_code != 0
+    assert "posted_from and posted_to must be provided together in YYYY-MM-DD format." in result.output
 
 
 def test_workflow_samgov_smoke_profile_maps_starter_plus_dod(monkeypatch):
@@ -370,4 +468,59 @@ def test_ingest_samgov_keywords_file_merges_with_repeat_keyword(monkeypatch, tmp
     assert result.exit_code == 0, result.stdout
     assert captured.get("keywords") == ["alpha", "gamma", "beta"]
 
+def test_ingest_samgov_accepts_explicit_posted_window(monkeypatch, tmp_path):
+    captured = {}
 
+    def fake_ingest_sam_opportunities(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "success",
+            "run_id": 1,
+            "fetched": 0,
+            "inserted": 0,
+            "normalized": 0,
+            "snapshot_dir": str(tmp_path / "raw"),
+            "date_window": {
+                "mode": "explicit_dates",
+                "posted_from": "2024-01-01",
+                "posted_to": "2024-03-31",
+            },
+        }
+
+    monkeypatch.setattr(cli_module, "ingest_sam_opportunities", fake_ingest_sam_opportunities)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["ingest", "samgov", "--api-key", "dummy", "--posted-from", "2024-01-01", "--posted-to", "2024-03-31"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("days") is None
+    assert captured.get("posted_from").isoformat() == "2024-01-01"
+    assert captured.get("posted_to").isoformat() == "2024-03-31"
+
+
+def test_ingest_samgov_rejects_mixed_days_and_posted_window(monkeypatch):
+    def fake_ingest_sam_opportunities(**kwargs):
+        return {"status": "success", "run_id": 1, "fetched": 0, "inserted": 0, "normalized": 0, "snapshot_dir": "raw"}
+
+    monkeypatch.setattr(cli_module, "ingest_sam_opportunities", fake_ingest_sam_opportunities)
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "ingest",
+            "samgov",
+            "--api-key",
+            "dummy",
+            "--days",
+            "7",
+            "--posted-from",
+            "2024-01-01",
+            "--posted-to",
+            "2024-03-31",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Use either days or posted_from/posted_to, but not both." in result.output

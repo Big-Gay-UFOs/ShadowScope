@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from backend.db.models import Event, LeadSnapshotItem, ensure_schema, get_session_factory
@@ -540,6 +540,61 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     checks_by_name = {item.get("name"): item for item in summary_payload.get("checks", [])}
     assert checks_by_name["sam_research_context_coverage_threshold"]["status"] == "pass"
     assert checks_by_name["same_sam_naics_lane_threshold"]["status"] == "pass"
+
+
+def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
+    db_path = tmp_path / "sam_smoke_window.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_smoke_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        posted_from=date(2024, 1, 1),
+        posted_to=date(2024, 3, 31),
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        bundle_root=tmp_path / "smoke_artifacts_dates",
+        require_nonzero=True,
+    )
+
+    assert res["status"] == "ok"
+    assert res["run_metadata"]["posted_window_mode"] == "explicit_dates"
+    assert res["run_metadata"]["effective_posted_from"] == "2024-01-01"
+    assert res["run_metadata"]["effective_posted_to"] == "2024-03-31"
+
+    artifacts = res["artifacts"]
+    summary_payload = json.loads(Path(artifacts["smoke_summary_json"]).read_text(encoding="utf-8"))
+    manifest_payload = json.loads(Path(artifacts["bundle_manifest_json"]).read_text(encoding="utf-8"))
+    lead_snapshot_payload = json.loads(
+        Path((artifacts.get("exports") or {}).get("lead_snapshot", {}).get("json")).read_text(encoding="utf-8")
+    )
+    report_html = Path(artifacts["report_html"]).read_text(encoding="utf-8")
+
+    run_metadata = summary_payload.get("run_metadata") or {}
+    assert run_metadata.get("posted_window_mode") == "explicit_dates"
+    assert run_metadata.get("effective_posted_from") == "2024-01-01"
+    assert run_metadata.get("effective_posted_to") == "2024-03-31"
+
+    run_parameters = manifest_payload.get("run_parameters") or {}
+    assert run_parameters.get("posted_window_mode") == "explicit_dates"
+    assert run_parameters.get("effective_posted_from") == "2024-01-01"
+    assert run_parameters.get("effective_posted_to") == "2024-03-31"
+
+    assert "SAM postedDate window 2024-01-01..2024-03-31" in (lead_snapshot_payload.get("snapshot") or {}).get("notes", "")
+    assert "2024-01-01" in report_html
+    assert "2024-03-31" in report_html
 
 
 

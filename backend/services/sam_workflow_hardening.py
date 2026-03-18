@@ -1,10 +1,15 @@
 ﻿from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
+from backend.services.ingest import (
+    format_sam_posted_window_cli_args,
+    resolve_sam_posted_window,
+    serialize_sam_posted_window,
+)
 from backend.services.bundle import (
     SAM_BUNDLE_RESULTS_DIR,
     SAM_BUNDLE_VERSION,
@@ -313,7 +318,9 @@ def _classify_sam_quality(
 
 def run_samgov_smoke_workflow_hardened(
     *,
-    ingest_days: int = 30,
+    ingest_days: Optional[int] = None,
+    posted_from: Optional[date] = None,
+    posted_to: Optional[date] = None,
     pages: int = 2,
     page_size: int = 100,
     max_records: Optional[int] = 50,
@@ -355,6 +362,7 @@ def run_samgov_smoke_workflow_hardened(
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y%m%d_%H%M%S")
     mode = _normalize_validation_mode(validation_mode)
+    requested_window = resolve_sam_posted_window(days=ingest_days, posted_from=posted_from, posted_to=posted_to)
 
     default_root = EXPORTS_DIR / "smoke" / "samgov"
     if mode == "larger":
@@ -366,7 +374,9 @@ def run_samgov_smoke_workflow_hardened(
     workflow_error: Optional[str] = None
     try:
         workflow_res = workflow_module.run_samgov_workflow(
-            ingest_days=int(ingest_days),
+            ingest_days=int(ingest_days) if ingest_days is not None else None,
+            posted_from=posted_from,
+            posted_to=posted_to,
             pages=int(pages),
             page_size=int(page_size),
             max_records=max_records,
@@ -417,6 +427,19 @@ def run_samgov_smoke_workflow_hardened(
 
     status = workflow_res.get("status") if isinstance(workflow_res, dict) else None
     ingest = workflow_res.get("ingest") if isinstance(workflow_res, dict) else {}
+    workflow_run_metadata = workflow_res.get("run_metadata") if isinstance(workflow_res.get("run_metadata"), dict) else {}
+    effective_window = serialize_sam_posted_window(requested_window)
+    if isinstance(ingest, dict) and isinstance(ingest.get("date_window"), dict):
+        effective_window = ingest.get("date_window")  # type: ignore[assignment]
+    elif isinstance(workflow_run_metadata, dict) and workflow_run_metadata.get("effective_posted_from") and workflow_run_metadata.get("effective_posted_to"):
+        effective_window = {
+            "mode": workflow_run_metadata.get("posted_window_mode"),
+            "requested_days": workflow_run_metadata.get("ingest_days"),
+            "effective_days": workflow_run_metadata.get("ingest_days"),
+            "posted_from": workflow_run_metadata.get("effective_posted_from"),
+            "posted_to": workflow_run_metadata.get("effective_posted_to"),
+            "calendar_span_days": workflow_run_metadata.get("calendar_span_days"),
+        }
     ingest_nonzero = (
         _safe_int((ingest or {}).get("fetched")) > 0
         or _safe_int((ingest or {}).get("inserted")) > 0
@@ -471,13 +494,14 @@ def run_samgov_smoke_workflow_hardened(
     else:
         keywords_coverage_pct = _safe_float(raw_keywords_coverage)
     entity_coverage_pct = round((events_with_entity / events_window) * 100.0, 1) if events_window else 0.0
+    ingest_window_args = " ".join(format_sam_posted_window_cli_args(effective_window))
 
     smoke_tune_cmd = (
-        f"ss workflow samgov-smoke --days {int(window_days)} --pages {max(int(pages), 2)} "
+        f"ss workflow samgov-smoke {ingest_window_args} --pages {max(int(pages), 2)} "
         f"--limit {max(_safe_int(max_records, 50), 50)} --window-days {int(window_days)} --json"
     )
     larger_validate_cmd = (
-        f"ss workflow samgov-validate --days {max(int(window_days), 30)} --pages {max(int(pages), 5)} "
+        f"ss workflow samgov-validate {ingest_window_args} --pages {max(int(pages), 5)} "
         f"--limit {max(_safe_int(max_records, 250), 250)} --window-days {int(window_days)} --json"
     )
     doctor_cmd = f'ss doctor status --source "SAM.gov" --days {int(window_days)} --json'
@@ -791,6 +815,25 @@ def run_samgov_smoke_workflow_hardened(
         ingest_nonzero=bool(ingest_nonzero),
         ingest_request_diag=ingest_request_diag,
     )
+    run_metadata = dict(workflow_run_metadata or {})
+    run_metadata.update(
+        {
+            "source": "SAM.gov",
+            "workflow_type": workflow_type,
+            "run_timestamp": now.isoformat(),
+            "ingest_days": effective_window.get("effective_days"),
+            "posted_window_mode": effective_window.get("mode"),
+            "effective_posted_from": effective_window.get("posted_from"),
+            "effective_posted_to": effective_window.get("posted_to"),
+            "calendar_span_days": effective_window.get("calendar_span_days"),
+            "pages": int(pages),
+            "page_size": int(page_size),
+            "max_records": max_records,
+            "start_page": int(start_page),
+            "window_days": int(window_days),
+            "keywords": list(keywords or []),
+        }
+    )
 
     baseline = {
         "captured_at": now.isoformat(),
@@ -798,6 +841,7 @@ def run_samgov_smoke_workflow_hardened(
         "workflow_type": workflow_type,
         "validation_mode": mode,
         "window_days": int(window_days),
+        "ingest_window": effective_window,
         "counts": {
             "events_window": _safe_int(counts.get("events_window")),
             "events_with_entity_window": _safe_int(counts.get("events_with_entity_window")),
@@ -871,6 +915,7 @@ def run_samgov_smoke_workflow_hardened(
         "require_nonzero": bool(require_nonzero),
         "thresholds": thresholds,
         "quality_gate_policy": quality_gate_policy,
+        "run_metadata": run_metadata,
         "failed_required_checks": failed_required_checks,
         "failed_advisory_checks": warning_checks,
         "warning_checks": warning_checks,
@@ -913,6 +958,9 @@ def run_samgov_smoke_workflow_hardened(
         "snapshot_items": snapshot_items,
         "rate_limit_retries": rate_limit_retries,
         "retry_attempts_total": retry_attempts_total,
+        "posted_window_mode": effective_window.get("mode"),
+        "effective_posted_from": effective_window.get("posted_from"),
+        "effective_posted_to": effective_window.get("posted_to"),
     }
 
     report_html = render_sam_bundle_report(
@@ -971,7 +1019,11 @@ def run_samgov_smoke_workflow_hardened(
         },
         "quality_gate_policy": quality_gate_policy,
         "run_parameters": {
-            "ingest_days": int(ingest_days),
+            "ingest_days": effective_window.get("effective_days"),
+            "posted_window_mode": effective_window.get("mode"),
+            "effective_posted_from": effective_window.get("posted_from"),
+            "effective_posted_to": effective_window.get("posted_to"),
+            "calendar_span_days": effective_window.get("calendar_span_days"),
             "pages": int(pages),
             "page_size": int(page_size),
             "max_records": max_records,
@@ -1003,6 +1055,7 @@ def run_samgov_smoke_workflow_hardened(
         "validation_mode": mode,
         "bundle_version": SAM_BUNDLE_VERSION,
         "bundle_dir": bundle_dir,
+        "run_metadata": run_metadata,
         "workflow": workflow_res,
         "doctor": doc,
         "checks": checks,
@@ -1019,7 +1072,9 @@ def run_samgov_smoke_workflow_hardened(
 
 def run_samgov_validation_workflow_hardened(
     *,
-    ingest_days: int = 30,
+    ingest_days: Optional[int] = None,
+    posted_from: Optional[date] = None,
+    posted_to: Optional[date] = None,
     pages: int = 5,
     page_size: int = 100,
     max_records: Optional[int] = 250,
@@ -1054,7 +1109,9 @@ def run_samgov_validation_workflow_hardened(
     threshold_overrides: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     return run_samgov_smoke_workflow_hardened(
-        ingest_days=int(ingest_days),
+        ingest_days=int(ingest_days) if ingest_days is not None else None,
+        posted_from=posted_from,
+        posted_to=posted_to,
         pages=int(pages),
         page_size=int(page_size),
         max_records=max_records,
