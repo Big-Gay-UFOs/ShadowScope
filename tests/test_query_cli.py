@@ -93,3 +93,38 @@ def test_export_evidence_package_cli_reports_output(monkeypatch, tmp_path: Path)
     assert result.exit_code == 0, result.stdout
     assert "Evidence package JSON:" in result.stdout
     assert "Package type: lead_evidence_package" in result.stdout
+
+
+def test_export_leads_cli_forwards_lead_family(monkeypatch, tmp_path: Path):
+    expected_csv = tmp_path / "lead_snapshot.csv"
+    expected_json = tmp_path / "lead_snapshot.json"
+    expected_csv.write_text("rank,lead_family\n1,vendor_network_contract_lineage\n", encoding="utf-8")
+    expected_json.write_text("{}", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_export_lead_snapshot(**kwargs):
+        captured.update(kwargs)
+        return {
+            "csv": expected_csv,
+            "json": expected_json,
+            "count": 1,
+        }
+
+    monkeypatch.setattr(cli_module, "export_lead_snapshot", fake_export_lead_snapshot)
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "export",
+            "leads",
+            "--snapshot-id",
+            "7",
+            "--lead-family",
+            "vendor_network_contract_lineage",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["snapshot_id"] == 7
+    assert captured["lead_family"] == "vendor_network_contract_lineage"
+    assert "Rows exported: 1" in result.stdout

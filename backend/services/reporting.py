@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import html
 import json
@@ -603,6 +603,7 @@ def _load_top_lead_rows(*, workflow: dict[str, Any], bundle_dir: Path, limit: in
             {
                 "rank": item.get("rank"),
                 "score": item.get("score"),
+                "lead_family": item.get("lead_family"),
                 "doc_id": item.get("doc_id"),
                 "entity_id": item.get("entity_id"),
                 "source_url": item.get("source_url"),
