@@ -7,7 +7,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.analysis.scoring import score_from_keywords_clauses, score_from_keywords_clauses_v2
+from backend.analysis.scoring import (
+    score_from_keywords_clauses,
+    score_from_keywords_clauses_v2,
+    score_from_keywords_clauses_v3,
+)
 from backend.correlate.scorer import (
     DEFAULT_KW_PAIR_BONUS_MIN_EVENT_COUNT,
     DEFAULT_KW_PAIR_BONUS_MIN_SIGNAL,
@@ -34,14 +38,14 @@ from backend.services.investigator_filters import event_time_expr, investigator_
 _DOD_PACK_PREFIX = "sam_dod_"
 _NOISE_PACK_PREFIXES = ("operational_noise_terms:", "sam_proxy_noise_expansion:")
 _FOIA_MATRIX_BONUS_CAP = 3
-_VALID_SCORING_VERSIONS = {"v1", "v2"}
+_VALID_SCORING_VERSIONS = {"v1", "v2", "v3"}
 _MIN_SORT_DT = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def normalize_scoring_version(value: Any, *, default: str = "v2") -> str:
     raw = str(value or default).strip().lower() or default
     if raw not in _VALID_SCORING_VERSIONS:
-        raise ValueError("scoring_version must be v1 or v2")
+        raise ValueError("scoring_version must be v1, v2, or v3")
     return raw
 
 
@@ -173,6 +177,41 @@ def _lead_sort_values(event: Event) -> tuple[Any, ...]:
     return relevant_at, occurred_at, created_at, int(event.id)
 
 
+def _event_scoring_context(event: Event) -> dict[str, Any]:
+    return {
+        "category": event.category,
+        "source": event.source,
+        "source_url": event.source_url,
+        "doc_id": event.doc_id,
+        "award_id": event.award_id,
+        "generated_unique_award_id": event.generated_unique_award_id,
+        "piid": event.piid,
+        "fain": event.fain,
+        "uri": event.uri,
+        "source_record_id": event.source_record_id,
+        "recipient_name": event.recipient_name,
+        "recipient_uei": event.recipient_uei,
+        "recipient_cage_code": event.recipient_cage_code,
+        "awarding_agency_code": event.awarding_agency_code,
+        "awarding_agency_name": event.awarding_agency_name,
+        "funding_agency_code": event.funding_agency_code,
+        "funding_agency_name": event.funding_agency_name,
+        "contracting_office_code": event.contracting_office_code,
+        "contracting_office_name": event.contracting_office_name,
+        "psc_code": event.psc_code,
+        "naics_code": event.naics_code,
+        "notice_award_type": event.notice_award_type,
+        "place_of_performance_state": event.place_of_performance_state,
+        "place_of_performance_country": event.place_of_performance_country,
+        "place_text": event.place_text,
+        "solicitation_number": event.solicitation_number,
+        "notice_id": event.notice_id,
+        "document_id": event.document_id,
+        "occurred_at": event.occurred_at,
+        "created_at": event.created_at,
+    }
+
+
 
 def compute_leads(
     db: Session,
@@ -244,8 +283,10 @@ def compute_leads(
     pair_strength: Dict[int, float] = {}
 
     is_v2 = scoring_version == "v2"
+    is_v3 = scoring_version == "v3"
+    needs_pair_metrics = is_v2 or is_v3
 
-    if is_v2 and event_ids:
+    if needs_pair_metrics and event_ids:
         like_pat = f"kw_pair|{source}|%|pair:%" if source else "kw_pair|%|%|pair:%"
         q = (
             db.query(CorrelationLink.event_id, Correlation.score, Correlation.lanes_hit)
@@ -293,10 +334,12 @@ def compute_leads(
         pair_n_total = pair_counts_total.get(int(e.id), 0)
         strength = pair_strength.get(int(e.id), 0.0)
 
+        raw_pair_bonus = int(round(float(pair_bonus_multiplier) * float(strength)))
+        if raw_pair_bonus > int(pair_bonus_cap):
+            raw_pair_bonus = int(pair_bonus_cap)
+
         if is_v2:
-            pair_bonus = int(round(float(pair_bonus_multiplier) * float(strength)))
-            if pair_bonus > int(pair_bonus_cap):
-                pair_bonus = int(pair_bonus_cap)
+            pair_bonus = int(raw_pair_bonus)
 
             if has_noise:
                 pair_bonus = min(int(pair_bonus), int(noise_pair_bonus_cap))
@@ -318,6 +361,18 @@ def compute_leads(
                 score = int(score) - int(noise_penalty)
                 details["noise_penalty"] = int(noise_penalty)
                 details["pair_bonus_cap_due_to_noise"] = int(noise_pair_bonus_cap)
+        elif is_v3:
+            score, details = score_from_keywords_clauses_v3(
+                e.keywords,
+                e.clauses,
+                has_entity=bool(e.entity_id),
+                pair_bonus=int(raw_pair_bonus),
+                pair_count=int(pair_n),
+                pair_count_total=int(pair_n_total),
+                pair_strength=float(strength),
+                correlations=correlations,
+                event_context=_event_scoring_context(e),
+            )
         else:
             score, details = score_from_keywords_clauses(
                 e.keywords,
@@ -339,6 +394,7 @@ def compute_leads(
         details.setdefault("pair_signal_threshold", float(pair_signal_threshold))
         details.setdefault("pair_event_count_threshold", int(pair_event_count_threshold))
         details.setdefault("has_noise", bool(has_noise))
+        details.setdefault("pair_bonus_raw", int(raw_pair_bonus))
         details["dod_lane_count"] = int(dod_lane_count)
         details["dod_keyword_hit_count"] = int(dod_keyword_hit_count)
         details["foia_matrix_bonus"] = int(foia_matrix_bonus)

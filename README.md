@@ -446,6 +446,7 @@ Evidence package guardrail:
 - Correlation lanes include `kw_pair` (co-term clustering) and `sam_usaspending_candidate_join` (pairwise cross-source incumbent candidates)
 - Relationship matrix rationale: `same_keyword` captures repeated precision tags while `kw_pair` promotes anchor+pair co-occurrence evidence for triage confidence.
 - Default lead snapshots are **v2**
+- `v3` lead scoring is available via `--scoring-version v3` when you want FOIA-worthiness / proxy-signal ranking with decomposed subscores; `v2` remains the default for comparison stability this sprint.
 - Operational noise handling (HRP/DACTS, NASA sponsoring agreement)
 - DOE/NNSA weapons complex pivots (SRS, Y-12, Pantex, KCNSC, CNS, SRNS)
 

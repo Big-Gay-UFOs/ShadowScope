@@ -12,7 +12,7 @@ from backend.db.models import Correlation, CorrelationLink, Event, LeadSnapshotI
 from backend.services.leads import create_lead_snapshot
 
 
-def test_api_leads_defaults_to_v2_and_supports_v1(tmp_path):
+def test_api_leads_defaults_to_v2_and_supports_v1_and_v3(tmp_path):
     db_path = tmp_path / "api_leads.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
 
@@ -49,6 +49,12 @@ def test_api_leads_defaults_to_v2_and_supports_v1(tmp_path):
         payload_v1 = legacy.json()
         assert payload_v1 and payload_v1[0]["score_details"]["scoring_version"] == "v1"
         assert payload_v1[0]["scoring_version"] == "v1"
+
+        v3 = client.get("/api/leads?limit=10&scoring_version=v3")
+        assert v3.status_code == 200
+        payload_v3 = v3.json()
+        assert payload_v3 and payload_v3[0]["score_details"]["scoring_version"] == "v3"
+        assert payload_v3[0]["scoring_version"] == "v3"
 
 
 def test_api_leads_and_snapshot_scoring_agree_on_identical_input(tmp_path):
@@ -238,4 +244,3 @@ def test_api_leads_supports_investigator_filters_and_sorting(tmp_path):
     assert [item["id"] for item in payload] == [1]
     assert payload[0]["place_region"] == "VA, USA"
     assert payload[0]["score_details"]["contributing_correlations"][0]["score_signal"] == 7
-
