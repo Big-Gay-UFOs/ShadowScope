@@ -788,7 +788,8 @@ def score_from_keywords_clauses_v3(
 
     if proxy_relevance_score <= 0 and corroboration_score <= 0:
         investigability_score = min(investigability_score, 2)
-        structural_context_score = min(structural_context_score, 1)
+        structural_context_cap = 1 + min(int(context_ontology_score), 1)
+        structural_context_score = min(structural_context_score, structural_context_cap)
 
     noise_penalty_core = _tiered_sum(suppressor_penalties, top_n=3, rest_scale=0.5)
     noise_uncorroborated_surcharge = 4 if suppressor_penalties and proxy_relevance_score < 6 and corroboration_score < 3 else 0
