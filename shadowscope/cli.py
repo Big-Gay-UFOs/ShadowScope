@@ -179,7 +179,10 @@ def _resolve_sam_ingest_window_or_raise(
     try:
         return resolve_sam_posted_window(days=resolved_days, posted_from=posted_from, posted_to=posted_to)
     except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
+        # Emit the validation message directly so CLI tests and operators see a
+        # stable error regardless of Typer/Click usage-text formatting.
+        typer.echo(str(exc))
+        raise typer.Exit(code=2) from exc
 
 
 def _extract_sam_posted_window(result: dict) -> Optional[dict[str, object]]:
@@ -2158,4 +2161,3 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
-
