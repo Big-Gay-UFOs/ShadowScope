@@ -687,10 +687,28 @@ def lead_family_label(family: str | None) -> str | None:
     return family_key.replace("_", " ")
 
 
-def summarize_lead_family_groups(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _summary_family(item: dict[str, Any], *, lead_family_filter: str | None = None) -> str | None:
+    primary = _norm_text(item.get("lead_family")) or None
+    family_key = _norm_key(lead_family_filter)
+    if not family_key:
+        return primary
+    if _norm_key(primary) == family_key:
+        return primary
+    for secondary in _norm_list(item.get("secondary_lead_families")):
+        secondary_text = _norm_text(secondary)
+        if _norm_key(secondary_text) == family_key:
+            return secondary_text or family_key
+    return primary
+
+
+def summarize_lead_family_groups(
+    items: list[dict[str, Any]],
+    *,
+    lead_family_filter: str | None = None,
+) -> list[dict[str, Any]]:
     grouped: dict[str | None, dict[str, Any]] = {}
     for item in items:
-        family = _norm_text(item.get("lead_family")) or None
+        family = _summary_family(item, lead_family_filter=lead_family_filter)
         bucket = grouped.setdefault(
             family,
             {

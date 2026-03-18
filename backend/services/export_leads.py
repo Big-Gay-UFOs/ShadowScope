@@ -429,7 +429,7 @@ def build_lead_snapshot_export(
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "snapshot": snapshot_payload,
         "lead_family_filter": lead_family,
-        "family_groups": summarize_lead_family_groups(rows_out),
+        "family_groups": summarize_lead_family_groups(rows_out, lead_family_filter=lead_family),
         "count": len(rows_out),
         "items": rows_out,
     }

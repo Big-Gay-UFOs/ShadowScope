@@ -383,11 +383,16 @@ def list_lead_snapshot_items(
         if include_score_details:
             d["score_details"] = details
         out.append(d)
+    family_groups = (
+        summarize_lead_family_groups(out, lead_family_filter=lead_family)
+        if group_by_family
+        else []
+    )
     out = out[: max(int(limit), 0)]
     if group_by_family:
         return {
             "items": out,
-            "family_groups": summarize_lead_family_groups(out),
+            "family_groups": family_groups,
         }
     return out
 
