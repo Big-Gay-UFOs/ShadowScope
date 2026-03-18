@@ -439,4 +439,51 @@ def enrich_lead_score_details(
     )
     if "top_clauses" not in details:
         details["top_clauses"] = matched["matched_ontology_clauses"][:5]
+    if "corroboration_sources" not in details:
+        details["corroboration_sources"] = [
+            dict(item)
+            for item in correlation_items[:5]
+            if isinstance(item, dict)
+        ]
+    if "top_positive_signals" not in details:
+        positive_signals: list[dict[str, Any]] = []
+        for clause in details.get("top_clauses") or []:
+            if not isinstance(clause, dict):
+                continue
+            positive_signals.append(
+                {
+                    "label": humanize_keyword(
+                        f"{clause.get('pack') or ''}:{clause.get('rule') or ''}".strip(":")
+                    ),
+                    "bucket": "proxy_relevance",
+                    "signal_type": "clause",
+                    "contribution": safe_int(clause.get("weight"), default=safe_int(clause.get("avg_weight"), default=0)),
+                    "pack": clause.get("pack"),
+                    "rule": clause.get("rule"),
+                    "field": clause.get("field"),
+                    "match": clause.get("match"),
+                }
+            )
+        details["top_positive_signals"] = positive_signals[:5]
+    details.setdefault("top_suppressors", [])
+    if details.get("scoring_version") == "v3" and "subscore_math" not in details:
+        proxy_relevance = safe_int(details.get("proxy_relevance_score"), default=0)
+        investigability = safe_int(details.get("investigability_score"), default=0)
+        corroboration = safe_int(details.get("corroboration_score"), default=0)
+        structural = safe_int(details.get("structural_context_score"), default=0)
+        noise = safe_int(details.get("noise_penalty"), default=0)
+        total = safe_int(
+            details.get("total_score"),
+            default=proxy_relevance + investigability + corroboration + structural - noise,
+        )
+        details["subscore_math"] = {
+            "formula": "proxy_relevance_score + investigability_score + corroboration_score + structural_context_score - noise_penalty",
+            "proxy_relevance_score": proxy_relevance,
+            "investigability_score": investigability,
+            "corroboration_score": corroboration,
+            "structural_context_score": structural,
+            "noise_penalty": noise,
+            "total_score": total,
+        }
+        details.setdefault("total_score", total)
     return details

@@ -63,7 +63,51 @@ def _correlation_text(correlation: dict[str, Any]) -> str:
     return lane or "correlation"
 
 
+def _signal_text(signal: dict[str, Any]) -> str:
+    label = str(signal.get("label") or "").strip()
+    bucket = str(signal.get("bucket") or "").strip()
+    contribution = signal.get("contribution")
+    if label and contribution is not None:
+        return f"{bucket}:{label}(+{contribution})" if bucket else f"{label}(+{contribution})"
+    if label:
+        return label
+    return bucket or "signal"
+
+
+def _suppressor_text(signal: dict[str, Any]) -> str:
+    label = str(signal.get("label") or "").strip()
+    penalty = signal.get("penalty")
+    if label and penalty is not None:
+        return f"{label}(-{penalty})"
+    return label or "suppressor"
+
+
 def _why_summary(details: dict[str, Any]) -> str:
+    if str(details.get("scoring_version") or "").strip().lower() == "v3":
+        why_bits = [
+            f"proxy={_score_part(details, 'proxy_relevance_score', 0)}",
+            f"investigability={_score_part(details, 'investigability_score', 0)}",
+            f"corroboration={_score_part(details, 'corroboration_score', 0)}",
+            f"structural={_score_part(details, 'structural_context_score', 0)}",
+            f"noise_penalty=-{_score_part(details, 'noise_penalty_applied', _score_part(details, 'noise_penalty', 0))}",
+        ]
+        top_positive_signals = details.get("top_positive_signals") or []
+        top_suppressors = details.get("top_suppressors") or []
+        corroboration_sources = details.get("corroboration_sources") or []
+        if top_positive_signals:
+            why_bits.append(
+                "signals: " + _list_text([_signal_text(signal) for signal in top_positive_signals], limit=5)
+            )
+        if top_suppressors:
+            why_bits.append(
+                "suppressors: " + _list_text([_suppressor_text(signal) for signal in top_suppressors], limit=5)
+            )
+        if corroboration_sources:
+            why_bits.append(
+                "corroboration: " + _list_text([_signal_text(signal) for signal in corroboration_sources], limit=5)
+            )
+        return " | ".join(why_bits)
+
     clause_score = _score_part(details, "clause_score", 0)
     clause_score_raw = _score_part(details, "clause_score_raw", None)
     keyword_score = _score_part(details, "keyword_score", 0)
@@ -102,6 +146,10 @@ def _flatten_details(prefix: str, details: dict[str, Any]) -> dict[str, Any]:
     contributing_correlations = details.get("contributing_correlations") or []
     matched_rules = details.get("matched_ontology_rules") or []
     matched_clauses = details.get("matched_ontology_clauses") or []
+    top_positive_signals = details.get("top_positive_signals") or []
+    top_suppressors = details.get("top_suppressors") or []
+    corroboration_sources = details.get("corroboration_sources") or []
+    subscore_math = details.get("subscore_math") or {}
     return {
         f"{prefix}_scoring_version": details.get("scoring_version"),
         f"{prefix}_clause_score": _score_part(details, "clause_score", 0),
@@ -114,6 +162,11 @@ def _flatten_details(prefix: str, details: dict[str, Any]) -> dict[str, Any]:
         f"{prefix}_pair_strength": _score_part(details, "pair_strength", 0.0),
         f"{prefix}_noise_penalty": _score_part(details, "noise_penalty", 0),
         f"{prefix}_noise_penalty_applied": _score_part(details, "noise_penalty_applied", _score_part(details, "noise_penalty", 0)),
+        f"{prefix}_proxy_relevance_score": _score_part(details, "proxy_relevance_score", 0),
+        f"{prefix}_investigability_score": _score_part(details, "investigability_score", 0),
+        f"{prefix}_corroboration_score": _score_part(details, "corroboration_score", 0),
+        f"{prefix}_structural_context_score": _score_part(details, "structural_context_score", 0),
+        f"{prefix}_total_score": _score_part(details, "total_score", 0),
         f"{prefix}_contributing_lanes_text": _list_text([str(v) for v in contributing_lanes], limit=20),
         f"{prefix}_contributing_lanes_json": _json_text(contributing_lanes),
         f"{prefix}_contributing_correlations_text": _list_text([_correlation_text(c) for c in contributing_correlations], limit=5),
@@ -121,6 +174,13 @@ def _flatten_details(prefix: str, details: dict[str, Any]) -> dict[str, Any]:
         f"{prefix}_matched_ontology_rules_text": _list_text([str(v) for v in matched_rules], limit=10),
         f"{prefix}_matched_ontology_rules_json": _json_text(matched_rules),
         f"{prefix}_matched_ontology_clauses_json": _json_text(matched_clauses),
+        f"{prefix}_top_positive_signals_text": _list_text([_signal_text(signal) for signal in top_positive_signals], limit=5),
+        f"{prefix}_top_positive_signals_json": _json_text(top_positive_signals),
+        f"{prefix}_top_suppressors_text": _list_text([_suppressor_text(signal) for signal in top_suppressors], limit=5),
+        f"{prefix}_top_suppressors_json": _json_text(top_suppressors),
+        f"{prefix}_corroboration_sources_text": _list_text([_signal_text(signal) for signal in corroboration_sources], limit=5),
+        f"{prefix}_corroboration_sources_json": _json_text(corroboration_sources),
+        f"{prefix}_subscore_math_json": _json_text(subscore_math),
         f"{prefix}_why_summary": _why_summary(details),
         f"{prefix}_score_details_json": _json_text(details or {}),
     }
@@ -211,6 +271,12 @@ def export_lead_snapshot(
         contributing_lanes_text = _list_text([str(v) for v in contributing_lanes], limit=20)
         contributing_correlations = details.get("contributing_correlations") or []
         contributing_correlations_text = _list_text([_correlation_text(c) for c in contributing_correlations], limit=5)
+        top_positive_signals = details.get("top_positive_signals") or []
+        top_positive_signals_text = _list_text([_signal_text(signal) for signal in top_positive_signals], limit=5)
+        top_suppressors = details.get("top_suppressors") or []
+        top_suppressors_text = _list_text([_suppressor_text(signal) for signal in top_suppressors], limit=5)
+        corroboration_sources = details.get("corroboration_sources") or []
+        corroboration_sources_text = _list_text([_signal_text(signal) for signal in corroboration_sources], limit=5)
         top_clauses_text = _top_clauses_text(details, limit=5)
         why_summary = _why_summary(details)
 
@@ -241,6 +307,11 @@ def export_lead_snapshot(
                 "has_noise": bool(_score_part(details, "has_noise", False)),
                 "noise_penalty": _score_part(details, "noise_penalty", 0),
                 "noise_penalty_applied": _score_part(details, "noise_penalty_applied", _score_part(details, "noise_penalty", 0)),
+                "proxy_relevance_score": _score_part(details, "proxy_relevance_score", 0),
+                "investigability_score": _score_part(details, "investigability_score", 0),
+                "corroboration_score": _score_part(details, "corroboration_score", 0),
+                "structural_context_score": _score_part(details, "structural_context_score", 0),
+                "total_score": _score_part(details, "total_score", 0),
                 "contributing_lanes_text": contributing_lanes_text,
                 "contributing_lanes_json": _json_text(contributing_lanes),
                 "contributing_correlations_text": contributing_correlations_text,
@@ -248,6 +319,13 @@ def export_lead_snapshot(
                 "matched_ontology_rules_text": matched_rules_text,
                 "matched_ontology_rules_json": _json_text(matched_rules),
                 "matched_ontology_clauses_json": _json_text(details.get("matched_ontology_clauses") or []),
+                "top_positive_signals_text": top_positive_signals_text,
+                "top_positive_signals_json": _json_text(top_positive_signals),
+                "top_suppressors_text": top_suppressors_text,
+                "top_suppressors_json": _json_text(top_suppressors),
+                "corroboration_sources_text": corroboration_sources_text,
+                "corroboration_sources_json": _json_text(corroboration_sources),
+                "subscore_math_json": _json_text(details.get("subscore_math") or {}),
                 "top_clauses_text": top_clauses_text,
                 "top_kw_pairs_text": top_pairs_text,
                 "top_kw_pairs_json": _json_text(top_pairs),

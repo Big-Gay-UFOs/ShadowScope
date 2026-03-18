@@ -144,6 +144,8 @@ DoD ontology keywords are emitted as `pack_id:rule_id` tags and flow directly in
 
 Lead scoring now exposes FOIA triage metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) so analysts can see lane diversity and pair-backed DoD context at a glance.
 
+`ss leads snapshot` and `ss leads query` also accept `--scoring-version v3` for the new FOIA-worthiness / proxy-quality scorer. Default workflows stay on `v2` so operators can compare `v1`, `v2`, and `v3` side by side without changing the baseline sprint surface.
+
 ## SAM Larger-Run Validation Runbook (2026-03-09)
 
 Use this sequence for SAM operator validation:
