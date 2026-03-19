@@ -196,8 +196,14 @@ ss inspect bundle --path <bundle_dir> --json
 Interpretation:
 
 - `status=ok`: required checks passed.
-- `status=warning`: required checks passed, but advisory checks missed threshold and artifacts are only partially useful/sparse/degraded.
+- `status=warning`: required checks passed, but advisory checks or requested comparison caveats prevent treating the run as cleanly healthy.
 - `status=failed`: required checks failed; treat as hard failure.
+- `quality=healthy`: usable artifacts with no warning-level weaknesses.
+- `quality=degraded`: usable artifacts exist, but nonfatal weaknesses require caution.
+- `quality=sparse`: usable artifacts were not produced at reviewable depth.
+- `quality=rate_limited`: usable artifacts exist, but retries/429 pressure materially affected the run.
+- `partially_useful=true`: usable artifacts exist, no required gates failed, and meaningful nonfatal weaknesses remain.
+- `comparison_requested`, `comparison_available`, and `comparison_empty` now make requested control/historical comparisons explicit instead of inferring state from artifact presence.
 - Validation output separates failures into `pipeline_health`, `source_coverage_context_health`, and `lead_signal_quality`.
 - Each check now serializes `name`, `observed`, `threshold`, `severity`, `required` vs `advisory`, and pass/fail.
 - `ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now read the manifest/gate status directly so larger-run warnings and failures are not flattened into legacy smoke-style PASS output.

@@ -366,15 +366,14 @@ def test_workflow_samgov_validate_cli_surfaces_required_failures(monkeypatch):
     def fake_run_samgov_validation_workflow(**_kwargs):
         return {
             "status": "failed",
+            "workflow_status": "failed",
             "required_checks_passed": False,
             "validation_mode": "larger",
             "bundle_dir": "data/exports/validation/samgov/test",
             "artifacts": {},
-            "quality": {
-                "quality": "hard_failure",
-                "required_failure_categories": ["lead_signal_quality"],
-                "advisory_failure_categories": ["source_coverage_context_health"],
-            },
+            "quality": "degraded",
+            "required_failure_categories": ["lead_signal_quality"],
+            "advisory_failure_categories": ["source_coverage_context_health"],
             "check_groups": {
                 "lead_signal_quality": {
                     "category_label": "Lead-signal quality",

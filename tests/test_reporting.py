@@ -144,7 +144,20 @@ def _write_hardened_bundle(bundle_dir: Path, *, status: str, required_checks_pas
         {
             "workflow_type": "samgov-validation",
             "validation_mode": "larger",
+            "workflow_status": status,
             "status": status,
+            "quality": quality_name,
+            "has_required_failures": status == "failed",
+            "has_advisory_failures": status == "warning",
+            "has_usable_artifacts": True,
+            "partially_useful": status == "warning",
+            "comparison_requested": False,
+            "comparison_available": False,
+            "comparison_empty": False,
+            "reason_codes": ["quality_degraded"] if status == "warning" else [],
+            "operator_messages": ["Run produced usable artifacts, but nonfatal weaknesses prevent treating it as cleanly healthy."] if status == "warning" else [],
+            "required_failure_categories": [],
+            "advisory_failure_categories": ["lead_signal_quality"] if status == "warning" else [],
             "smoke_passed": required_checks_passed,
             "required_checks_passed": required_checks_passed,
             "failed_required_checks": [],
@@ -159,11 +172,6 @@ def _write_hardened_bundle(bundle_dir: Path, *, status: str, required_checks_pas
             ]
             if status == "warning"
             else [],
-            "quality": {
-                "quality": quality_name,
-                "required_failure_categories": [],
-                "advisory_failure_categories": ["lead_signal_quality"] if status == "warning" else [],
-            },
             "check_groups": {
                 "pipeline_health": {
                     "category_label": "Pipeline health",
@@ -214,8 +222,20 @@ def _write_hardened_bundle(bundle_dir: Path, *, status: str, required_checks_pas
             "workflow_type": "samgov-validation",
             "validation_mode": "larger",
             "generated_at": "2026-03-09T12:00:00+00:00",
+            "workflow_status": status,
             "status": status,
-            "quality": smoke["quality"],
+            "quality": quality_name,
+            "has_required_failures": status == "failed",
+            "has_advisory_failures": status == "warning",
+            "has_usable_artifacts": True,
+            "partially_useful": status == "warning",
+            "comparison_requested": False,
+            "comparison_available": False,
+            "comparison_empty": False,
+            "reason_codes": smoke["reason_codes"],
+            "operator_messages": smoke["operator_messages"],
+            "required_failure_categories": smoke["required_failure_categories"],
+            "advisory_failure_categories": smoke["advisory_failure_categories"],
             "run_parameters": smoke["run_metadata"],
             "generated_files": {
                 "workflow_result_json": "results/workflow_result.json",
@@ -400,7 +420,7 @@ def test_generate_sam_report_from_results_bundle_layout(tmp_path: Path):
 
 def test_generate_sam_report_from_hardened_bundle_manifest_paths(tmp_path: Path):
     bundle = tmp_path / "bundle_hardened"
-    _write_hardened_bundle(bundle, status="warning", required_checks_passed=True, quality_name="partially_useful")
+    _write_hardened_bundle(bundle, status="warning", required_checks_passed=True, quality_name="degraded")
 
     res = generate_sam_report_from_bundle(bundle)
 
@@ -411,7 +431,8 @@ def test_generate_sam_report_from_hardened_bundle_manifest_paths(tmp_path: Path)
     assert "Validation Categories" in html
     assert "Workflow Gate Status" in html
     assert "Lead-signal quality" in html
-    assert "partially_useful" in html
+    assert "degraded" in html
+    assert "Partially Useful" in html
 
 
 def test_find_latest_sam_smoke_bundle_uses_latest_stamp(tmp_path: Path):
