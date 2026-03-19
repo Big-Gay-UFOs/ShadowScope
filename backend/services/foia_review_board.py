@@ -653,8 +653,8 @@ def _write_dossiers(bundle_dir: Path, rows: list[dict[str, Any]]) -> dict[int, P
             "",
             "## Provenance",
             "",
-            f"- Bundle lead snapshot: ../../exports/lead_snapshot.json",
-            f"- Bundle review summary: ../../exports/review_summary.json",
+            "- Bundle lead snapshot: ../../exports/lead_snapshot.json",
+            "- Bundle review summary: ../../exports/review_summary.json",
         ]
         source_url = _norm_text(row.get("source_url"))
         if source_url:
