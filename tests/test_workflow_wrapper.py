@@ -357,6 +357,7 @@ def test_samgov_workflow_fixture_runs_end_to_end(tmp_path: Path):
     assert res["correlations"]["same_keyword"]["eligible_keywords"] >= 1
     assert res["correlations"]["same_sam_naics"]["eligible_naics"] >= 1
     assert res["snapshot"]["items"] > 0
+    assert res["snapshot"]["scoring_version"] == "v3"
 
     ex = res["exports"]
     assert Path(ex["lead_snapshot"]["csv"]).exists()
@@ -367,7 +368,10 @@ def test_samgov_workflow_fixture_runs_end_to_end(tmp_path: Path):
 
     lead_payload = json.loads(Path(ex["lead_snapshot"]["json"]).read_text(encoding="utf-8"))
     assert lead_payload["count"] > 0
+    assert lead_payload["scoring_version"] == "v3"
+    assert lead_payload["snapshot"]["scoring_version"] == "v3"
     assert any(item.get("source") == "SAM.gov" for item in lead_payload.get("items", []))
+    assert any(item.get("snapshot_scoring_version") == "v3" for item in lead_payload.get("items", []))
     assert any(item.get("doc_id") for item in lead_payload.get("items", []))
     assert any(item.get("source_url") for item in lead_payload.get("items", []))
 
@@ -399,6 +403,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
 
     assert res["status"] == "ok"
     assert res["smoke_passed"] is True
+    assert res["scoring_version"] == "v3"
 
     artifacts = res["artifacts"]
     summary_path = Path(artifacts["smoke_summary_json"])
@@ -415,6 +420,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary_payload["smoke_passed"] is True
+    assert summary_payload["scoring_version"] == "v3"
     check_names = {c.get("name") for c in summary_payload.get("checks", [])}
     assert "events_window_threshold" in check_names
     assert "sam_research_context_events_threshold" in check_names
@@ -426,6 +432,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest_payload.get("bundle_version") == "samgov.bundle.v1"
     assert manifest_payload.get("workflow_type") == "samgov-smoke"
+    assert manifest_payload.get("scoring_version") == "v3"
     generated_files = manifest_payload.get("generated_files") or {}
     assert "workflow_result_json" in generated_files
     assert "workflow_summary_json" in generated_files
@@ -446,6 +453,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     report_html = report_path.read_text(encoding="utf-8")
     assert "SAM.gov Workflow Bundle Report" in report_html
     assert "workflow_type=samgov-smoke" in report_html
+    assert "scoring_version=v3" in report_html
 
     baseline = summary_payload.get("baseline", {})
     entity_cov = baseline.get("entity_coverage", {})
@@ -459,6 +467,64 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     checks_by_name = {item.get("name"): item for item in summary_payload.get("checks", [])}
     assert checks_by_name["sam_research_context_coverage_threshold"]["status"] == "pass"
     assert checks_by_name["same_sam_naics_lane_threshold"]["status"] == "pass"
+
+
+def test_samgov_smoke_bundle_can_emit_scoring_comparison_artifact(tmp_path: Path):
+    db_path = tmp_path / "sam_smoke_compare.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_smoke_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        bundle_root=tmp_path / "smoke_compare_artifacts",
+        require_nonzero=True,
+        compare_scoring_versions=["v2", "v3"],
+    )
+
+    artifacts = res["artifacts"]
+    summary_payload = json.loads(Path(artifacts["smoke_summary_json"]).read_text(encoding="utf-8"))
+    manifest_payload = json.loads(Path(artifacts["bundle_manifest_json"]).read_text(encoding="utf-8"))
+    comparison_export = (artifacts.get("exports") or {}).get("scoring_comparison") or {}
+
+    assert res["compare_scoring_versions"] == ["v2", "v3"]
+    assert summary_payload["compare_scoring_versions"] == ["v2", "v3"]
+    assert manifest_payload["compare_scoring_versions"] == ["v2", "v3"]
+    assert Path(comparison_export["csv"]).name == "lead_scoring_comparison.csv"
+    assert Path(comparison_export["json"]).name == "lead_scoring_comparison.json"
+    assert Path(comparison_export["csv"]).exists()
+    assert Path(comparison_export["json"]).exists()
+
+    comparison_payload = json.loads(Path(comparison_export["json"]).read_text(encoding="utf-8"))
+    assert comparison_payload["versions"] == ["v2", "v3"]
+    assert comparison_payload["count"] >= 1
+    first = comparison_payload["items"][0]
+    assert "v2_score" in first
+    assert "v3_score" in first
+    assert "delta_rank" in first
+    assert "delta_score" in first
+    assert "lead_family" in first
+    assert "explanation_delta" in first
+
+    generated_files = manifest_payload.get("generated_files") or {}
+    assert "export_scoring_comparison_csv" in generated_files
+    assert "export_scoring_comparison_json" in generated_files
+
+    report_html = Path(artifacts["report_html"]).read_text(encoding="utf-8")
+    assert "compare_scoring_versions=v2,v3" in report_html
 
 
 
@@ -495,6 +561,7 @@ def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
     assert res.get("validation_mode") == "larger"
     assert res.get("workflow_type") == "samgov-validation"
     assert res.get("status") in {"ok", "warning"}
+    assert res.get("scoring_version") == "v3"
 
     artifacts = res.get("artifacts") or {}
     manifest_path = Path(artifacts.get("bundle_manifest_json"))
@@ -505,6 +572,7 @@ def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
     manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest_payload.get("validation_mode") == "larger"
     assert manifest_payload.get("workflow_type") == "samgov-validation"
+    assert manifest_payload.get("scoring_version") == "v3"
 def test_samgov_smoke_threshold_contract_fails_with_context_and_naics_misses(tmp_path: Path):
     db_path = tmp_path / "sam_smoke_fail.db"
     db_url = f"sqlite:///{db_path.as_posix()}"

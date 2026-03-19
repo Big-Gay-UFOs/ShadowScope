@@ -40,6 +40,8 @@ Use `--ontology <path>` to explicitly override any profile mapping.
 
 ### 2) Bounded SAM smoke
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+- Default review surface: `scoring_version=v3`
+- Comparison mode: `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json`
 
 ### 3) Review diagnostics
 - `ss doctor status --source "SAM.gov" --days 30 --json`
@@ -79,7 +81,7 @@ DoD ontology keyword tags (`pack_id:rule_id`) feed existing lanes directly:
 - Rationale: `same_keyword` tracks repeated precise handles, while `kw_pair` strengthens leads when anchors and pair-terms co-occur in the same event context.
 - `same_entity`, `same_uei`, `same_sam_naics` remain unchanged
 
-Lead score details now include FOIA matrix metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) for transparent triage.
+Lead score details now default to **v3** and include FOIA matrix metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) plus structural-context subscores for transparent triage.
 
 ## USAspending maintenance check
 - `ss doctor status --source USAspending --days 30`
@@ -93,6 +95,9 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
 # 2) Larger bounded validation
 ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
 
+# 2b) Optional scoring comparison artifact
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json
+
 # 3) Diagnose and inspect without psql
 ss diagnose samgov --days 30 --json
 ss inspect bundle --path <bundle_dir> --json
@@ -105,6 +110,8 @@ Key SAM bundle files:
 - `results/workflow_result.json`
 - `results/doctor_status.json`
 - `report/bundle_report.html`
+- `exports/lead_snapshot.csv|json` with visible `scoring_version`
+- optional `exports/lead_scoring_comparison.csv|json` when `--compare-scoring-versions` is used
 - stable `exports/*.csv|json|jsonl`
 
 If larger runs are slow/rate-limited, tune:
@@ -112,4 +119,3 @@ If larger runs are slow/rate-limited, tune:
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
-

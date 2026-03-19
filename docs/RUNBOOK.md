@@ -32,6 +32,8 @@ Examples:
 ## 1) Bounded SAM smoke run
 
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+- Default review surface: `scoring_version=v3`
+- Comparison mode: `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json`
 
 Artifacts are written under:
 - `data/exports/smoke/samgov/<timestamp>/`
@@ -84,6 +86,7 @@ Standard offline rebuild loop:
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200`
+- Use `--scoring-version v2` only when you intentionally want an old-surface comparison snapshot.
 
 ## 5) Fixture verification (offline)
 
@@ -103,7 +106,7 @@ DoD ontology keywords are emitted as `pack_id:rule_id` tags and flow directly in
 - Rationale: `same_keyword` rewards repeated precise handles; `kw_pair` rewards anchor+pair co-occurrence so relationship strength is tied to context, not lore terms.
 - `same_entity`, `same_uei`, `same_sam_naics`: existing structural/entity lanes that stay unchanged.
 
-Lead scoring now exposes FOIA triage metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) so analysts can see lane diversity and pair-backed DoD context at a glance.
+Lead scoring now defaults to **v3** and exposes FOIA triage metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) plus capped structural-context subscores and noise penalties so analysts can see why a lead moved.
 
 ## SAM Larger-Run Validation Runbook (2026-03-09)
 
@@ -115,6 +118,9 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
 
 # Larger bounded validation pass
 ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
+
+# Optional scoring comparison artifact
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json
 
 # Diagnose sparse/degraded vs healthy outcomes
 ss diagnose samgov --days 30 --json
@@ -129,7 +135,7 @@ Interpretation:
 - `status=warning`: partially useful/sparse/degraded but artifacts are available.
 - `status=failed`: required checks failed; treat as hard failure.
 
-Bundle contract (`samgov.bundle.v1`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries.
+Bundle contract (`samgov.bundle.v1`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries. `workflow_summary.json`, `bundle_report.html`, and `lead_snapshot` exports all carry the active `scoring_version`, and bundles optionally include `lead_scoring_comparison.csv/json` when comparison mode is used.
 
 Retry tuning for larger SAM windows:
 
@@ -138,4 +144,3 @@ $env:SAM_API_TIMEOUT_SECONDS = "90"
 $env:SAM_API_MAX_RETRIES = "12"
 $env:SAM_API_BACKOFF_BASE = "1.25"
 ```
-

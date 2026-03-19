@@ -36,15 +36,25 @@ def find_latest_sam_smoke_bundle(bundle_root: Optional[Path | str] = None) -> Op
 
 def load_sam_bundle_payload(bundle_dir: Path | str) -> dict[str, Any]:
     bundle = resolve_bundle_directory(bundle_dir)
-    workflow_doc = _load_json_payload(bundle / "workflow_result.json")
-    doctor_doc = _load_json_payload(bundle / "doctor_status.json")
-    smoke_doc = _load_json_payload(bundle / "smoke_summary.json")
+    workflow_doc = _load_json_payload(_first_existing_path(bundle, "results/workflow_result.json", "workflow_result.json"))
+    doctor_doc = _load_json_payload(_first_existing_path(bundle, "results/doctor_status.json", "doctor_status.json"))
+    smoke_doc = _load_json_payload(
+        _first_existing_path(bundle, "results/workflow_summary.json", "smoke_summary.json", "workflow_summary.json")
+    )
 
     workflow = workflow_doc.get("result") if isinstance(workflow_doc.get("result"), dict) else {}
     doctor = doctor_doc.get("result") if isinstance(doctor_doc.get("result"), dict) else {}
     smoke = smoke_doc if isinstance(smoke_doc, dict) else {}
 
     run_metadata = smoke.get("run_metadata") if isinstance(smoke.get("run_metadata"), dict) else {}
+    if not run_metadata:
+        run_metadata = {
+            "source": smoke.get("source") or workflow.get("source"),
+            "workflow_type": smoke.get("workflow_type"),
+            "validation_mode": smoke.get("validation_mode"),
+            "scoring_version": smoke.get("scoring_version") or (workflow.get("snapshot") or {}).get("scoring_version"),
+            "compare_scoring_versions": smoke.get("compare_scoring_versions"),
+        }
     artifacts = smoke.get("artifacts") if isinstance(smoke.get("artifacts"), dict) else {}
 
     generated_at = (
@@ -53,7 +63,7 @@ def load_sam_bundle_payload(bundle_dir: Path | str) -> dict[str, Any]:
         or doctor_doc.get("generated_at")
         or datetime.now(timezone.utc).isoformat()
     )
-    workflow_type = str(run_metadata.get("workflow_type") or _infer_workflow_type(smoke))
+    workflow_type = str(run_metadata.get("workflow_type") or smoke.get("workflow_type") or _infer_workflow_type(smoke))
     source = str(run_metadata.get("source") or workflow.get("source") or smoke.get("source") or "SAM.gov")
 
     return {
@@ -189,6 +199,11 @@ def _render_report_html(
     run_meta_rows = [
         ("Source", source),
         ("Workflow Type", workflow_type),
+        ("Scoring Version", snapshot.get("scoring_version") or run_metadata.get("scoring_version") or smoke.get("scoring_version")),
+        (
+            "Compare Versions",
+            ",".join(run_metadata.get("compare_scoring_versions") or smoke.get("compare_scoring_versions") or []),
+        ),
         ("Run Timestamp", generated_at),
         ("Ingest", _summary_label(ingest, keys=("fetched", "inserted", "normalized"))),
         ("Ontology", _summary_label(ontology, keys=("updated", "unchanged", "scanned"))),
@@ -219,7 +234,7 @@ def _render_report_html(
     correlation_lanes = _correlation_lanes_rows(doctor)
     top_leads = _table_rows_from_list(
         rows=lead_items,
-        expected=("rank", "score", "doc_id", "entity_id", "source_url", "why_summary"),
+        expected=("rank", "score", "scoring_version", "lead_family", "doc_id", "entity_id", "source_url", "why_summary"),
     )
     top_entities = _table_rows_from_list(
         rows=entity_items,
@@ -464,6 +479,8 @@ def _load_top_lead_rows(*, workflow: dict[str, Any], bundle_dir: Path, limit: in
             {
                 "rank": item.get("rank"),
                 "score": item.get("score"),
+                "scoring_version": item.get("snapshot_scoring_version") or item.get("scoring_version"),
+                "lead_family": item.get("lead_family"),
                 "doc_id": item.get("doc_id"),
                 "entity_id": item.get("entity_id"),
                 "source_url": item.get("source_url"),
@@ -696,6 +713,14 @@ def _find_first(bundle_dir: Path, contains: str, suffix: str, exclude_prefix: st
     return candidates[0]
 
 
+def _first_existing_path(bundle_dir: Path, *relative_paths: str) -> Path:
+    for relative_path in relative_paths:
+        candidate = bundle_dir / relative_path
+        if candidate.exists():
+            return candidate
+    return bundle_dir / relative_paths[0]
+
+
 def _load_json_payload(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -728,4 +753,3 @@ __all__ = [
     "load_sam_bundle_payload",
     "resolve_bundle_directory",
 ]
-

@@ -45,6 +45,9 @@ app.add_typer(inspect_app, name="inspect")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(report_app, name="report")
 
+_SUPPORTED_SCORING_VERSIONS = ("v1", "v2", "v3")
+_DEFAULT_OPERATOR_SCORING_VERSION = "v3"
+
 
 @app.callback()
 def main_callback() -> None:
@@ -76,6 +79,30 @@ def _parse_threshold_overrides(raw: Optional[List[str]], allowed: Optional[set[s
         except ValueError as exc:
             raise typer.BadParameter(f"Invalid numeric threshold for '{key}': '{value_raw}'") from exc
     return overrides
+
+
+def _parse_compare_scoring_versions(raw: Optional[str]) -> Optional[list[str]]:
+    token = str(raw or "").strip()
+    if not token:
+        return None
+    versions: list[str] = []
+    seen: set[str] = set()
+    for item in token.split(","):
+        version = item.strip().lower()
+        if not version:
+            continue
+        if version not in _SUPPORTED_SCORING_VERSIONS:
+            allowed = ", ".join(_SUPPORTED_SCORING_VERSIONS)
+            raise typer.BadParameter(
+                f"Invalid --compare-scoring-versions value '{version}'. Expected two comma-separated versions from: {allowed}"
+            )
+        if version in seen:
+            continue
+        versions.append(version)
+        seen.add(version)
+    if len(versions) != 2:
+        raise typer.BadParameter("--compare-scoring-versions requires exactly two distinct versions, for example: v2,v3")
+    return versions
 
 
 class SamOntologyProfile(str, Enum):
@@ -378,7 +405,7 @@ def leads_snapshot(
     min_score: int = typer.Option(1, "--min-score", help="Minimum score to include"),
     limit: int = typer.Option(200, "--limit", help="Max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="How many recent events to scan before ranking"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Scoring version label"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Scoring version label"),
     notes: Optional[str] = typer.Option(None, "--notes", help="Optional snapshot notes"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
@@ -736,6 +763,13 @@ def _echo_workflow_summary(label: str, res: dict) -> None:
             typer.echo(
                 f"Export lead snapshot: csv={Path(ls['csv']).resolve()} json={Path(ls['json']).resolve()} rows={ls.get('count')}"
             )
+        if ex.get("scoring_comparison"):
+            comp = ex["scoring_comparison"]
+            typer.echo(
+                "Export scoring comparison: "
+                f"csv={Path(comp['csv']).resolve()} json={Path(comp['json']).resolve()} "
+                f"versions={','.join(comp.get('versions') or [])} rows={comp.get('count')}"
+            )
         if ex.get("kw_pairs"):
             kw = ex["kw_pairs"]
             typer.echo(
@@ -882,7 +916,12 @@ def workflow_samgov(
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot: how many recent events to scan"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version label"),
+    compare_scoring_versions_raw: Optional[str] = typer.Option(
+        None,
+        "--compare-scoring-versions",
+        help="Exports: optional two-version comparison artifact (for example: v2,v3)",
+    ),
     notes: Optional[str] = typer.Option(None, "--notes", help="Snapshot: optional snapshot notes"),
     out: Optional[str] = typer.Option(None, "--out", help="Exports: output directory or base file path"),
     export_events_flag: bool = typer.Option(True, "--export-events/--no-export-events", help="Exports: include events CSV/JSONL"),
@@ -898,6 +937,7 @@ def workflow_samgov(
     from backend.services.workflow import run_samgov_workflow
 
     export_path = Path(out).expanduser() if out else None
+    compare_scoring_versions = _parse_compare_scoring_versions(compare_scoring_versions_raw)
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     res = run_samgov_workflow(
         ingest_days=ingest_days,
@@ -919,6 +959,7 @@ def workflow_samgov(
         snapshot_limit=snapshot_limit,
         scan_limit=scan_limit,
         scoring_version=scoring_version,
+        compare_scoring_versions=compare_scoring_versions,
         notes=notes,
         output=export_path,
         export_events_flag=export_events_flag,
@@ -978,7 +1019,12 @@ def workflow_samgov_validate(
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot/doctor scan window"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version label"),
+    compare_scoring_versions_raw: Optional[str] = typer.Option(
+        None,
+        "--compare-scoring-versions",
+        help="Artifacts: optional two-version comparison artifact inside the validation bundle (for example: v2,v3)",
+    ),
     notes: Optional[str] = typer.Option("samgov larger-run validation", "--notes", help="Snapshot: optional notes"),
     bundle_root: Optional[str] = typer.Option(None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/validation/samgov)"),
     require_nonzero: bool = typer.Option(True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required checks fail"),
@@ -990,6 +1036,7 @@ def workflow_samgov_validate(
     from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_validation_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    compare_scoring_versions = _parse_compare_scoring_versions(compare_scoring_versions_raw)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     res = run_samgov_validation_workflow(
@@ -1012,6 +1059,7 @@ def workflow_samgov_validate(
         snapshot_limit=snapshot_limit,
         scan_limit=scan_limit,
         scoring_version=scoring_version,
+        compare_scoring_versions=compare_scoring_versions,
         notes=notes,
         bundle_root=bundle_path,
         database_url=database_url,
@@ -1025,6 +1073,9 @@ def workflow_samgov_validate(
     else:
         typer.echo(f"SAM.gov larger-run validation: {str(res.get('status')).upper()}")
         typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+        typer.echo(f"Scoring version: {res.get('scoring_version')}")
+        if res.get("compare_scoring_versions"):
+            typer.echo(f"Compare scoring versions: {','.join(res.get('compare_scoring_versions') or [])}")
         artifacts = res.get("artifacts") or {}
         if artifacts.get("bundle_manifest_json"):
             typer.echo(f"Bundle manifest: {Path(artifacts.get('bundle_manifest_json')).resolve()}")
@@ -1073,7 +1124,12 @@ def workflow_samgov_smoke(
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot/doctor scan window"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version label"),
+    compare_scoring_versions_raw: Optional[str] = typer.Option(
+        None,
+        "--compare-scoring-versions",
+        help="Artifacts: optional two-version comparison artifact inside the smoke bundle (for example: v2,v3)",
+    ),
     notes: Optional[str] = typer.Option("samgov smoke workflow", "--notes", help="Snapshot: optional notes"),
     bundle_root: Optional[str] = typer.Option(
         None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/smoke/samgov)"
@@ -1089,6 +1145,7 @@ def workflow_samgov_smoke(
     from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_smoke_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    compare_scoring_versions = _parse_compare_scoring_versions(compare_scoring_versions_raw)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
     res = run_samgov_smoke_workflow(
@@ -1111,6 +1168,7 @@ def workflow_samgov_smoke(
         snapshot_limit=snapshot_limit,
         scan_limit=scan_limit,
         scoring_version=scoring_version,
+        compare_scoring_versions=compare_scoring_versions,
         notes=notes,
         bundle_root=bundle_path,
         database_url=database_url,
@@ -1124,6 +1182,9 @@ def workflow_samgov_smoke(
     else:
         typer.echo(f"SAM.gov smoke workflow: {str(res.get('status')).upper()}")
         typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+        typer.echo(f"Scoring version: {res.get('scoring_version')}")
+        if res.get("compare_scoring_versions"):
+            typer.echo(f"Compare scoring versions: {','.join(res.get('compare_scoring_versions') or [])}")
         artifacts = res.get("artifacts") or {}
         if artifacts.get("smoke_summary_json"):
             typer.echo(f"Workflow summary: {Path(artifacts.get('smoke_summary_json')).resolve()}")
@@ -1581,7 +1642,6 @@ def export_correlations_cmd(
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
-
 
 
 

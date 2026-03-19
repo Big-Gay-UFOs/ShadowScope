@@ -83,6 +83,9 @@ def test_export_lead_snapshot_writes_csv_and_json(tmp_path):
 
     payload = json.loads(res["json"].read_text(encoding="utf-8"))
     assert payload["count"] == 2
+    assert payload["scoring_version"] == "v2"
+    assert payload["snapshot"]["scoring_version"] == "v2"
 
     lines = res["csv"].read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1 + 2  # header + rows
+    assert "snapshot_scoring_version" in lines[0]

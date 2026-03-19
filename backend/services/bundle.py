@@ -70,6 +70,20 @@ def normalize_sam_exports(
     if lead:
         exports["lead_snapshot"] = lead
 
+    comparison = dict(exports.get("scoring_comparison") or {})
+    comparison_csv_src = _as_path(comparison.get("csv"))
+    comparison_json_src = _as_path(comparison.get("json"))
+    comparison_csv_dst = export_dir / "lead_scoring_comparison.csv"
+    comparison_json_dst = export_dir / "lead_scoring_comparison.json"
+    if comparison_csv_src:
+        _move_file(comparison_csv_src, comparison_csv_dst)
+        comparison["csv"] = comparison_csv_dst
+    if comparison_json_src:
+        _move_file(comparison_json_src, comparison_json_dst)
+        comparison["json"] = comparison_json_dst
+    if comparison:
+        exports["scoring_comparison"] = comparison
+
     kw = dict(exports.get("kw_pairs") or {})
     kw_csv_src = _as_path(kw.get("csv"))
     kw_json_src = _as_path(kw.get("json"))
@@ -152,6 +166,10 @@ def flatten_bundle_files(*, artifacts: dict[str, Any], bundle_dir: Path) -> dict
         if isinstance(lead, dict):
             _add("export_lead_snapshot_csv", lead.get("csv"))
             _add("export_lead_snapshot_json", lead.get("json"))
+        comparison = exports.get("scoring_comparison") if isinstance(exports.get("scoring_comparison"), dict) else {}
+        if isinstance(comparison, dict):
+            _add("export_scoring_comparison_csv", comparison.get("csv"))
+            _add("export_scoring_comparison_json", comparison.get("json"))
         kw = exports.get("kw_pairs") if isinstance(exports.get("kw_pairs"), dict) else {}
         if isinstance(kw, dict):
             _add("export_keyword_pairs_csv", kw.get("csv"))
@@ -184,6 +202,8 @@ def render_sam_bundle_report(
     status: str,
     workflow_type: str,
     validation_mode: str,
+    scoring_version: str,
+    compare_scoring_versions: list[str],
     checks: list[dict[str, Any]],
     failed_required_checks: list[dict[str, Any]],
     warning_checks: list[dict[str, Any]],
@@ -223,6 +243,7 @@ def render_sam_bundle_report(
     files_table = "".join(file_rows) or "<tr><td colspan='2'>No files recorded.</td></tr>"
 
     generated_at = datetime.now(timezone.utc).isoformat()
+    comparison_text = ",".join(compare_scoring_versions) if compare_scoring_versions else "none"
     html_payload = f"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
@@ -244,6 +265,8 @@ def render_sam_bundle_report(
     <span class=\"badge\">status={html.escape(status)}</span>
     workflow_type={html.escape(workflow_type)} |
     validation_mode={html.escape(validation_mode)} |
+    scoring_version={html.escape(scoring_version)} |
+    compare_scoring_versions={html.escape(comparison_text)} |
     generated_at={html.escape(generated_at)}
   </div>
 

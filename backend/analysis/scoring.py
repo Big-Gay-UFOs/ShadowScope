@@ -142,3 +142,92 @@ def score_from_keywords_clauses_v2(
     }
     return score, details
 
+
+def score_from_keywords_clauses_v3(
+    keywords: Any,
+    clauses: Any,
+    *,
+    has_entity: bool = False,
+    pair_bonus: int = 0,
+    structural_core_score: int = 0,
+    structural_research_score: int = 0,
+    structural_identity_score: int = 0,
+    foia_matrix_bonus: int = 0,
+    top_n: int = 6,
+    rest_scale: float = 0.5,
+) -> Tuple[int, Dict[str, Any]]:
+    # v3: v2 weighting plus capped structural context subscores
+    kw = _norm_list(keywords)
+    cl = _norm_list(clauses)
+
+    pack_hits = set()
+    rule_hits = set()
+    weighted: List[Dict[str, Any]] = []
+    weights: List[int] = []
+
+    for c in cl:
+        if not isinstance(c, dict):
+            continue
+        w_int = _to_int(c.get("weight", 0))
+
+        pack = c.get("pack")
+        rule = c.get("rule")
+        if isinstance(pack, str) and pack:
+            pack_hits.add(pack)
+        if isinstance(pack, str) and isinstance(rule, str) and pack and rule:
+            rule_hits.add((pack, rule))
+
+        d = dict(c)
+        d["weight"] = w_int
+        weighted.append(d)
+        weights.append(w_int)
+
+    weights_sorted = sorted(weights, reverse=True)
+    clause_score_raw = sum(weights_sorted)
+
+    top = weights_sorted[: max(0, int(top_n))]
+    rest = weights_sorted[max(0, int(top_n)) :]
+    clause_score = int(sum(top) + (rest_scale * sum(rest)))
+
+    keyword_score = 0
+    if clause_score == 0 and len(kw) > 0:
+        keyword_score = 3 * len(kw)
+
+    entity_bonus = 10 if has_entity else 0
+    pair_bonus_int = _to_int(pair_bonus)
+    structural_core_int = _to_int(structural_core_score)
+    structural_research_int = _to_int(structural_research_score)
+    structural_identity_int = _to_int(structural_identity_score)
+    structural_context_score = structural_core_int + structural_research_int + structural_identity_int
+    foia_bonus_int = _to_int(foia_matrix_bonus)
+
+    score = (
+        clause_score
+        + keyword_score
+        + entity_bonus
+        + pair_bonus_int
+        + structural_context_score
+        + foia_bonus_int
+    )
+
+    top_clauses = sorted(weighted, key=lambda x: x.get("weight", 0), reverse=True)[:5]
+    details: Dict[str, Any] = {
+        "scoring_version": "v3",
+        "clause_score_raw": clause_score_raw,
+        "clause_score": clause_score,
+        "keyword_score": keyword_score,
+        "entity_bonus": entity_bonus,
+        "pair_bonus": pair_bonus_int,
+        "structural_core_score": structural_core_int,
+        "structural_research_score": structural_research_int,
+        "structural_identity_score": structural_identity_int,
+        "structural_context_score": structural_context_score,
+        "foia_matrix_bonus": foia_bonus_int,
+        "keyword_hits": len(kw),
+        "pack_hits": len(pack_hits),
+        "rule_hits": len(rule_hits),
+        "top_n": int(top_n),
+        "rest_scale": float(rest_scale),
+        "top_clauses": top_clauses,
+    }
+    return score, details

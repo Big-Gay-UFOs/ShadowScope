@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
+from backend.services.leads import DEFAULT_SCORING_VERSION
 from backend.services.bundle import (
     SAM_BUNDLE_RESULTS_DIR,
     SAM_BUNDLE_VERSION,
@@ -129,7 +130,8 @@ def run_samgov_smoke_workflow_hardened(
     min_score: int = 1,
     snapshot_limit: int = 200,
     scan_limit: int = 5000,
-    scoring_version: str = "v2",
+    scoring_version: str = DEFAULT_SCORING_VERSION,
+    compare_scoring_versions: Optional[list[str]] = None,
     notes: Optional[str] = None,
     bundle_root: Optional[Path] = None,
     database_url: Optional[str] = None,
@@ -176,6 +178,7 @@ def run_samgov_smoke_workflow_hardened(
             snapshot_limit=int(snapshot_limit),
             scan_limit=int(scan_limit),
             scoring_version=str(scoring_version),
+            compare_scoring_versions=list(compare_scoring_versions or []),
             notes=notes,
             output=bundle_dir / "exports" / "samgov_bundle.csv",
             export_events_flag=True,
@@ -538,6 +541,8 @@ def run_samgov_smoke_workflow_hardened(
         "source": "SAM.gov",
         "workflow_type": workflow_type,
         "validation_mode": mode,
+        "scoring_version": str(scoring_version),
+        "compare_scoring_versions": list(compare_scoring_versions or []),
         "window_days": int(window_days),
         "counts": {
             "events_window": _safe_int(counts.get("events_window")),
@@ -604,6 +609,8 @@ def run_samgov_smoke_workflow_hardened(
         "workflow_type": workflow_type,
         "validation_mode": mode,
         "bundle_version": SAM_BUNDLE_VERSION,
+        "scoring_version": str(scoring_version),
+        "compare_scoring_versions": list(compare_scoring_versions or []),
         "status": workflow_status,
         "smoke_passed": smoke_passed,
         "partially_useful": bool(quality.get("partially_useful")),
@@ -637,6 +644,8 @@ def run_samgov_smoke_workflow_hardened(
 
     report_summary = {
         "status": workflow_status,
+        "scoring_version": str(scoring_version),
+        "compare_scoring_versions": ",".join(compare_scoring_versions or []),
         "quality": quality.get("quality"),
         "smoke_passed": smoke_passed,
         "partially_useful": bool(quality.get("partially_useful")),
@@ -657,6 +666,8 @@ def run_samgov_smoke_workflow_hardened(
         status=workflow_status,
         workflow_type=workflow_type,
         validation_mode=mode,
+        scoring_version=str(scoring_version),
+        compare_scoring_versions=list(compare_scoring_versions or []),
         checks=checks,
         failed_required_checks=failed_required_checks,
         warning_checks=warning_checks,
@@ -670,6 +681,8 @@ def run_samgov_smoke_workflow_hardened(
         "source": "SAM.gov",
         "workflow_type": workflow_type,
         "validation_mode": mode,
+        "scoring_version": str(scoring_version),
+        "compare_scoring_versions": list(compare_scoring_versions or []),
         "generated_at": now.isoformat(),
         "status": workflow_status,
         "quality": quality,
@@ -696,6 +709,8 @@ def run_samgov_smoke_workflow_hardened(
             "keywords": list(keywords or []),
             "window_days": int(window_days),
             "scan_limit": int(scan_limit),
+            "scoring_version": str(scoring_version),
+            "compare_scoring_versions": list(compare_scoring_versions or []),
         },
         "ingest_diagnostics": ingest_request_diag,
         "generated_files": flatten_bundle_files(artifacts=artifacts, bundle_dir=bundle_dir),
@@ -710,6 +725,8 @@ def run_samgov_smoke_workflow_hardened(
         "quality": quality,
         "workflow_type": workflow_type,
         "validation_mode": mode,
+        "scoring_version": str(scoring_version),
+        "compare_scoring_versions": list(compare_scoring_versions or []),
         "bundle_version": SAM_BUNDLE_VERSION,
         "bundle_dir": bundle_dir,
         "workflow": workflow_res,
@@ -744,7 +761,8 @@ def run_samgov_validation_workflow_hardened(
     min_score: int = 1,
     snapshot_limit: int = 200,
     scan_limit: int = 5000,
-    scoring_version: str = "v2",
+    scoring_version: str = DEFAULT_SCORING_VERSION,
+    compare_scoring_versions: Optional[list[str]] = None,
     notes: Optional[str] = "samgov larger-run validation",
     bundle_root: Optional[Path] = None,
     database_url: Optional[str] = None,
@@ -773,6 +791,7 @@ def run_samgov_validation_workflow_hardened(
         snapshot_limit=int(snapshot_limit),
         scan_limit=int(scan_limit),
         scoring_version=str(scoring_version),
+        compare_scoring_versions=list(compare_scoring_versions or []),
         notes=notes,
         bundle_root=(Path(bundle_root).expanduser() if bundle_root else EXPORTS_DIR / "validation" / "samgov"),
         database_url=database_url,
@@ -788,4 +807,3 @@ __all__ = [
     "run_samgov_smoke_workflow_hardened",
     "run_samgov_validation_workflow_hardened",
 ]
-

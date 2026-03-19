@@ -13,6 +13,7 @@ from sqlalchemy import select
 from backend.db.models import Correlation, CorrelationLink, Event, LeadSnapshot, LeadSnapshotItem, get_session_factory
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
 from backend.services.deltas import compute_lead_deltas
+from backend.services.leads import compare_lead_scoring_versions
 
 
 def _score_part(details: dict[str, Any], key: str, default: Any = 0) -> Any:
@@ -116,6 +117,30 @@ def _fetch_kw_pair_correlations(db, *, event_ids: list[int], source: Optional[st
     return by_event
 
 
+def _resolve_export_paths(
+    *,
+    output: Optional[Path],
+    default_base_name: str,
+) -> tuple[Path, Path]:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    base_name = f"{default_base_name}_{ts}"
+    export_dir = EXPORTS_DIR
+
+    if output:
+        output = output.expanduser()
+        if output.suffix:
+            export_dir = output.parent if output.parent else Path(".")
+            export_dir.mkdir(parents=True, exist_ok=True)
+            base_name = output.stem or base_name
+        else:
+            export_dir = output
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = export_dir / f"{base_name}.csv"
+    json_path = export_dir / f"{base_name}.json"
+    return csv_path, json_path
+
+
 def export_lead_snapshot(
     *,
     snapshot_id: int,
@@ -158,22 +183,10 @@ def export_lead_snapshot(
 
         kw_pairs_by_event = _fetch_kw_pair_correlations(db, event_ids=event_ids, source=getattr(snap, "source", None))
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    base_name = f"lead_snapshot_{int(snapshot_id)}_{ts}"
-    export_dir = EXPORTS_DIR
-
-    if output:
-        output = output.expanduser()
-        if output.suffix:
-            export_dir = output.parent if output.parent else Path(".")
-            export_dir.mkdir(parents=True, exist_ok=True)
-            base_name = output.stem or base_name
-        else:
-            export_dir = output
-            export_dir.mkdir(parents=True, exist_ok=True)
-
-    csv_path = export_dir / f"{base_name}.csv"
-    json_path = export_dir / f"{base_name}.json"
+    csv_path, json_path = _resolve_export_paths(
+        output=output,
+        default_base_name=f"lead_snapshot_{int(snapshot_id)}",
+    )
 
     rows_out: list[dict[str, Any]] = []
     for it in items:
@@ -195,6 +208,11 @@ def export_lead_snapshot(
         pairs = kw_pairs_by_event.get(int(it.event_id), []) or []
         top_pairs = pairs[:5]
         top_pairs_text = "; ".join([f"{p['keyword_1']}+{p['keyword_2']}(n={p['event_count']})" for p in top_pairs])
+        lead_family = details.get("lead_family")
+        structural_context_score = _score_part(details, "structural_context_score", 0)
+        structural_core_score = _score_part(details, "structural_core_score", 0)
+        structural_research_score = _score_part(details, "structural_research_score", 0)
+        structural_identity_score = _score_part(details, "structural_identity_score", 0)
 
         why_bits: list[str] = []
         if clause_score_raw is not None:
@@ -207,8 +225,15 @@ def export_lead_snapshot(
             why_bits.append(f"entity_bonus={entity_bonus}")
         if pair_bonus:
             why_bits.append(f"pair_bonus={pair_bonus} (pairs={pair_count}, strength={pair_strength})")
+        if structural_context_score:
+            why_bits.append(
+                "structural_context="
+                f"{structural_context_score} (core={structural_core_score}, research={structural_research_score}, identity={structural_identity_score})"
+            )
         if has_noise and noise_penalty:
             why_bits.append(f"noise_penalty=-{noise_penalty}")
+        if lead_family:
+            why_bits.append(f"lead_family={lead_family}")
         if top_pairs_text:
             why_bits.append(f"top_pairs: {top_pairs_text}")
         if top_clauses_text:
@@ -231,7 +256,9 @@ def export_lead_snapshot(
                 "entity_id": None if e is None else e.entity_id,
                 "snippet": None if e is None else (e.snippet or ""),
                 "place_text": None if e is None else (e.place_text or ""),
-                "scoring_version": details.get("scoring_version"),
+                "snapshot_scoring_version": getattr(snap, "scoring_version", None),
+                "scoring_version": details.get("scoring_version") or getattr(snap, "scoring_version", None),
+                "lead_family": lead_family,
                 "clause_score": clause_score,
                 "clause_score_raw": clause_score_raw,
                 "keyword_score": keyword_score,
@@ -239,6 +266,11 @@ def export_lead_snapshot(
                 "pair_bonus": pair_bonus,
                 "pair_count": pair_count,
                 "pair_strength": pair_strength,
+                "structural_core_score": structural_core_score,
+                "structural_research_score": structural_research_score,
+                "structural_identity_score": structural_identity_score,
+                "structural_context_score": structural_context_score,
+                "structural_context_label": details.get("structural_context_label"),
                 "has_noise": has_noise,
                 "noise_penalty": noise_penalty,
                 "top_clauses_text": top_clauses_text,
@@ -257,6 +289,7 @@ def export_lead_snapshot(
 
     payload = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
+        "scoring_version": getattr(snap, "scoring_version", None),
         "snapshot": {
             "id": int(snapshot_id),
             "created_at": snap.created_at.isoformat() if snap.created_at else None,
@@ -273,6 +306,82 @@ def export_lead_snapshot(
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return {"csv": csv_path, "json": json_path, "count": len(rows_out), "snapshot_id": int(snapshot_id)}
+
+
+def export_scoring_comparison(
+    *,
+    versions: list[str],
+    source: Optional[str] = None,
+    exclude_source: Optional[str] = None,
+    min_score: int = 1,
+    limit: int = 200,
+    scan_limit: int = 5000,
+    database_url: Optional[str] = None,
+    output: Optional[Path] = None,
+) -> Dict[str, Any]:
+    ensure_runtime_directories()
+    SessionFactory = get_session_factory(database_url)
+
+    with SessionFactory() as db:
+        comparison = compare_lead_scoring_versions(
+            db,
+            versions=versions,
+            source=source,
+            exclude_source=exclude_source,
+            min_score=min_score,
+            limit=limit,
+            scan_limit=scan_limit,
+        )
+
+    baseline_version = str(comparison.get("baseline_version") or "baseline")
+    target_version = str(comparison.get("target_version") or "target")
+    csv_path, json_path = _resolve_export_paths(
+        output=output,
+        default_base_name=f"lead_scoring_comparison_{baseline_version}_vs_{target_version}",
+    )
+
+    rows: list[dict[str, Any]] = []
+    for item in comparison.get("items", []):
+        rows.append(
+            {
+                "event_id": item.get("event_id"),
+                "event_hash": item.get("event_hash"),
+                "doc_id": item.get("doc_id"),
+                "source": item.get("source"),
+                "source_url": item.get("source_url"),
+                "snippet": item.get("snippet"),
+                "lead_family": item.get("lead_family"),
+                "baseline_version": baseline_version,
+                "target_version": target_version,
+                f"{baseline_version}_rank": item.get(f"{baseline_version}_rank"),
+                f"{baseline_version}_score": item.get(f"{baseline_version}_score"),
+                f"{target_version}_rank": item.get(f"{target_version}_rank"),
+                f"{target_version}_score": item.get(f"{target_version}_score"),
+                "delta_rank": item.get("delta_rank"),
+                "delta_score": item.get("delta_score"),
+                "comparison_state": item.get("comparison_state"),
+                "explanation_delta": item.get("explanation_delta"),
+                "baseline_score_details_json": json.dumps(item.get("baseline_score_details") or {}, ensure_ascii=False),
+                "target_score_details_json": json.dumps(item.get("target_score_details") or {}, ensure_ascii=False),
+            }
+        )
+
+    _write_csv(csv_path, rows)
+
+    payload = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        **comparison,
+    }
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {
+        "csv": csv_path,
+        "json": json_path,
+        "count": len(rows),
+        "baseline_version": baseline_version,
+        "target_version": target_version,
+        "versions": comparison.get("versions") or [baseline_version, target_version],
+    }
 
 
 def export_lead_deltas(
@@ -419,4 +528,4 @@ def _write_csv(path: Path, rows):
         w.writerows(rows)
 
 
-__all__ = ["export_lead_snapshot", "export_lead_deltas"]
+__all__ = ["export_lead_snapshot", "export_lead_deltas", "export_scoring_comparison"]

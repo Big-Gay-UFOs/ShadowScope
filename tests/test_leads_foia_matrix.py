@@ -119,3 +119,66 @@ def test_compute_leads_keeps_noise_penalty_while_exposing_foia_metadata(tmp_path
     assert details["foia_matrix_bonus"] == 1
     assert details["foia_potential_tier"] == "high"
     assert score == 10
+
+
+def test_compute_leads_v3_exposes_structural_context_and_lead_family(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_v3.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        rich = Event(
+            category="opportunity",
+            source="SAM.gov",
+            hash="lead_v3_rich",
+            created_at=now,
+            snippet="Structurally rich SAM lead",
+            raw_json={
+                "noticeType": "Sources Sought",
+                "solicitationNumber": "DOE-V3-001",
+                "naicsCode": "541330",
+                "typeOfSetAside": "SBA",
+                "responseDeadLine": "2026-03-20",
+                "fullParentPathCode": "DOE.HQ",
+                "Recipient Name": "Acme Federal",
+            },
+            keywords=["sam_dod_program_protection_sap:afosi_program_security_context"],
+            clauses=[],
+        )
+        thin = Event(
+            category="opportunity",
+            source="SAM.gov",
+            hash="lead_v3_thin",
+            created_at=now,
+            snippet="Thin SAM lead",
+            raw_json={},
+            keywords=["sam_dod_program_protection_sap:afosi_program_security_context"],
+            clauses=[],
+        )
+        db.add_all([rich, thin])
+        db.commit()
+
+        ranked, scanned = compute_leads(
+            db,
+            source="SAM.gov",
+            min_score=0,
+            limit=10,
+            scan_limit=50,
+            scoring_version="v3",
+        )
+
+    assert scanned == 2
+    assert len(ranked) == 2
+
+    top_score, top_event, top_details = ranked[0]
+    assert top_event.hash == "lead_v3_rich"
+    assert top_details["scoring_version"] == "v3"
+    assert top_details["structural_context_score"] > 0
+    assert top_details["structural_core_score"] > 0
+    assert top_details["lead_family"] in {
+        "foia_contextual",
+        "high_context_pair_supported",
+        "high_context_structural",
+    }
+    assert top_score > ranked[1][0]

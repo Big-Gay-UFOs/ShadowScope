@@ -41,7 +41,7 @@ ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 
 ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
 ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45
-ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2
+ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000
 ```
 
 ### 6) Verification commands
@@ -330,7 +330,8 @@ Typical workflow (SAM.gov tuning loop):
 - `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10 --max-events 200 --max-keywords-per-event 10`
 - `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
-- `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "sam context tuning pass"`
+- `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --notes "sam context tuning pass"`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json`
 
 5) Optional maintenance-mode USAspending check
 - `ss doctor status --source USAspending --days 30`
@@ -361,7 +362,7 @@ It is designed for repeatable investigator runs:
 1) ingest a time window (seeded searches)
 2) normalize + persist to Postgres (idempotent)
 3) tag with ontology signals (keywords + clause hits)
-4) score/rank leads (v2 scoring by default)
+4) score/rank leads (v3 scoring by default)
 5) snapshot leads (repeatability + deltas)
 6) cluster related records (entity / UEI / keyword / keyword-pair)
 ## Runbook
@@ -376,7 +377,7 @@ Windows execution policy (one-time):
 - FOIA ontology companion: `examples/ontology_sam_dod_foia_companion.json` (precision-first anchor+pair+exact-probe rules + suppressors)
 - Correlation lanes include `kw_pair` (co-term clustering) and `sam_usaspending_candidate_join` (pairwise cross-source incumbent candidates)
 - Relationship matrix rationale: `same_keyword` captures repeated precision tags while `kw_pair` promotes anchor+pair co-occurrence evidence for triage confidence.
-- Default lead snapshots are **v2**
+- Default lead snapshots are **v3**
 - Operational noise handling (HRP/DACTS, NASA sponsoring agreement)
 - DOE/NNSA weapons complex pivots (SRS, Y-12, Pantex, KCNSC, CNS, SRNS)
 
@@ -397,7 +398,7 @@ This repo now has an audit-derived implementation plan + checklist so we do not 
 **Top priorities (P0/P1)**
 - **Event schema enrichment**: promote high-value USAspending fields (agency/PSC/NAICS/award-id/UEI/etc.) to first-class columns so we can build richer correlation lanes and better investigator filters.
 - **Ontology: enable `raw_json` tagging** by safely stringifying `raw_json` and passing it into the tagger (so ontology rules targeting `raw_json` actually fire).
-- **Scoring alignment**: make **v2** scoring the default everywhere (API + snapshots) while keeping v1 available explicitly.
+- **Scoring alignment**: make **v3** scoring the default on operator-facing review surfaces (SAM workflows, API, snapshots, bundles) while keeping v1/v2 available explicitly.
 - **kw_pair signal upgrade**: promote kw_pair from "count" to "signal" (PMI/log-odds/Fisher/Bayesian shrinkage path) + add explainability exports.
 - **API filtering improvements**: add investigator-friendly query params to events/leads/correlations.
 
@@ -427,6 +428,9 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
 # 2) Larger bounded validation pass (operator-focused diagnostics + warnings)
 ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
 
+# 2b) Side-by-side scoring comparison artifact
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json
+
 # 3) Diagnose SAM status and gaps (no psql required)
 ss diagnose samgov --days 30 --json
 
@@ -445,6 +449,7 @@ Normalized SAM bundle contract (`samgov.bundle.v1`):
     doctor_status.json
   exports/
     lead_snapshot.csv/json
+    lead_scoring_comparison.csv/json  # optional when --compare-scoring-versions is used
     keyword_pairs.csv/json
     entities.csv/json
     event_entities.csv/json
@@ -455,9 +460,9 @@ Normalized SAM bundle contract (`samgov.bundle.v1`):
 
 Bundle interpretation:
 
-- `workflow_summary.json`: machine-readable run quality/check outcomes (`ok`, `warning`, `failed`) and partial-usefulness classification.
+- `workflow_summary.json`: machine-readable run quality/check outcomes (`ok`, `warning`, `failed`), active `scoring_version`, optional comparison versions, and partial-usefulness classification.
 - `bundle_manifest.json`: single source of truth for bundle discovery (`generated_files`, status, summary counts, run parameters).
-- `bundle_report.html`: human-oriented run review surface aligned to manifest paths.
+- `bundle_report.html`: human-oriented run review surface aligned to manifest paths and visibly labeled with the active scoring version.
 
 Warnings vs failures:
 
@@ -470,7 +475,6 @@ Retry tuning knobs for larger SAM windows:
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
-
 
 
 

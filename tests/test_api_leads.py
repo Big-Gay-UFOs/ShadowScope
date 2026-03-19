@@ -9,7 +9,7 @@ from backend.db.models import Event, ensure_schema, get_session_factory
 from backend.app import app
 
 
-def test_api_leads_defaults_to_v2_and_supports_v1(tmp_path):
+def test_api_leads_defaults_to_v3_and_supports_v1_v2(tmp_path):
     db_path = tmp_path / "api_leads.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
 
@@ -41,9 +41,14 @@ def test_api_leads_defaults_to_v2_and_supports_v1(tmp_path):
         r = c.get("/api/leads?limit=10")
         assert r.status_code == 200
         j = r.json()
-        assert j and j[0]["score_details"]["scoring_version"] == "v2"
+        assert j and j[0]["score_details"]["scoring_version"] == "v3"
 
         r2 = c.get("/api/leads?limit=10&scoring_version=v1")
         assert r2.status_code == 200
         j2 = r2.json()
         assert j2 and j2[0]["score_details"]["scoring_version"] == "v1"
+
+        r3 = c.get("/api/leads?limit=10&scoring_version=v2")
+        assert r3.status_code == 200
+        j3 = r3.json()
+        assert j3 and j3[0]["score_details"]["scoring_version"] == "v2"

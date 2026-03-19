@@ -36,6 +36,7 @@ def test_workflow_samgov_profile_defaults_to_starter(monkeypatch):
 
     assert result.exit_code == 0, result.stdout
     assert captured.get("ontology_path") == Path("examples/ontology_sam_procurement_starter.json")
+    assert captured.get("scoring_version") == "v3"
 
 
 def test_workflow_samgov_profile_maps_dod_foia(monkeypatch):
@@ -128,6 +129,7 @@ def test_workflow_samgov_smoke_profile_maps_starter_plus_dod(monkeypatch):
 
     assert result.exit_code == 0, result.stdout
     assert captured.get("ontology_path") == Path("examples/ontology_sam_procurement_plus_dod_foia.json")
+    assert captured.get("scoring_version") == "v3"
 
 
 def test_workflow_usaspending_default_min_events_keywords_is_two(monkeypatch):
@@ -190,3 +192,56 @@ def test_workflow_samgov_validate_profile_maps_dod_foia(monkeypatch):
 
     assert result.exit_code == 0, result.stdout
     assert captured.get("ontology_path") == Path("examples/ontology_sam_dod_foia_companion.json")
+    assert captured.get("scoring_version") == "v3"
+
+
+def test_leads_snapshot_defaults_to_v3(monkeypatch):
+    captured = {}
+
+    def fake_create_lead_snapshot(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "ok",
+            "snapshot_id": 1,
+            "items": 0,
+            "scanned": 0,
+            "analysis_run_id": None,
+            "source": kwargs.get("source"),
+            "min_score": kwargs.get("min_score"),
+            "limit": kwargs.get("limit"),
+            "scoring_version": kwargs.get("scoring_version"),
+        }
+
+    monkeypatch.setattr("backend.services.leads.create_lead_snapshot", fake_create_lead_snapshot)
+
+    result = runner.invoke(cli_module.app, ["leads", "snapshot", "--source", "SAM.gov"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("scoring_version") == "v3"
+
+
+def test_workflow_samgov_smoke_compare_scoring_versions_parses_two_versions(monkeypatch):
+    captured = {}
+
+    def fake_run_samgov_smoke_workflow(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "ok",
+            "smoke_passed": True,
+            "scoring_version": kwargs.get("scoring_version"),
+            "compare_scoring_versions": kwargs.get("compare_scoring_versions"),
+            "bundle_dir": "data/exports/smoke/samgov/test",
+            "checks": [],
+            "baseline": {},
+            "artifacts": {},
+        }
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_smoke_workflow", fake_run_samgov_smoke_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["workflow", "samgov-smoke", "--compare-scoring-versions", "v2,v3", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("compare_scoring_versions") == ["v2", "v3"]
