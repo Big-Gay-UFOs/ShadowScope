@@ -530,6 +530,7 @@ Normalized SAM bundle contract (`samgov.bundle.v1`):
     doctor_status.json
   exports/
     lead_snapshot.csv/json
+    review_summary.json
     keyword_pairs.csv/json
     entities.csv/json
     event_entities.csv/json
@@ -537,6 +538,8 @@ Normalized SAM bundle contract (`samgov.bundle.v1`):
   report/
     bundle_report.html
 ```
+
+Lead snapshot review exports now include a canonical `review_summary.json` artifact that records the snapshot id, scoring version, effective review window, review artifact filenames, completeness counts, and whether per-row evidence packages are available.
 
 Bundle interpretation:
 

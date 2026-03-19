@@ -59,14 +59,19 @@ def normalize_sam_exports(
     lead = dict(exports.get("lead_snapshot") or {})
     lead_csv_src = _as_path(lead.get("csv"))
     lead_json_src = _as_path(lead.get("json"))
+    lead_review_summary_src = _as_path(lead.get("review_summary_json"))
     lead_csv_dst = export_dir / "lead_snapshot.csv"
     lead_json_dst = export_dir / "lead_snapshot.json"
+    lead_review_summary_dst = export_dir / "review_summary.json"
     if lead_csv_src:
         _move_file(lead_csv_src, lead_csv_dst)
         lead["csv"] = lead_csv_dst
     if lead_json_src:
         _move_file(lead_json_src, lead_json_dst)
         lead["json"] = lead_json_dst
+    if lead_review_summary_src:
+        _move_file(lead_review_summary_src, lead_review_summary_dst)
+        lead["review_summary_json"] = lead_review_summary_dst
     if lead:
         exports["lead_snapshot"] = lead
 
@@ -170,6 +175,7 @@ def flatten_bundle_files(*, artifacts: dict[str, Any], bundle_dir: Path) -> dict
         if isinstance(lead, dict):
             _add("export_lead_snapshot_csv", lead.get("csv"))
             _add("export_lead_snapshot_json", lead.get("json"))
+            _add("export_lead_review_summary_json", lead.get("review_summary_json"))
         comparison = exports.get("scoring_comparison") if isinstance(exports.get("scoring_comparison"), dict) else {}
         if isinstance(comparison, dict):
             _add("export_scoring_comparison_csv", comparison.get("csv"))

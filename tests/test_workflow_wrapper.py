@@ -527,6 +527,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert "workflow_summary_json" in generated_files
     assert "bundle_manifest_json" in generated_files
     assert "report_html" in generated_files
+    assert "export_lead_review_summary_json" in generated_files
 
     exports = artifacts.get("exports") or {}
     lead_export = exports.get("lead_snapshot") or {}
@@ -538,6 +539,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert Path(entities_export.get("entities_csv")).name == "entities.csv"
     assert Path(entities_export.get("event_entities_csv")).name == "event_entities.csv"
     assert Path(events_export.get("csv")).name == "events.csv"
+    assert Path(lead_export.get("review_summary_json")).name == "review_summary.json"
 
     report_html = report_path.read_text(encoding="utf-8")
     assert "SAM.gov Workflow Bundle Report" in report_html

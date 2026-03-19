@@ -17,6 +17,7 @@ from backend.services.lead_families import (
     summarize_lead_family_groups,
 )
 from backend.services.leads import DEFAULT_SCORING_VERSION, SUPPORTED_SCORING_VERSIONS, normalize_scoring_version
+from backend.services.review_contract import serialize_ranked_lead_review_row
 from backend.db.models import AnalysisRun, Entity, Event, LeadSnapshot, LeadSnapshotItem
 from backend.search.opensearch import opensearch_search
 from backend.services.deltas import lead_deltas
@@ -323,7 +324,7 @@ def list_lead_snapshot_items(
     include_score_details: bool = True,
     db: Session = Depends(get_db_session),
 ):
-    snap = db.execute(select(LeadSnapshot.id).where(LeadSnapshot.id == snapshot_id)).scalar_one_or_none()
+    snap = db.execute(select(LeadSnapshot).where(LeadSnapshot.id == snapshot_id)).scalar_one_or_none()
     if snap is None:
         raise HTTPException(status_code=404, detail=f"lead_snapshot {snapshot_id} not found")
 
@@ -355,15 +356,12 @@ def list_lead_snapshot_items(
         if lead_family and not lead_matches_family(details, lead_family):
             continue
         d = {
-            "snapshot_id": int(item.snapshot_id),
-            "rank": int(item.rank),
-            "score": int(item.score),
-            "event_id": int(item.event_id),
-            "event_hash": item.event_hash,
-            "scoring_version": details.get("scoring_version"),
-            "lead_family": details.get("lead_family"),
-            "lead_family_label": details.get("lead_family_label"),
-            "secondary_lead_families": details.get("secondary_lead_families") or [],
+            **serialize_ranked_lead_review_row(
+                snapshot=snap,
+                item=item,
+                event=ev,
+                details=details,
+            ),
             "corroboration_summary": details.get("corroboration_summary") or {},
             "pair_bonus_applied": details.get("pair_bonus_applied", details.get("pair_bonus", 0)),
             "noise_penalty_applied": details.get("noise_penalty_applied", details.get("noise_penalty", 0)),
@@ -381,8 +379,8 @@ def list_lead_snapshot_items(
                 "created_at": ev.created_at.isoformat() if ev.created_at else None,
             },
         }
-        if include_score_details:
-            d["score_details"] = details
+        if not include_score_details:
+            d.pop("score_details", None)
         out.append(d)
     family_groups = (
         summarize_lead_family_groups(out, lead_family_filter=lead_family)
