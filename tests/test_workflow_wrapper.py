@@ -510,8 +510,19 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert review_board_md_path.exists()
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary_payload["workflow_status"] == "ok"
+    assert summary_payload["quality"] == "healthy"
     assert summary_payload["smoke_passed"] is True
     assert summary_payload["required_checks_passed"] is True
+    assert summary_payload["has_required_failures"] is False
+    assert summary_payload["has_advisory_failures"] is False
+    assert summary_payload["has_usable_artifacts"] is True
+    assert summary_payload["partially_useful"] is False
+    assert summary_payload["comparison_requested"] is False
+    assert summary_payload["comparison_available"] is False
+    assert summary_payload["comparison_empty"] is False
+    assert summary_payload["reason_codes"] == []
+    assert summary_payload["operator_messages"] == []
     assert summary_payload["scoring_version"] == "v3"
     check_names = {c.get("name") for c in summary_payload.get("checks", [])}
     assert "events_window_threshold" in check_names
@@ -526,6 +537,8 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert manifest_payload.get("bundle_version") == "samgov.bundle.v1"
     assert manifest_payload.get("workflow_type") == "samgov-smoke"
     assert manifest_payload.get("scoring_version") == "v3"
+    assert manifest_payload.get("workflow_status") == "ok"
+    assert manifest_payload.get("quality") == "healthy"
     generated_files = manifest_payload.get("generated_files") or {}
     assert "workflow_result_json" in generated_files
     assert "workflow_summary_json" in generated_files
@@ -552,6 +565,8 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert "foia_lead_review_board.html" in report_html
     assert "workflow_type=samgov-smoke" in report_html
     assert "scoring_version=v3" in report_html
+    assert "workflow_status" in report_html
+    assert "healthy" in report_html
     assert "Pipeline health" in report_html
     assert "Source coverage/context health" in report_html
     assert "Lead-signal quality" in report_html
@@ -667,6 +682,171 @@ def test_samgov_smoke_bundle_can_emit_scoring_comparison_artifact(tmp_path: Path
 
     report_html = Path(artifacts["report_html"]).read_text(encoding="utf-8")
     assert "compare_scoring_versions=v2,v3" in report_html
+
+
+def test_samgov_validation_warning_with_usable_artifacts_is_partially_useful(tmp_path: Path):
+    db_path = tmp_path / "sam_validation_warning.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_validation_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        bundle_root=tmp_path / "validation_warning_bundle",
+        require_nonzero=True,
+        threshold_overrides={"same_sam_naics_lane_min": 2.0},
+    )
+
+    assert res["workflow_status"] == "warning"
+    assert res["quality"] == "degraded"
+    assert res["has_required_failures"] is False
+    assert res["has_advisory_failures"] is True
+    assert res["has_usable_artifacts"] is True
+    assert res["partially_useful"] is True
+    assert "advisory_check_failed:same_sam_naics_lane_threshold" in res["reason_codes"]
+    assert "quality_degraded" in res["reason_codes"]
+    assert res["operator_messages"]
+
+    summary_payload = json.loads(Path(res["artifacts"]["smoke_summary_json"]).read_text(encoding="utf-8"))
+    assert summary_payload["workflow_status"] == "warning"
+    assert summary_payload["quality"] == "degraded"
+    assert summary_payload["partially_useful"] is True
+    assert summary_payload["reason_codes"]
+    assert summary_payload["operator_messages"]
+
+
+def test_samgov_smoke_comparison_empty_is_explicit_and_reported(tmp_path: Path, monkeypatch):
+    comparison_csv = tmp_path / "comparison_fixture.csv"
+    comparison_json = tmp_path / "comparison_fixture.json"
+    comparison_csv.write_text("event_id\n", encoding="utf-8")
+    comparison_json.write_text(
+        json.dumps(
+            {
+                "baseline_version": "v2",
+                "target_version": "v3",
+                "versions": ["v2", "v3"],
+                "count": 0,
+                "state_counts": {"shared": 0, "entered_target": 0, "dropped_from_target": 0},
+                "items": [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_run_samgov_workflow(**_kwargs):
+        return {
+            "source": "SAM.gov",
+            "status": "ok",
+            "ingest": {"status": "success", "fetched": 25, "inserted": 25, "normalized": 25},
+            "snapshot": {"items": 5},
+            "exports": {
+                "scoring_comparison": {
+                    "csv": comparison_csv,
+                    "json": comparison_json,
+                    "count": 0,
+                    "baseline_version": "v2",
+                    "target_version": "v3",
+                    "versions": ["v2", "v3"],
+                }
+            },
+        }
+
+    def fake_doctor_status(**_kwargs):
+        return {
+            "db": {"status": "ok"},
+            "counts": {
+                "events_window": 30,
+                "events_with_entity_window": 20,
+                "lead_snapshots_total": 1,
+            },
+            "keywords": {
+                "scanned_events": 30,
+                "events_with_keywords": 20,
+                "coverage_pct": 66.7,
+                "unique_keywords": 5,
+            },
+            "entities": {
+                "window_linked_coverage_pct": 66.7,
+                "sample_scanned_events": 30,
+                "sample_events_with_identity_signal": 30,
+                "sample_events_with_identity_signal_linked": 20,
+                "sample_identity_signal_coverage_pct": 66.7,
+                "sample_events_with_name": 30,
+                "sample_events_with_name_linked": 20,
+                "sample_name_coverage_pct": 66.7,
+            },
+            "correlations": {
+                "by_lane": {
+                    "same_keyword": 5,
+                    "kw_pair": 5,
+                    "same_sam_naics": 2,
+                    "same_entity": 3,
+                    "same_uei": 0,
+                }
+            },
+            "sam_context": {
+                "scanned_events": 30,
+                "events_with_research_context": 20,
+                "research_context_coverage_pct": 66.7,
+                "events_with_core_procurement_context": 20,
+                "core_procurement_context_coverage_pct": 66.7,
+                "avg_context_fields_per_event": 3.2,
+                "coverage_by_field_pct": {
+                    "sam_notice_type": 100.0,
+                    "sam_solicitation_number": 100.0,
+                    "sam_naics_code": 80.0,
+                },
+                "top_notice_types": [],
+                "top_naics_codes": [],
+                "top_set_aside_codes": [],
+            },
+            "hints": [],
+        }
+
+    monkeypatch.setattr(workflow_module, "run_samgov_workflow", fake_run_samgov_workflow)
+    monkeypatch.setattr(workflow_module, "doctor_status", fake_doctor_status)
+
+    res = run_samgov_smoke_workflow(
+        bundle_root=tmp_path / "comparison_empty_bundle",
+        require_nonzero=True,
+        skip_ingest=False,
+        compare_scoring_versions=["v2", "v3"],
+    )
+
+    assert res["workflow_status"] == "warning"
+    assert res["quality"] == "degraded"
+    assert res["comparison_requested"] is True
+    assert res["comparison_available"] is True
+    assert res["comparison_empty"] is True
+    assert res["partially_useful"] is True
+    assert "comparison_requested_but_empty" in res["reason_codes"]
+    assert any("comparison artifact contains zero comparable rows" in message.lower() for message in res["operator_messages"])
+
+    summary_payload = json.loads(Path(res["artifacts"]["smoke_summary_json"]).read_text(encoding="utf-8"))
+    assert summary_payload["comparison_requested"] is True
+    assert summary_payload["comparison_available"] is True
+    assert summary_payload["comparison_empty"] is True
+    assert "comparison_requested_but_empty" in summary_payload["reason_codes"]
+
+    report_html = Path(res["artifacts"]["report_html"]).read_text(encoding="utf-8")
+    assert "comparison_empty" in report_html
+    assert "comparison_requested_but_empty" in report_html
+    assert "zero comparable rows" in report_html
 
 
 def test_samgov_bundle_reports_include_adjudication_metrics_when_present(tmp_path: Path):
@@ -939,7 +1119,8 @@ def test_samgov_validation_required_quality_misses_fail_larger_mode(tmp_path: Pa
 
     assert res["status"] == "failed"
     assert res["required_checks_passed"] is False
-    assert res["quality"]["required_failure_categories"] == [
+    assert res["quality"] == "degraded"
+    assert res["required_failure_categories"] == [
         "source_coverage_context_health",
         "lead_signal_quality",
     ]

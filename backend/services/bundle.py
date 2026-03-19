@@ -220,29 +220,166 @@ def write_bundle_manifest(*, bundle_dir: Path, payload: dict[str, Any]) -> Path:
     return manifest_path
 
 
+def _quality_name(summary: dict[str, Any], manifest: Optional[dict[str, Any]] = None) -> Optional[str]:
+    value = summary.get("quality")
+    if isinstance(value, dict):
+        value = value.get("quality")
+    if value is not None:
+        return str(value)
+    manifest_value = (manifest or {}).get("quality")
+    if isinstance(manifest_value, dict):
+        manifest_value = manifest_value.get("quality")
+    return str(manifest_value) if manifest_value is not None else None
+
+
+def _summary_flag(
+    summary: dict[str, Any],
+    key: str,
+    *,
+    manifest: Optional[dict[str, Any]] = None,
+    legacy_nested_key: Optional[str] = None,
+) -> Optional[bool]:
+    if key in summary:
+        return bool(summary.get(key))
+    if legacy_nested_key:
+        quality_value = summary.get("quality")
+        if isinstance(quality_value, dict) and legacy_nested_key in quality_value:
+            return bool(quality_value.get(legacy_nested_key))
+    if manifest and key in manifest:
+        return bool(manifest.get(key))
+    return None
+
+
+def _summary_list(
+    summary: dict[str, Any],
+    key: str,
+    *,
+    manifest: Optional[dict[str, Any]] = None,
+    legacy_nested_key: Optional[str] = None,
+) -> list[str]:
+    value = summary.get(key)
+    if value is None and legacy_nested_key:
+        quality_value = summary.get("quality")
+        if isinstance(quality_value, dict):
+            value = quality_value.get(legacy_nested_key)
+    if value is None and manifest is not None:
+        value = manifest.get(key)
+    if value is None and legacy_nested_key and manifest is not None:
+        manifest_quality = manifest.get("quality")
+        if isinstance(manifest_quality, dict):
+            value = manifest_quality.get(legacy_nested_key)
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return []
+
+
+def _display_value(value: Any) -> str:
+    if value is None:
+        return "Unavailable"
+    if isinstance(value, list):
+        return ", ".join([str(item) for item in value if str(item).strip()]) or "Unavailable"
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _summary_baseline(summary: dict[str, Any]) -> dict[str, Any]:
+    return summary.get("baseline") if isinstance(summary.get("baseline"), dict) else {}
+
+
+def _summary_comparison(summary: dict[str, Any], manifest: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    comparison = summary.get("comparison") if isinstance(summary.get("comparison"), dict) else {}
+    if comparison:
+        return comparison
+    manifest_comparison = (manifest or {}).get("comparison")
+    if isinstance(manifest_comparison, dict):
+        return manifest_comparison
+    return {}
+
+
 def render_sam_bundle_report(
     *,
     bundle_dir: Path,
     title: str,
-    status: str,
-    workflow_type: str,
-    validation_mode: str,
-    scoring_version: str,
-    compare_scoring_versions: list[str],
-    checks: list[dict[str, Any]],
-    check_groups: dict[str, dict[str, Any]],
-    failed_required_checks: list[dict[str, Any]],
-    warning_checks: list[dict[str, Any]],
-    summary: dict[str, Any],
+    workflow_summary: dict[str, Any],
     artifacts: dict[str, Any],
 ) -> Path:
     report_path = bundle_dir / SAM_BUNDLE_REPORT_PATH
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _row(key: str, value: Any) -> str:
-        return f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(str(value))}</td></tr>"
+    summary = dict(workflow_summary or {})
+    workflow_status = str(summary.get("workflow_status") or summary.get("status") or "warning")
+    workflow_type = str(summary.get("workflow_type") or "samgov-smoke")
+    validation_mode = str(summary.get("validation_mode") or "smoke")
+    scoring_version = str(summary.get("scoring_version") or "Unavailable")
+    compare_scoring_versions = list(summary.get("compare_scoring_versions") or [])
+    checks = list(summary.get("checks") or [])
+    check_groups = summary.get("check_groups") if isinstance(summary.get("check_groups"), dict) else {}
+    failed_required_checks = list(summary.get("failed_required_checks") or [])
+    warning_checks = list(summary.get("warning_checks") or summary.get("failed_advisory_checks") or [])
+    baseline = _summary_baseline(summary)
+    counts = baseline.get("counts") if isinstance(baseline.get("counts"), dict) else {}
+    keyword_coverage = (
+        baseline.get("keyword_coverage") if isinstance(baseline.get("keyword_coverage"), dict) else {}
+    )
+    correlations_by_lane = (
+        baseline.get("correlations_by_lane") if isinstance(baseline.get("correlations_by_lane"), dict) else {}
+    )
+    comparison = _summary_comparison(summary)
+    quality = _quality_name(summary)
+    reason_codes = _summary_list(summary, "reason_codes")
+    operator_messages = _summary_list(summary, "operator_messages")
+    comparison_reason_codes = _summary_list(summary, "comparison_reason_codes")
+    comparison_messages = _summary_list(summary, "comparison_operator_messages")
 
-    summary_rows = "".join([_row(k, v) for k, v in summary.items()])
+    def _row(key: str, value: Any) -> str:
+        return f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(_display_value(value))}</td></tr>"
+
+    summary_rows = "".join(
+        [
+            _row("workflow_status", workflow_status),
+            _row("quality", quality),
+            _row("required_checks_passed", summary.get("required_checks_passed")),
+            _row(
+                "has_required_failures",
+                _summary_flag(summary, "has_required_failures"),
+            ),
+            _row(
+                "has_advisory_failures",
+                _summary_flag(summary, "has_advisory_failures"),
+            ),
+            _row(
+                "has_usable_artifacts",
+                _summary_flag(summary, "has_usable_artifacts"),
+            ),
+            _row(
+                "partially_useful",
+                _summary_flag(summary, "partially_useful", legacy_nested_key="partially_useful"),
+            ),
+            _row(
+                "comparison_requested",
+                _summary_flag(summary, "comparison_requested"),
+            ),
+            _row(
+                "comparison_available",
+                _summary_flag(summary, "comparison_available"),
+            ),
+            _row(
+                "comparison_empty",
+                _summary_flag(summary, "comparison_empty"),
+            ),
+            _row("reason_codes", reason_codes),
+            _row("required_failure_categories", _summary_list(summary, "required_failure_categories", legacy_nested_key="required_failure_categories")),
+            _row("advisory_failure_categories", _summary_list(summary, "advisory_failure_categories", legacy_nested_key="advisory_failure_categories")),
+            _row("events_window", counts.get("events_window")),
+            _row("events_with_keywords", keyword_coverage.get("events_with_keywords")),
+            _row("events_with_entity_window", counts.get("events_with_entity_window")),
+            _row("same_keyword", correlations_by_lane.get("same_keyword")),
+            _row("kw_pair", correlations_by_lane.get("kw_pair")),
+            _row("same_sam_naics", correlations_by_lane.get("same_sam_naics")),
+            _row("snapshot_items", baseline.get("snapshot_items")),
+        ]
+    )
 
     category_rows: list[str] = []
     for category, group in check_groups.items():
@@ -287,6 +424,23 @@ def render_sam_bundle_report(
         "<table><tbody><tr><td colspan='7'>No checks found.</td></tr></tbody></table>"
     )
 
+    message_rows = "".join([f"<li>{html.escape(message)}</li>" for message in operator_messages])
+    if not message_rows:
+        message_rows = "<li>No operator messages recorded.</li>"
+    comparison_rows = "".join(
+        [
+            _row("requested_versions", comparison.get("requested_versions") or compare_scoring_versions),
+            _row("baseline_version", comparison.get("baseline_version")),
+            _row("target_version", comparison.get("target_version")),
+            _row("count", comparison.get("count")),
+            _row("state_counts", comparison.get("state_counts")),
+            _row("reason_codes", comparison_reason_codes),
+        ]
+    )
+    comparison_messages_markup = "".join([f"<li>{html.escape(message)}</li>" for message in comparison_messages])
+    if not comparison_messages_markup:
+        comparison_messages_markup = "<li>No comparison messages recorded.</li>"
+
     file_rows: list[str] = []
     files = flatten_bundle_files(artifacts=artifacts, bundle_dir=bundle_dir)
     for file_id, rel_path in sorted(files.items()):
@@ -307,7 +461,7 @@ def render_sam_bundle_report(
         f" | <a href=\"{html.escape(review_board_md.name)}\">foia_lead_review_board.md</a></p>"
     )
 
-    generated_at = datetime.now(timezone.utc).isoformat()
+    generated_at = str(summary.get("generated_at") or datetime.now(timezone.utc).isoformat())
     comparison_text = ",".join(compare_scoring_versions) if compare_scoring_versions else "none"
     html_payload = f"""<!DOCTYPE html>
 <html lang=\"en\">
@@ -327,7 +481,7 @@ def render_sam_bundle_report(
 <body>
   <h1>{html.escape(title)}</h1>
   <div class=\"meta\">
-    <span class=\"badge\">status={html.escape(status)}</span>
+    <span class=\"badge\">workflow_status={html.escape(workflow_status)}</span>
     workflow_type={html.escape(workflow_type)} |
     validation_mode={html.escape(validation_mode)} |
     scoring_version={html.escape(scoring_version)} |
@@ -337,6 +491,11 @@ def render_sam_bundle_report(
 
   <h2>Summary</h2>
   <table><tbody>{summary_rows}</tbody></table>
+  <h2>Operator Messages</h2>
+  <ul>{message_rows}</ul>
+  <h2>Comparison</h2>
+  <table><tbody>{comparison_rows}</tbody></table>
+  <ul>{comparison_messages_markup}</ul>
   {review_board_markup}
 
   <h2>Checks</h2>
@@ -512,27 +671,10 @@ def render_sam_bundle_report_from_bundle(bundle_dir: Path) -> Path:
             continue
         artifacts[str(file_id)] = root / str(rel_path)
 
-    quality = summary.get("quality") if isinstance(summary.get("quality"), dict) else {}
-    summary_counts = manifest.get("summary_counts") if isinstance(manifest.get("summary_counts"), dict) else {}
-    report_summary = {
-        "status": summary.get("status") or manifest.get("status"),
-        "quality": quality.get("quality") if isinstance(quality, dict) else None,
-        "required_checks_passed": summary.get("required_checks_passed"),
-        "partially_useful": summary.get("partially_useful"),
-        **summary_counts,
-    }
-
     return render_sam_bundle_report(
         bundle_dir=root,
         title="SAM.gov Workflow Bundle Report",
-        status=str(summary.get("status") or manifest.get("status") or "warning"),
-        workflow_type=str(summary.get("workflow_type") or manifest.get("workflow_type") or "samgov-smoke"),
-        validation_mode=str(summary.get("validation_mode") or manifest.get("validation_mode") or "smoke"),
-        checks=list(summary.get("checks") or []),
-        check_groups=summary.get("check_groups") if isinstance(summary.get("check_groups"), dict) else {},
-        failed_required_checks=list(summary.get("failed_required_checks") or []),
-        warning_checks=list(summary.get("warning_checks") or summary.get("failed_advisory_checks") or []),
-        summary=report_summary,
+        workflow_summary=summary or manifest,
         artifacts=artifacts,
     )
 
@@ -582,7 +724,8 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
         if not exists:
             missing_files.append({"id": str(file_id), "path": str(abs_path)})
 
-    quality_payload = manifest.get("quality") if isinstance(manifest.get("quality"), dict) else {}
+    summary = _load_json_file(root / SAM_BUNDLE_RESULTS_DIR / "workflow_summary.json")
+    quality_name = _quality_name(summary, manifest)
     check_summary = manifest.get("check_summary") if isinstance(manifest.get("check_summary"), dict) else {}
     integrity_status = "ok" if not missing_files else "missing_files"
     payload.update(
@@ -590,12 +733,36 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
             "status": integrity_status,
             "bundle_status": integrity_status,
             "bundle_integrity_status": integrity_status,
-            "workflow_status": manifest.get("status"),
-            "workflow_quality": quality_payload.get("quality"),
-            "required_failure_categories": quality_payload.get("required_failure_categories") or [],
-            "advisory_failure_categories": quality_payload.get("advisory_failure_categories") or [],
+            "workflow_status": summary.get("workflow_status") or summary.get("status") or manifest.get("workflow_status") or manifest.get("status"),
+            "quality": quality_name,
+            "workflow_quality": quality_name,
+            "has_required_failures": _summary_flag(summary, "has_required_failures", manifest=manifest),
+            "has_advisory_failures": _summary_flag(summary, "has_advisory_failures", manifest=manifest),
+            "has_usable_artifacts": _summary_flag(summary, "has_usable_artifacts", manifest=manifest),
+            "partially_useful": _summary_flag(summary, "partially_useful", manifest=manifest, legacy_nested_key="partially_useful"),
+            "comparison_requested": _summary_flag(summary, "comparison_requested", manifest=manifest),
+            "comparison_available": _summary_flag(summary, "comparison_available", manifest=manifest),
+            "comparison_empty": _summary_flag(summary, "comparison_empty", manifest=manifest),
+            "reason_codes": _summary_list(summary, "reason_codes", manifest=manifest),
+            "operator_messages": _summary_list(summary, "operator_messages", manifest=manifest),
+            "required_failure_categories": _summary_list(
+                summary,
+                "required_failure_categories",
+                manifest=manifest,
+                legacy_nested_key="required_failure_categories",
+            ),
+            "advisory_failure_categories": _summary_list(
+                summary,
+                "advisory_failure_categories",
+                manifest=manifest,
+                legacy_nested_key="advisory_failure_categories",
+            ),
+            "comparison_reason_codes": _summary_list(summary, "comparison_reason_codes", manifest=manifest),
+            "comparison_operator_messages": _summary_list(summary, "comparison_operator_messages", manifest=manifest),
+            "comparison": _summary_comparison(summary, manifest),
             "check_summary": check_summary,
             "manifest": manifest,
+            "workflow_summary": summary,
             "generated_files": file_status,
             "missing_files": missing_files,
         }

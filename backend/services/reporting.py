@@ -266,6 +266,41 @@ def generate_sam_report_from_bundle(
     }
 
 
+def _summary_quality_name(smoke: dict[str, Any]) -> Optional[str]:
+    value = smoke.get("quality")
+    if isinstance(value, dict):
+        value = value.get("quality")
+    if value is None:
+        return None
+    return str(value)
+
+
+def _summary_bool(smoke: dict[str, Any], key: str, *, legacy_nested_key: Optional[str] = None) -> Optional[bool]:
+    if key in smoke:
+        return bool(smoke.get(key))
+    if legacy_nested_key:
+        quality_value = smoke.get("quality")
+        if isinstance(quality_value, dict) and legacy_nested_key in quality_value:
+            return bool(quality_value.get(legacy_nested_key))
+    return None
+
+
+def _summary_list_value(
+    smoke: dict[str, Any],
+    key: str,
+    *,
+    legacy_nested_key: Optional[str] = None,
+) -> list[str]:
+    value = smoke.get(key)
+    if value is None and legacy_nested_key:
+        quality_value = smoke.get("quality")
+        if isinstance(quality_value, dict):
+            value = quality_value.get(legacy_nested_key)
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return []
+
+
 def _render_report_html(
     *,
     bundle_dir: Path,
@@ -288,20 +323,35 @@ def _render_report_html(
     artifacts: dict[str, Any],
     report_path: Path,
 ) -> str:
-    quality = smoke.get("quality") if isinstance(smoke.get("quality"), dict) else {}
-    required_failure_categories = ", ".join([str(v) for v in quality.get("required_failure_categories") or []]) or None
-    advisory_failure_categories = ", ".join([str(v) for v in quality.get("advisory_failure_categories") or []]) or None
+    quality_name = _summary_quality_name(smoke)
+    required_failure_categories = ", ".join(
+        _summary_list_value(smoke, "required_failure_categories", legacy_nested_key="required_failure_categories")
+    ) or None
+    advisory_failure_categories = ", ".join(
+        _summary_list_value(smoke, "advisory_failure_categories", legacy_nested_key="advisory_failure_categories")
+    ) or None
+    reason_codes = ", ".join(_summary_list_value(smoke, "reason_codes")) or None
+    operator_messages = " | ".join(_summary_list_value(smoke, "operator_messages")) or None
     run_meta_rows = [
         ("Source", source),
         ("Workflow Type", workflow_type),
         ("Validation Mode", smoke.get("validation_mode") or run_metadata.get("validation_mode")),
-        ("Workflow Gate Status", smoke.get("status") or workflow.get("status")),
+        ("Workflow Gate Status", smoke.get("workflow_status") or smoke.get("status") or workflow.get("status")),
         ("Scoring Version", snapshot.get("scoring_version") or run_metadata.get("scoring_version") or smoke.get("scoring_version")),
         ("Compare Scoring Versions", ",".join(run_metadata.get("compare_scoring_versions") or smoke.get("compare_scoring_versions") or [])),
-        ("Quality", quality.get("quality")),
+        ("Quality", quality_name),
         ("Required Checks Passed", smoke.get("required_checks_passed")),
+        ("Has Required Failures", _summary_bool(smoke, "has_required_failures")),
+        ("Has Advisory Failures", _summary_bool(smoke, "has_advisory_failures")),
+        ("Has Usable Artifacts", _summary_bool(smoke, "has_usable_artifacts")),
+        ("Partially Useful", _summary_bool(smoke, "partially_useful", legacy_nested_key="partially_useful")),
+        ("Comparison Requested", _summary_bool(smoke, "comparison_requested")),
+        ("Comparison Available", _summary_bool(smoke, "comparison_available")),
+        ("Comparison Empty", _summary_bool(smoke, "comparison_empty")),
         ("Required Failure Categories", required_failure_categories),
         ("Advisory Failure Categories", advisory_failure_categories),
+        ("Reason Codes", reason_codes),
+        ("Operator Messages", operator_messages),
         ("Run Timestamp", generated_at),
         ("Posted Window Mode", run_metadata.get("posted_window_mode")),
         ("Posted From", run_metadata.get("effective_posted_from")),
@@ -633,7 +683,7 @@ def _render_evaluation_section(*, bundle_dir: Path, artifact_payload: dict[str, 
 
 
 def _resolve_report_status(*, smoke: dict[str, Any], workflow: dict[str, Any]) -> str:
-    summary_status = str(smoke.get("status") or "").strip().lower()
+    summary_status = str(smoke.get("workflow_status") or smoke.get("status") or "").strip().lower()
     if summary_status in {"failed", "fail", "error"}:
         return "FAIL"
     if smoke.get("required_checks_passed") is False:
@@ -646,11 +696,10 @@ def _resolve_report_status(*, smoke: dict[str, Any], workflow: dict[str, Any]) -
     if (smoke.get("failed_advisory_checks") or smoke.get("warning_checks")):
         return "WARNING"
 
-    quality = smoke.get("quality") if isinstance(smoke.get("quality"), dict) else {}
-    quality_name = str(quality.get("quality") or "").strip().lower()
-    if quality_name == "hard_failure":
-        return "FAIL"
-    if quality_name in {"partially_useful", "rate_limited_degraded", "sparse_valid", "degraded"}:
+    quality_name = str(_summary_quality_name(smoke) or "").strip().lower()
+    if quality_name in {"degraded", "rate_limited", "rate_limited_degraded", "sparse", "sparse_valid"}:
+        return "WARNING"
+    if _summary_bool(smoke, "partially_useful", legacy_nested_key="partially_useful"):
         return "WARNING"
 
     smoke_passed = smoke.get("smoke_passed")

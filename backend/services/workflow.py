@@ -157,6 +157,21 @@ SAM_VALIDATION_CHECK_POLICIES: dict[str, dict[str, dict[str, Any]]] = {
             "severity": "error",
             "required": True,
         },
+        "scoring_comparison_available": {
+            "category": "lead_signal_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "scoring_comparison_non_empty": {
+            "category": "lead_signal_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "comparison_effective_window_matches_request": {
+            "category": "source_coverage_context_health",
+            "severity": "warning",
+            "required": False,
+        },
     },
     "larger": {
         "doctor_db_ok": {
@@ -250,6 +265,21 @@ SAM_VALIDATION_CHECK_POLICIES: dict[str, dict[str, dict[str, Any]]] = {
             "required": True,
         },
         "larger_run_window_signal": {
+            "category": "source_coverage_context_health",
+            "severity": "warning",
+            "required": False,
+        },
+        "scoring_comparison_available": {
+            "category": "lead_signal_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "scoring_comparison_non_empty": {
+            "category": "lead_signal_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "comparison_effective_window_matches_request": {
             "category": "source_coverage_context_health",
             "severity": "warning",
             "required": False,

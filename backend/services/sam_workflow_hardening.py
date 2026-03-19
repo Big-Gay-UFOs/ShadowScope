@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -47,6 +48,39 @@ def _normalize_validation_mode(mode: str) -> str:
 
 def _iso_or_none(value: Any) -> Any:
     return value.isoformat() if hasattr(value, "isoformat") else value
+
+
+def _dedupe_text(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for raw in values:
+        text = str(raw or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        ordered.append(text)
+    return ordered
+
+
+def _artifact_exists(value: Any) -> bool:
+    try:
+        return Path(value).expanduser().exists()
+    except Exception:
+        return False
+
+
+def _load_json_payload(path_value: Any) -> dict[str, Any]:
+    try:
+        path = Path(path_value).expanduser()
+    except Exception:
+        return {}
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _snapshot_window_args(
@@ -233,10 +267,209 @@ def _build_quality_gate_policy(
     }
 
 
-def _classify_sam_quality(
+def _requested_window_differs_from_effective(
+    requested_window: dict[str, Any],
+    effective_window: dict[str, Any],
+) -> bool:
+    if not requested_window or not effective_window:
+        return False
+
+    requested_mode = str(requested_window.get("mode") or "").strip()
+    effective_mode = str(effective_window.get("mode") or "").strip()
+    if requested_mode and effective_mode and requested_mode != effective_mode:
+        return True
+
+    for key in ("posted_from", "posted_to"):
+        requested_value = requested_window.get(key)
+        effective_value = effective_window.get(key)
+        if requested_value and effective_value and requested_value != effective_value:
+            return True
+
+    requested_days = requested_window.get("requested_days")
+    if requested_days is None:
+        requested_days = requested_window.get("effective_days")
+    effective_days = effective_window.get("effective_days")
+    if requested_days is not None and effective_days is not None:
+        try:
+            if int(requested_days) != int(effective_days):
+                return True
+        except Exception:
+            if requested_days != effective_days:
+                return True
+
+    return False
+
+
+def _build_comparison_summary(
+    *,
+    compare_scoring_versions: list[str],
+    workflow_exports: dict[str, Any],
+    requested_window: dict[str, Any],
+    effective_window: dict[str, Any],
+) -> dict[str, Any]:
+    requested_versions = list(compare_scoring_versions or [])
+    requested = bool(requested_versions)
+    comparison_export = (
+        workflow_exports.get("scoring_comparison")
+        if isinstance(workflow_exports.get("scoring_comparison"), dict)
+        else {}
+    )
+    comparison_json = _load_json_payload(comparison_export.get("json"))
+    available = bool(
+        requested
+        and (
+            _artifact_exists(comparison_export.get("json"))
+            or _artifact_exists(comparison_export.get("csv"))
+        )
+    )
+    count_value = comparison_export.get("count")
+    if count_value is None:
+        count_value = comparison_json.get("count")
+    comparison_count: Optional[int]
+    if count_value is None:
+        comparison_count = None
+    else:
+        comparison_count = _safe_int(count_value, default=0)
+
+    empty = bool(requested and available and comparison_count == 0)
+    reason_codes: list[str] = []
+    operator_messages: list[str] = []
+
+    if requested and not available:
+        reason_codes.append("comparison_not_available")
+        operator_messages.append(
+            "Scoring comparison was requested, but no comparison artifact is available in this bundle."
+        )
+    if empty:
+        reason_codes.append("comparison_requested_but_empty")
+        operator_messages.append(
+            "Scoring comparison was requested, but the comparison artifact contains zero comparable rows."
+        )
+    if requested and _requested_window_differs_from_effective(requested_window, effective_window):
+        reason_codes.append("requested_window_differs_from_effective_window")
+        operator_messages.append(
+            "Requested comparison window differs from the effective ingest window. Review the effective window shown in the bundle before interpreting deltas."
+        )
+
+    state_counts = comparison_json.get("state_counts") if isinstance(comparison_json.get("state_counts"), dict) else {}
+    baseline_version = str(
+        comparison_export.get("baseline_version")
+        or comparison_json.get("baseline_version")
+        or (requested_versions[0] if len(requested_versions) >= 1 else "")
+    )
+    target_version = str(
+        comparison_export.get("target_version")
+        or comparison_json.get("target_version")
+        or (requested_versions[1] if len(requested_versions) >= 2 else "")
+    )
+
+    return {
+        "requested": requested,
+        "available": available,
+        "empty": empty,
+        "policy_level": "advisory" if requested else None,
+        "requested_versions": requested_versions,
+        "baseline_version": baseline_version or None,
+        "target_version": target_version or None,
+        "count": comparison_count,
+        "state_counts": state_counts,
+        "requested_window": requested_window,
+        "effective_window": effective_window,
+        "reason_codes": _dedupe_text(reason_codes),
+        "operator_messages": _dedupe_text(operator_messages),
+    }
+
+
+def _build_comparison_checks(
+    *,
+    workflow_module: Any,
+    comparison_summary: dict[str, Any],
+    validation_mode: str,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    if not bool(comparison_summary.get("requested")):
+        return checks
+
+    requested_versions = list(comparison_summary.get("requested_versions") or [])
+    compare_flag = ",".join([str(item) for item in requested_versions if str(item).strip()]) or "<baseline,target>"
+    rerun_hint = f"Rerun with --compare-scoring-versions {compare_flag} and inspect exports/lead_scoring_comparison.json."
+
+    if not bool(comparison_summary.get("available")):
+        checks.append(
+            workflow_module._serialize_check(
+                name="scoring_comparison_available",
+                ok=False,
+                observed="missing",
+                actual="missing",
+                threshold="comparison artifact available",
+                expected="comparison artifact available",
+                why="Requested scoring comparison must be present so operators can audit historical/control deltas.",
+                hint=rerun_hint,
+                kind="artifact",
+                validation_mode=validation_mode,
+                required=False,
+                severity="warning",
+                category="lead_signal_quality",
+                status="info",
+            )
+        )
+    elif bool(comparison_summary.get("empty")):
+        checks.append(
+            workflow_module._serialize_check(
+                name="scoring_comparison_non_empty",
+                ok=False,
+                observed=comparison_summary.get("count"),
+                actual={
+                    "count": comparison_summary.get("count"),
+                    "state_counts": comparison_summary.get("state_counts") or {},
+                },
+                threshold="count > 0",
+                expected="count > 0",
+                why="Requested scoring comparison should produce at least one comparable lead row for operator review.",
+                hint=rerun_hint,
+                kind="artifact",
+                validation_mode=validation_mode,
+                required=False,
+                severity="warning",
+                category="lead_signal_quality",
+                status="info",
+            )
+        )
+
+    if "requested_window_differs_from_effective_window" in list(comparison_summary.get("reason_codes") or []):
+        checks.append(
+            workflow_module._serialize_check(
+                name="comparison_effective_window_matches_request",
+                ok=False,
+                observed={
+                    "requested_window": comparison_summary.get("requested_window") or {},
+                    "effective_window": comparison_summary.get("effective_window") or {},
+                },
+                actual={
+                    "requested_window": comparison_summary.get("requested_window") or {},
+                    "effective_window": comparison_summary.get("effective_window") or {},
+                },
+                threshold="requested_window == effective_window",
+                expected="requested_window == effective_window",
+                why="Comparison interpretation depends on the effective ingest window matching the requested window.",
+                hint="Use the effective window shown in the bundle when interpreting comparison output, or rerun with explicit posted dates.",
+                kind="artifact",
+                validation_mode=validation_mode,
+                required=False,
+                severity="warning",
+                category="source_coverage_context_health",
+                status="info",
+            )
+        )
+
+    return checks
+
+
+def _build_sam_run_status(
     *,
     failed_required_checks: list[dict[str, Any]],
     warning_checks: list[dict[str, Any]],
+    comparison_summary: dict[str, Any],
     events_window: int,
     events_with_keywords: int,
     events_with_entity: int,
@@ -248,40 +481,69 @@ def _classify_sam_quality(
     retry_attempts_total = _safe_int(ingest_request_diag.get("retry_attempts_total"))
     required_failure_categories = _ordered_failure_categories(failed_required_checks)
     advisory_failure_categories = _ordered_failure_categories(warning_checks)
+    failed_required_names = {
+        str(item.get("name") or "").strip()
+        for item in failed_required_checks
+        if str(item.get("name") or "").strip()
+    }
+    comparison_reason_codes = list(comparison_summary.get("reason_codes") or [])
+    comparison_messages = list(comparison_summary.get("operator_messages") or [])
 
-    partially_useful = (
-        events_window > 0
-        and (
-            events_with_keywords > 0
-            or events_with_entity > 0
-            or snapshot_items > 0
+    has_required_failures = bool(failed_required_checks)
+    has_advisory_failures = bool(warning_checks) or bool(comparison_reason_codes)
+    has_usable_artifacts = bool(
+        snapshot_items > 0
+        or (
+            events_window > 0
+            and (
+                events_with_keywords > 0
+                or events_with_entity > 0
+            )
         )
     )
+    pipeline_blocked = bool(failed_required_names & {"doctor_db_ok", "workflow_execution"})
+
+    if rate_limit_retries > 0 and has_usable_artifacts and not has_required_failures:
+        quality = "rate_limited"
+    elif not has_usable_artifacts:
+        quality = "degraded" if pipeline_blocked else "sparse"
+    elif has_required_failures or has_advisory_failures:
+        quality = "degraded"
+    else:
+        quality = "healthy"
+
+    partially_useful = bool(
+        has_usable_artifacts
+        and not has_required_failures
+        and (has_advisory_failures or quality in {"degraded", "rate_limited"})
+    )
+
+    if has_required_failures:
+        workflow_status = "failed"
+    elif has_advisory_failures:
+        workflow_status = "warning"
+    else:
+        workflow_status = "ok"
 
     reason_codes: list[str] = []
+    reason_codes.extend(
+        [f"required_check_failed:{item.get('name')}" for item in failed_required_checks if item.get("name")]
+    )
+    reason_codes.extend(
+        [f"advisory_check_failed:{item.get('name')}" for item in warning_checks if item.get("name")]
+    )
+    reason_codes.extend(comparison_reason_codes)
 
-    if failed_required_checks:
-        quality = "hard_failure"
-        reason_codes.extend([f"required_check_failed:{item.get('name')}" for item in failed_required_checks])
-    elif warning_checks:
-        if rate_limit_retries > 0:
-            quality = "rate_limited_degraded"
-        elif partially_useful:
-            quality = "partially_useful"
-        elif events_window > 0:
-            quality = "sparse_valid"
-        else:
-            quality = "degraded"
-        reason_codes.extend([f"warning_check_failed:{item.get('name')}" for item in warning_checks])
-    else:
-        if not ingest_nonzero and events_window == 0:
-            quality = "sparse_valid"
-            reason_codes.append("empty_window_or_no_fresh_ingest")
-        elif rate_limit_retries > 0 and retry_attempts_total > 0:
-            quality = "rate_limited_degraded"
-            reason_codes.append("rate_limit_retries_observed")
-        else:
-            quality = "healthy"
+    if workflow_status != "ok" or quality != "healthy":
+        if quality == "degraded":
+            reason_codes.append("quality_degraded")
+        elif quality == "sparse":
+            reason_codes.append("quality_sparse")
+        elif quality == "rate_limited":
+            reason_codes.append("quality_rate_limited")
+
+    if workflow_status != "ok" and not reason_codes:
+        reason_codes.append(f"workflow_status:{workflow_status}")
 
     operator_messages: list[str] = []
     if required_failure_categories:
@@ -292,33 +554,56 @@ def _classify_sam_quality(
         operator_messages.append(
             "Advisory quality misses were observed in: " + ", ".join(advisory_failure_categories) + "."
         )
+    if warning_checks and not required_failure_categories and advisory_failure_categories:
+        operator_messages.append(
+            "Required gates passed, but advisory misses prevent treating this run as fully healthy."
+        )
     if rate_limit_retries > 0:
         operator_messages.append(
             "SAM.gov retries/429s were observed. Consider tuning SAM_API_TIMEOUT_SECONDS, "
             "SAM_API_MAX_RETRIES, and SAM_API_BACKOFF_BASE for larger windows."
         )
-    if events_window == 0:
+    if quality == "sparse":
         operator_messages.append(
-            "No SAM.gov events were found in the diagnostic window. This can be sparse-valid, "
-            "or may require larger --days/--pages."
+            "Run did not produce enough usable SAM.gov artifacts to treat the output as fully reviewable."
         )
-    elif partially_useful and (warning_checks or failed_required_checks):
+        if events_window == 0:
+            operator_messages.append(
+                "No SAM.gov events were found in the diagnostic window. Try a wider --days/--pages window before drawing conclusions."
+            )
+    if partially_useful:
         operator_messages.append(
-            "Run produced usable artifacts but some quality gates missed thresholds. Treat as partially useful."
+            "Run produced usable artifacts, but nonfatal weaknesses prevent treating it as cleanly healthy."
         )
+    if not ingest_nonzero and events_window == 0:
+        reason_codes.append("empty_window_or_no_fresh_ingest")
+    if rate_limit_retries > 0 and retry_attempts_total > 0:
+        reason_codes.append("rate_limit_retries_observed")
+
+    operator_messages.extend(comparison_messages)
 
     return {
+        "workflow_status": workflow_status,
         "quality": quality,
-        "partially_useful": bool(partially_useful),
+        "has_required_failures": has_required_failures,
+        "has_advisory_failures": has_advisory_failures,
+        "has_usable_artifacts": has_usable_artifacts,
+        "partially_useful": partially_useful,
         "rate_limit_retries": rate_limit_retries,
         "retry_attempts_total": retry_attempts_total,
-        "reason_codes": reason_codes,
+        "reason_codes": _dedupe_text(reason_codes),
         "required_failure_categories": required_failure_categories,
         "advisory_failure_categories": advisory_failure_categories,
         "failure_categories": required_failure_categories + [
             category for category in advisory_failure_categories if category not in required_failure_categories
         ],
-        "operator_messages": operator_messages,
+        "comparison_requested": bool(comparison_summary.get("requested")),
+        "comparison_available": bool(comparison_summary.get("available")),
+        "comparison_empty": bool(comparison_summary.get("empty")),
+        "comparison_reason_codes": comparison_reason_codes,
+        "comparison_operator_messages": comparison_messages,
+        "comparison": comparison_summary,
+        "operator_messages": _dedupe_text(operator_messages),
     }
 
 
@@ -802,6 +1087,24 @@ def run_samgov_smoke_workflow_hardened(
             )
         )
 
+    comparison_summary = _build_comparison_summary(
+        compare_scoring_versions=list(compare_scoring_versions or []),
+        workflow_exports=(
+            workflow_res.get("exports")
+            if isinstance(workflow_res, dict) and isinstance(workflow_res.get("exports"), dict)
+            else {}
+        ),
+        requested_window=serialize_sam_posted_window(requested_window),
+        effective_window=effective_window,
+    )
+    checks.extend(
+        _build_comparison_checks(
+            workflow_module=workflow_module,
+            comparison_summary=comparison_summary,
+            validation_mode=mode,
+        )
+    )
+
     failed_required_checks = [c for c in checks if bool(c.get("required", True)) and not bool(c.get("ok"))]
     warning_checks = [c for c in checks if not bool(c.get("required", True)) and not bool(c.get("ok"))]
     check_groups = _summarize_check_groups(checks)
@@ -813,9 +1116,10 @@ def run_samgov_smoke_workflow_hardened(
     required_checks_passed = len(failed_required_checks) == 0
     smoke_passed = len(failed_required_checks) == 0
 
-    quality = _classify_sam_quality(
+    status_summary = _build_sam_run_status(
         failed_required_checks=failed_required_checks,
         warning_checks=warning_checks,
+        comparison_summary=comparison_summary,
         events_window=events_window,
         events_with_keywords=events_with_keywords,
         events_with_entity=events_with_entity,
@@ -906,12 +1210,7 @@ def run_samgov_smoke_workflow_hardened(
     workflow_module._write_json(workflow_json, {"generated_at": now.isoformat(), "result": workflow_res})
     workflow_module._write_json(doctor_json, {"generated_at": now.isoformat(), "result": doc})
 
-    if failed_required_checks:
-        workflow_status = "failed"
-    elif warning_checks:
-        workflow_status = "warning"
-    else:
-        workflow_status = "ok"
+    workflow_status = str(status_summary.get("workflow_status") or "warning")
 
     summary_payload = {
         "generated_at": now.isoformat(),
@@ -921,11 +1220,26 @@ def run_samgov_smoke_workflow_hardened(
         "bundle_version": SAM_BUNDLE_VERSION,
         "scoring_version": str(scoring_version),
         "compare_scoring_versions": list(compare_scoring_versions or []),
+        "workflow_status": workflow_status,
         "status": workflow_status,
+        "quality": status_summary.get("quality"),
+        "has_required_failures": bool(status_summary.get("has_required_failures")),
+        "has_advisory_failures": bool(status_summary.get("has_advisory_failures")),
+        "has_usable_artifacts": bool(status_summary.get("has_usable_artifacts")),
+        "partially_useful": bool(status_summary.get("partially_useful")),
+        "comparison_requested": bool(status_summary.get("comparison_requested")),
+        "comparison_available": bool(status_summary.get("comparison_available")),
+        "comparison_empty": bool(status_summary.get("comparison_empty")),
+        "reason_codes": list(status_summary.get("reason_codes") or []),
+        "operator_messages": list(status_summary.get("operator_messages") or []),
+        "required_failure_categories": list(status_summary.get("required_failure_categories") or []),
+        "advisory_failure_categories": list(status_summary.get("advisory_failure_categories") or []),
+        "failure_categories": list(status_summary.get("failure_categories") or []),
+        "comparison_reason_codes": list(status_summary.get("comparison_reason_codes") or []),
+        "comparison_operator_messages": list(status_summary.get("comparison_operator_messages") or []),
+        "comparison": status_summary.get("comparison") or {},
         "smoke_passed": smoke_passed,
         "required_checks_passed": required_checks_passed,
-        "partially_useful": bool(quality.get("partially_useful")),
-        "quality": quality,
         "require_nonzero": bool(require_nonzero),
         "thresholds": thresholds,
         "quality_gate_policy": quality_gate_policy,
@@ -965,41 +1279,10 @@ def run_samgov_smoke_workflow_hardened(
     artifacts["foia_lead_review_board_html"] = review_board_artifacts["html"]
     artifacts["foia_lead_review_board_md"] = review_board_artifacts["markdown"]
 
-    report_summary = {
-        "status": workflow_status,
-        "scoring_version": str(scoring_version),
-        "compare_scoring_versions": ",".join(compare_scoring_versions or []),
-        "quality": quality.get("quality"),
-        "smoke_passed": smoke_passed,
-        "required_checks_passed": required_checks_passed,
-        "partially_useful": bool(quality.get("partially_useful")),
-        "events_window": events_window,
-        "events_with_keywords": events_with_keywords,
-        "events_with_entity_window": events_with_entity,
-        "same_keyword": same_keyword_lane,
-        "kw_pair": kw_pair_lane,
-        "same_sam_naics": same_sam_naics_lane,
-        "snapshot_items": snapshot_items,
-        "rate_limit_retries": rate_limit_retries,
-        "retry_attempts_total": retry_attempts_total,
-        "posted_window_mode": effective_window.get("mode"),
-        "effective_posted_from": effective_window.get("posted_from"),
-        "effective_posted_to": effective_window.get("posted_to"),
-    }
-
     report_html = render_sam_bundle_report(
         bundle_dir=bundle_dir,
         title="SAM.gov Workflow Bundle Report",
-        status=workflow_status,
-        workflow_type=workflow_type,
-        validation_mode=mode,
-        scoring_version=str(scoring_version),
-        compare_scoring_versions=list(compare_scoring_versions or []),
-        checks=checks,
-        check_groups=check_groups,
-        failed_required_checks=failed_required_checks,
-        warning_checks=warning_checks,
-        summary=report_summary,
+        workflow_summary=summary_payload,
         artifacts=artifacts,
     )
     artifacts["report_html"] = report_html
@@ -1012,8 +1295,24 @@ def run_samgov_smoke_workflow_hardened(
         "scoring_version": str(scoring_version),
         "compare_scoring_versions": list(compare_scoring_versions or []),
         "generated_at": now.isoformat(),
+        "workflow_status": workflow_status,
         "status": workflow_status,
-        "quality": quality,
+        "quality": status_summary.get("quality"),
+        "has_required_failures": bool(status_summary.get("has_required_failures")),
+        "has_advisory_failures": bool(status_summary.get("has_advisory_failures")),
+        "has_usable_artifacts": bool(status_summary.get("has_usable_artifacts")),
+        "partially_useful": bool(status_summary.get("partially_useful")),
+        "comparison_requested": bool(status_summary.get("comparison_requested")),
+        "comparison_available": bool(status_summary.get("comparison_available")),
+        "comparison_empty": bool(status_summary.get("comparison_empty")),
+        "reason_codes": list(status_summary.get("reason_codes") or []),
+        "operator_messages": list(status_summary.get("operator_messages") or []),
+        "required_failure_categories": list(status_summary.get("required_failure_categories") or []),
+        "advisory_failure_categories": list(status_summary.get("advisory_failure_categories") or []),
+        "failure_categories": list(status_summary.get("failure_categories") or []),
+        "comparison_reason_codes": list(status_summary.get("comparison_reason_codes") or []),
+        "comparison_operator_messages": list(status_summary.get("comparison_operator_messages") or []),
+        "comparison": status_summary.get("comparison") or {},
         "summary_counts": {
             "events_window": events_window,
             "events_with_keywords": events_with_keywords,
@@ -1031,8 +1330,8 @@ def run_samgov_smoke_workflow_hardened(
             "failed_required": len(failed_required_checks),
             "failed_advisory": len(warning_checks),
             "warnings": len(warning_checks),
-            "required_failure_categories": quality.get("required_failure_categories") or [],
-            "advisory_failure_categories": quality.get("advisory_failure_categories") or [],
+            "required_failure_categories": status_summary.get("required_failure_categories") or [],
+            "advisory_failure_categories": status_summary.get("advisory_failure_categories") or [],
             "by_category": {
                 category: {
                     "category_label": group.get("category_label"),
@@ -1077,11 +1376,25 @@ def run_samgov_smoke_workflow_hardened(
     artifacts["bundle_manifest_json"] = manifest_json
 
     return {
+        "workflow_status": workflow_status,
         "status": workflow_status,
+        "quality": status_summary.get("quality"),
+        "has_required_failures": bool(status_summary.get("has_required_failures")),
+        "has_advisory_failures": bool(status_summary.get("has_advisory_failures")),
+        "has_usable_artifacts": bool(status_summary.get("has_usable_artifacts")),
+        "partially_useful": bool(status_summary.get("partially_useful")),
+        "comparison_requested": bool(status_summary.get("comparison_requested")),
+        "comparison_available": bool(status_summary.get("comparison_available")),
+        "comparison_empty": bool(status_summary.get("comparison_empty")),
+        "reason_codes": list(status_summary.get("reason_codes") or []),
+        "operator_messages": list(status_summary.get("operator_messages") or []),
+        "required_failure_categories": list(status_summary.get("required_failure_categories") or []),
+        "advisory_failure_categories": list(status_summary.get("advisory_failure_categories") or []),
+        "comparison_reason_codes": list(status_summary.get("comparison_reason_codes") or []),
+        "comparison_operator_messages": list(status_summary.get("comparison_operator_messages") or []),
+        "comparison": status_summary.get("comparison") or {},
         "smoke_passed": bool(smoke_passed),
         "required_checks_passed": bool(required_checks_passed),
-        "partially_useful": bool(quality.get("partially_useful")),
-        "quality": quality,
         "workflow_type": workflow_type,
         "validation_mode": mode,
         "scoring_version": str(scoring_version),

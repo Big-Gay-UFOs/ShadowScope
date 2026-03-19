@@ -1073,7 +1073,7 @@ def diagnose_samgov_cli(
             "Bundle: "
             f"integrity={bundle.get('bundle_integrity_status')} "
             f"workflow_status={bundle.get('workflow_status')} "
-            f"quality={bundle.get('bundle_quality')}"
+            f"quality={bundle.get('quality') or bundle.get('bundle_quality')}"
         )
         required_failure_categories = bundle.get("required_failure_categories") or []
         advisory_failure_categories = bundle.get("advisory_failure_categories") or []
@@ -1084,6 +1084,13 @@ def diagnose_samgov_cli(
         if advisory_failure_categories:
             typer.echo(
                 "Advisory failure categories: " + ", ".join([str(item) for item in advisory_failure_categories])
+            )
+        if bundle.get("comparison_requested"):
+            typer.echo(
+                "Comparison: "
+                f"requested={bundle.get('comparison_requested')} "
+                f"available={bundle.get('comparison_available')} "
+                f"empty={bundle.get('comparison_empty')}"
             )
 
     retries = int(res.get("rate_limit_retries") or 0)
@@ -1113,7 +1120,14 @@ def inspect_bundle_cli(
     typer.echo(f"Bundle integrity: {result.get('bundle_integrity_status') or result.get('status')}")
     if result.get("workflow_status") is not None:
         typer.echo(
-            f"Workflow status: {result.get('workflow_status')} quality={result.get('workflow_quality')}"
+            f"Workflow status: {result.get('workflow_status')} quality={result.get('quality') or result.get('workflow_quality')}"
+        )
+    if result.get("comparison_requested"):
+        typer.echo(
+            "Comparison: "
+            f"requested={result.get('comparison_requested')} "
+            f"available={result.get('comparison_available')} "
+            f"empty={result.get('comparison_empty')}"
         )
     check_summary = result.get("check_summary") or {}
     if check_summary:
@@ -1134,22 +1148,49 @@ def inspect_bundle_cli(
             typer.echo(f"- {item.get('id')}: {item.get('path')}")
 
 
+def _quality_name(payload: dict) -> Optional[str]:
+    value = payload.get("quality")
+    if isinstance(value, dict):
+        value = value.get("quality")
+    if value is None:
+        return None
+    return str(value)
+
+
+def _summary_list(payload: dict, key: str, *, legacy_nested_key: Optional[str] = None) -> list[str]:
+    value = payload.get(key)
+    if value is None and legacy_nested_key:
+        quality = payload.get("quality")
+        if isinstance(quality, dict):
+            value = quality.get(legacy_nested_key)
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return []
+
+
 def _echo_validation_gate_summary(label: str, res: dict) -> None:
-    status = str(res.get("status") or "unknown").upper()
+    status = str(res.get("workflow_status") or res.get("status") or "unknown").upper()
     failed_required = res.get("failed_required_checks") or []
     failed_advisory = res.get("failed_advisory_checks") or res.get("warning_checks") or []
-    quality = res.get("quality") or {}
     typer.echo(f"{label}: {status}")
     typer.echo(
         "Gate summary: "
         f"required_checks_passed={res.get('required_checks_passed', res.get('smoke_passed'))} "
         f"required_failed={len(failed_required)} "
         f"advisory_failed={len(failed_advisory)} "
-        f"quality={quality.get('quality')}"
+        f"quality={_quality_name(res)}"
     )
 
-    required_failure_categories = quality.get("required_failure_categories") or []
-    advisory_failure_categories = quality.get("advisory_failure_categories") or []
+    required_failure_categories = _summary_list(
+        res,
+        "required_failure_categories",
+        legacy_nested_key="required_failure_categories",
+    )
+    advisory_failure_categories = _summary_list(
+        res,
+        "advisory_failure_categories",
+        legacy_nested_key="advisory_failure_categories",
+    )
     if required_failure_categories:
         typer.echo(
             "Required failure categories: " + ", ".join([str(item) for item in required_failure_categories])
@@ -1157,6 +1198,13 @@ def _echo_validation_gate_summary(label: str, res: dict) -> None:
     if advisory_failure_categories:
         typer.echo(
             "Advisory failure categories: " + ", ".join([str(item) for item in advisory_failure_categories])
+        )
+    if res.get("comparison_requested"):
+        typer.echo(
+            "Comparison state: "
+            f"requested={res.get('comparison_requested')} "
+            f"available={res.get('comparison_available')} "
+            f"empty={res.get('comparison_empty')}"
         )
 
     for group in (res.get("check_groups") or {}).values():

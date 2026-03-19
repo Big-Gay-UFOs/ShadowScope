@@ -48,6 +48,7 @@ def _classify_sam_diagnostics(
     bundle_integrity_status: Optional[str],
     workflow_status: Optional[str],
     bundle_quality: Optional[str],
+    partially_useful: bool,
     required_failure_categories: list[str],
     advisory_failure_categories: list[str],
     rate_limit_retries: int,
@@ -64,18 +65,22 @@ def _classify_sam_diagnostics(
             return "broken"
         return "degraded"
     if workflow_status == "warning":
-        if bundle_quality == "rate_limited_degraded" or rate_limit_retries > 0:
+        if bundle_quality == "rate_limited" or bundle_quality == "rate_limited_degraded" or rate_limit_retries > 0:
             return "rate_limited_degraded"
-        if bundle_quality == "sparse_valid" or events_window == 0:
+        if bundle_quality == "sparse" or bundle_quality == "sparse_valid" or events_window == 0:
             return "sparse_valid"
+        if partially_useful:
+            return "partially_useful"
         if bundle_quality in {"partially_useful", "degraded"}:
             return str(bundle_quality)
         return "degraded"
     if workflow_status == "ok":
-        if bundle_quality == "rate_limited_degraded" or rate_limit_retries > 0:
+        if bundle_quality == "rate_limited" or bundle_quality == "rate_limited_degraded" or rate_limit_retries > 0:
             return "rate_limited_degraded"
-        if bundle_quality == "sparse_valid" or events_window == 0:
+        if bundle_quality == "sparse" or bundle_quality == "sparse_valid" or events_window == 0:
             return "sparse_valid"
+        if partially_useful:
+            return "partially_useful"
         if bundle_quality in {"partially_useful", "degraded"}:
             return str(bundle_quality)
         if bundle_quality == "healthy":
@@ -197,6 +202,7 @@ def diagnose_samgov(
     bundle_integrity_status = None
     workflow_status = None
     bundle_quality = None
+    bundle_partially_useful = False
     required_failure_categories: list[str] = []
     advisory_failure_categories: list[str] = []
     if isinstance(bundle_inspection, dict):
@@ -205,10 +211,10 @@ def diagnose_samgov(
         manifest = bundle_inspection.get("manifest") if isinstance(bundle_inspection.get("manifest"), dict) else {}
         ingest_diag = manifest.get("ingest_diagnostics") if isinstance(manifest.get("ingest_diagnostics"), dict) else {}
         rate_limit_retries = int(ingest_diag.get("rate_limit_retries") or 0)
-        quality_payload = manifest.get("quality") if isinstance(manifest.get("quality"), dict) else {}
-        bundle_quality = quality_payload.get("quality")
-        required_failure_categories = list(quality_payload.get("required_failure_categories") or [])
-        advisory_failure_categories = list(quality_payload.get("advisory_failure_categories") or [])
+        bundle_quality = bundle_inspection.get("quality")
+        bundle_partially_useful = bool(bundle_inspection.get("partially_useful"))
+        required_failure_categories = list(bundle_inspection.get("required_failure_categories") or [])
+        advisory_failure_categories = list(bundle_inspection.get("advisory_failure_categories") or [])
 
     recommendations: list[str] = []
     if events_window == 0:
@@ -247,6 +253,9 @@ def diagnose_samgov(
             + ", ".join(advisory_failure_categories)
             + ". Review the bundle report before treating the run as fully healthy."
         )
+    if isinstance(bundle_inspection, dict):
+        for message in bundle_inspection.get("operator_messages") or []:
+            recommendations.append(str(message))
     if db_query_error:
         recommendations.append(
             "SAM diagnostics query failed while inspecting events/snapshots. Verify DATABASE_URL and local schema health (for example: ss db init)."
@@ -258,6 +267,7 @@ def diagnose_samgov(
         bundle_integrity_status=bundle_integrity_status,
         workflow_status=workflow_status,
         bundle_quality=bundle_quality,
+        partially_useful=bool(bundle_partially_useful),
         required_failure_categories=required_failure_categories,
         advisory_failure_categories=advisory_failure_categories,
         rate_limit_retries=rate_limit_retries,
@@ -281,9 +291,19 @@ def diagnose_samgov(
             "bundle_status": bundle_integrity_status,
             "bundle_integrity_status": bundle_integrity_status,
             "workflow_status": workflow_status,
+            "quality": bundle_quality,
             "bundle_quality": bundle_quality,
+            "partially_useful": bool(bundle_partially_useful),
+            "has_required_failures": bundle_inspection.get("has_required_failures") if isinstance(bundle_inspection, dict) else None,
+            "has_advisory_failures": bundle_inspection.get("has_advisory_failures") if isinstance(bundle_inspection, dict) else None,
+            "has_usable_artifacts": bundle_inspection.get("has_usable_artifacts") if isinstance(bundle_inspection, dict) else None,
+            "comparison_requested": bundle_inspection.get("comparison_requested") if isinstance(bundle_inspection, dict) else None,
+            "comparison_available": bundle_inspection.get("comparison_available") if isinstance(bundle_inspection, dict) else None,
+            "comparison_empty": bundle_inspection.get("comparison_empty") if isinstance(bundle_inspection, dict) else None,
             "required_failure_categories": required_failure_categories,
             "advisory_failure_categories": advisory_failure_categories,
+            "reason_codes": bundle_inspection.get("reason_codes") if isinstance(bundle_inspection, dict) else [],
+            "operator_messages": bundle_inspection.get("operator_messages") if isinstance(bundle_inspection, dict) else [],
         },
         "gaps": {
             "untagged_events": len(untagged_event_ids),

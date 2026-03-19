@@ -545,16 +545,23 @@ Lead snapshot review exports now include a canonical `review_summary.json` artif
 
 Bundle interpretation:
 
-- `workflow_summary.json`: machine-readable run quality/check outcomes (`ok`, `warning`, `failed`) and partial-usefulness classification.
+- `workflow_summary.json`: machine-readable run status with explicit `workflow_status`, `quality`, `has_required_failures`, `has_advisory_failures`, `has_usable_artifacts`, `partially_useful`, `reason_codes`, `operator_messages`, and explicit comparison state (`comparison_requested`, `comparison_available`, `comparison_empty`).
 - `bundle_manifest.json`: single source of truth for bundle discovery (`generated_files`, status, summary counts, run parameters).
-- `bundle_report.html`: human-oriented run review surface aligned to manifest paths.
+- `bundle_report.html`: human-oriented run review surface rendered from the same status/comparison fields so the HTML cannot silently tell a different story than `workflow_summary.json`.
 - `foia_lead_review_board.html` / `foia_lead_review_board.md`: reviewer-first lead triage surface focused on top leads, noise patterns, draftability, and next-record targets.
 
 Warnings vs failures:
 
 - `failed`: one or more required checks failed. The bundle/report now labels whether the failure came from pipeline health, source coverage/context health, or lead-signal quality.
-- `warning`: required checks passed, but one or more advisory checks missed threshold and the run is degraded/partially useful.
+- `warning`: required checks passed, but one or more advisory checks or requested comparison caveats prevent treating the run as cleanly healthy.
 - `ok`: required checks passed and no warning-level misses.
+
+Quality semantics:
+
+- `healthy`: usable artifacts with no warning-level weaknesses.
+- `degraded`: usable artifacts exist, but nonfatal weaknesses require caution.
+- `sparse`: usable artifacts were not produced at reviewable depth.
+- `rate_limited`: usable artifacts exist, but retries/429 pressure materially affected the run.
 
 Validation policy:
 
