@@ -19,6 +19,23 @@ from backend.services.explainability import (
 )
 from backend.services.lead_families import classify_lead_families, lead_matches_family, summarize_lead_family_groups
 from backend.services.leads import compare_lead_scoring_versions
+from backend.services.review_contract import (
+    CANONICAL_RANKED_LEAD_REVIEW_FIELDS,
+    RANKED_LEAD_REVIEW_CONTRACT_VERSION,
+    candidate_join_text as review_candidate_join_text,
+    correlation_text as review_correlation_text,
+    family_assignment_text as review_family_assignment_text,
+    linked_source_text as review_linked_source_text,
+    list_text as review_list_text,
+    review_completeness_counts,
+    review_effective_window,
+    review_row_csv_safe,
+    serialize_ranked_lead_review_row,
+    signal_text as review_signal_text,
+    suppressor_text as review_suppressor_text,
+    top_clauses_text as review_top_clauses_text,
+    why_summary as review_why_summary,
+)
 
 
 def _score_part(details: dict[str, Any], key: str, default: Any = 0) -> Any:
@@ -31,162 +48,39 @@ def _json_text(value: Any) -> str:
 
 
 def _list_text(values: list[Any], *, limit: int = 5) -> str:
-    return "; ".join([str(v) for v in values[: int(limit)] if str(v).strip()])
+    return review_list_text(values, limit=limit)
 
 
 def _top_clauses_text(details: dict[str, Any], limit: int = 5) -> str:
-    items = details.get("matched_ontology_clauses") or details.get("top_clauses") or []
-    out: list[str] = []
-    if isinstance(items, list):
-        for clause in items[: int(limit)]:
-            if not isinstance(clause, dict):
-                continue
-            pack = clause.get("pack") or ""
-            rule = clause.get("rule") or ""
-            weight = clause.get("weight")
-            avg_weight = clause.get("avg_weight")
-            event_count = clause.get("event_count")
-            if pack and rule and avg_weight is not None:
-                out.append(f"{pack}:{rule}(events={event_count},avg={avg_weight})")
-            elif pack and rule:
-                out.append(f"{pack}:{rule}({weight})")
-            elif pack:
-                out.append(f"{pack}({weight})")
-            else:
-                out.append(f"clause({weight})")
-    return "; ".join(out)
+    return review_top_clauses_text(details, limit=limit)
 
 
 def _correlation_text(correlation: dict[str, Any]) -> str:
-    lane = str(correlation.get("lane") or "")
-    label = str(correlation.get("pair_label") or correlation.get("correlation_key") or "")
-    event_count = correlation.get("event_count")
-    score_signal = correlation.get("score_signal")
-    if label and event_count is not None and score_signal is not None:
-        return f"{lane}:{label}(signal={score_signal},n={event_count})"
-    if label:
-        return f"{lane}:{label}" if lane else label
-    return lane or "correlation"
+    return review_correlation_text(correlation)
 
 
 def _signal_text(signal: dict[str, Any]) -> str:
-    label = str(signal.get("label") or "").strip()
-    bucket = str(signal.get("bucket") or "").strip()
-    contribution = signal.get("contribution")
-    if label and contribution is not None:
-        return f"{bucket}:{label}(+{contribution})" if bucket else f"{label}(+{contribution})"
-    if label:
-        return label
-    return bucket or "signal"
+    return review_signal_text(signal)
 
 
 def _suppressor_text(signal: dict[str, Any]) -> str:
-    label = str(signal.get("label") or "").strip()
-    penalty = signal.get("penalty")
-    if label and penalty is not None:
-        return f"{label}(-{penalty})"
-    return label or "suppressor"
+    return review_suppressor_text(signal)
 
 
 def _family_assignment_text(assignment: dict[str, Any]) -> str:
-    family = str(assignment.get("family") or "").strip()
-    score = assignment.get("score")
-    rationale = str(assignment.get("rationale") or "").strip()
-    if family and score is not None:
-        if rationale:
-            return f"{family}({score}): {rationale}"
-        return f"{family}({score})"
-    return family or rationale or "lead_family"
+    return review_family_assignment_text(assignment)
 
 
 def _candidate_join_text(entry: dict[str, Any]) -> str:
-    evidence_types = [str(item) for item in (entry.get("evidence_types") or []) if str(item).strip()]
-    linked_sources = [str(item) for item in (entry.get("linked_sources") or []) if str(item).strip()]
-    parts = ["candidate"]
-    if evidence_types:
-        parts.append("evidence=" + ",".join(evidence_types))
-    if linked_sources:
-        parts.append("sources=" + ",".join(linked_sources))
-    if entry.get("likely_incumbent"):
-        parts.append("likely_incumbent=true")
-    score_signal = entry.get("score_signal")
-    if score_signal is not None:
-        parts.append(f"score={score_signal}")
-    return " | ".join(parts)
+    return review_candidate_join_text(entry)
 
 
 def _linked_source_text(entry: dict[str, Any]) -> str:
-    source = str(entry.get("source") or "").strip()
-    count = entry.get("linked_event_count")
-    lanes = [str(item) for item in (entry.get("lanes") or []) if str(item).strip()]
-    if source and count is not None and lanes:
-        return f"{source}(n={count},lanes={','.join(lanes)})"
-    if source and count is not None:
-        return f"{source}(n={count})"
-    return source or "linked_source"
+    return review_linked_source_text(entry)
 
 
 def _why_summary(details: dict[str, Any]) -> str:
-    if str(details.get("scoring_version") or "").strip().lower() == "v3":
-        why_bits = [
-            f"proxy={_score_part(details, 'proxy_relevance_score', 0)}",
-            f"investigability={_score_part(details, 'investigability_score', 0)}",
-            f"corroboration={_score_part(details, 'corroboration_score', 0)}",
-            f"structural={_score_part(details, 'structural_context_score', 0)}",
-            f"noise_penalty=-{_score_part(details, 'noise_penalty_applied', _score_part(details, 'noise_penalty', 0))}",
-        ]
-        if details.get("lead_family"):
-            why_bits.insert(0, f"lead_family={details.get('lead_family')}")
-        top_positive_signals = details.get("top_positive_signals") or []
-        top_suppressors = details.get("top_suppressors") or []
-        corroboration_sources = details.get("corroboration_sources") or []
-        if top_positive_signals:
-            why_bits.append(
-                "signals: " + _list_text([_signal_text(signal) for signal in top_positive_signals], limit=5)
-            )
-        if top_suppressors:
-            why_bits.append(
-                "suppressors: " + _list_text([_suppressor_text(signal) for signal in top_suppressors], limit=5)
-            )
-        if corroboration_sources:
-            why_bits.append(
-                "corroboration: " + _list_text([_signal_text(signal) for signal in corroboration_sources], limit=5)
-            )
-        return " | ".join(why_bits)
-
-    clause_score = _score_part(details, "clause_score", 0)
-    clause_score_raw = _score_part(details, "clause_score_raw", None)
-    keyword_score = _score_part(details, "keyword_score", 0)
-    entity_bonus = _score_part(details, "entity_bonus", 0)
-    pair_bonus = _score_part(details, "pair_bonus_applied", _score_part(details, "pair_bonus", 0))
-    pair_count = _score_part(details, "pair_count", 0)
-    pair_strength = _score_part(details, "pair_strength", 0.0)
-    noise_penalty = _score_part(details, "noise_penalty_applied", _score_part(details, "noise_penalty", 0))
-    matched_rules = details.get("matched_ontology_rules") or []
-    contributing_correlations = details.get("contributing_correlations") or []
-
-    why_bits: list[str] = []
-    if details.get("lead_family"):
-        why_bits.append(f"lead_family={details.get('lead_family')}")
-    if clause_score_raw is not None:
-        why_bits.append(f"clauses={clause_score} (raw={clause_score_raw})")
-    else:
-        why_bits.append(f"clauses={clause_score}")
-    if keyword_score:
-        why_bits.append(f"keywords={keyword_score}")
-    if entity_bonus:
-        why_bits.append(f"entity_bonus={entity_bonus}")
-    if pair_bonus:
-        why_bits.append(f"pair_bonus={pair_bonus} (pairs={pair_count}, strength={pair_strength})")
-    if noise_penalty:
-        why_bits.append(f"noise_penalty=-{noise_penalty}")
-    if matched_rules:
-        why_bits.append(f"rules: {_list_text(matched_rules)}")
-    if contributing_correlations:
-        why_bits.append(
-            "correlations: " + _list_text([_correlation_text(c) for c in contributing_correlations], limit=5)
-        )
-    return " | ".join(why_bits)
+    return review_why_summary(details)
 
 
 def _flatten_details(prefix: str, details: dict[str, Any]) -> dict[str, Any]:
@@ -268,6 +162,150 @@ def _load_event_context(
     return events_by_id, correlations_by_event, linked_source_context
 
 
+def _legacy_review_export_fields(
+    *,
+    snapshot: LeadSnapshot,
+    details: dict[str, Any],
+    review_row: dict[str, Any],
+) -> dict[str, Any]:
+    pair_correlations = [
+        correlation
+        for correlation in (details.get("contributing_correlations") or [])
+        if str(correlation.get("lane") or "") == "kw_pair"
+    ]
+    top_pairs = pair_correlations[:5]
+    top_pairs_text = "; ".join(
+        [
+            f"{pair.get('pair_label') or pair.get('pair_label_raw') or pair.get('correlation_key')}(n={pair.get('event_count')})"
+            for pair in top_pairs
+        ]
+    )
+    matched_rules = details.get("matched_ontology_rules") or []
+    contributing_lanes = details.get("contributing_lanes") or []
+    contributing_correlations = details.get("contributing_correlations") or []
+    top_positive_signals = details.get("top_positive_signals") or []
+    top_suppressors = details.get("top_suppressors") or []
+    corroboration_sources = details.get("corroboration_sources") or []
+    corroboration_summary = details.get("corroboration_summary") or {}
+    candidate_join_evidence = corroboration_summary.get("candidate_join_evidence") or []
+    linked_source_summary = corroboration_summary.get("linked_source_summary") or []
+    correlation_types_hit = corroboration_summary.get("correlation_types_hit") or []
+    lead_family_assignments = details.get("lead_family_assignments") or []
+    return {
+        "snapshot_scoring_version": getattr(snapshot, "scoring_version", None),
+        "secondary_lead_families_text": _list_text(
+            [str(value) for value in (review_row.get("secondary_lead_families") or [])],
+            limit=10,
+        ),
+        "secondary_lead_families_json": _json_text(review_row.get("secondary_lead_families") or []),
+        "lead_family_assignments_text": _list_text(
+            [_family_assignment_text(item) for item in lead_family_assignments],
+            limit=5,
+        ),
+        "lead_family_assignments_json": _json_text(lead_family_assignments),
+        "clause_score": _score_part(details, "clause_score", 0),
+        "clause_score_raw": _score_part(details, "clause_score_raw", None),
+        "keyword_score": _score_part(details, "keyword_score", 0),
+        "entity_bonus": _score_part(details, "entity_bonus", 0),
+        "pair_bonus": _score_part(details, "pair_bonus", 0),
+        "pair_bonus_applied": _score_part(details, "pair_bonus_applied", _score_part(details, "pair_bonus", 0)),
+        "pair_count": _score_part(details, "pair_count", 0),
+        "pair_strength": _score_part(details, "pair_strength", 0.0),
+        "has_noise": bool(_score_part(details, "has_noise", False)),
+        "noise_penalty": _score_part(details, "noise_penalty", 0),
+        "noise_penalty_applied": _score_part(
+            details,
+            "noise_penalty_applied",
+            _score_part(details, "noise_penalty", 0),
+        ),
+        "proxy_relevance_score": _score_part(details, "proxy_relevance_score", 0),
+        "investigability_score": _score_part(details, "investigability_score", 0),
+        "corroboration_score": _score_part(details, "corroboration_score", 0),
+        "structural_context_score": _score_part(details, "structural_context_score", 0),
+        "total_score": _score_part(details, "total_score", 0),
+        "contributing_lanes_text": _list_text([str(value) for value in contributing_lanes], limit=20),
+        "contributing_lanes_json": _json_text(contributing_lanes),
+        "contributing_correlations_text": _list_text(
+            [_correlation_text(correlation) for correlation in contributing_correlations],
+            limit=5,
+        ),
+        "contributing_correlations_json": _json_text(contributing_correlations),
+        "matched_ontology_rules_text": _list_text([str(value) for value in matched_rules], limit=10),
+        "matched_ontology_rules_json": _json_text(matched_rules),
+        "matched_ontology_clauses_json": _json_text(details.get("matched_ontology_clauses") or []),
+        "top_positive_signals_text": _list_text(
+            [_signal_text(signal) for signal in top_positive_signals],
+            limit=5,
+        ),
+        "top_positive_signals_json": _json_text(top_positive_signals),
+        "top_suppressors_text": _list_text(
+            [_suppressor_text(signal) for signal in top_suppressors],
+            limit=5,
+        ),
+        "top_suppressors_json": _json_text(top_suppressors),
+        "corroboration_sources_text": _list_text(
+            [_signal_text(signal) for signal in corroboration_sources],
+            limit=5,
+        ),
+        "corroboration_sources_json": _json_text(corroboration_sources),
+        "correlation_types_hit_text": _list_text([str(value) for value in correlation_types_hit], limit=10),
+        "correlation_types_hit_json": _json_text(correlation_types_hit),
+        "candidate_join_evidence_text": _list_text(
+            [_candidate_join_text(item) for item in candidate_join_evidence],
+            limit=5,
+        ),
+        "candidate_join_evidence_json": _json_text(candidate_join_evidence),
+        "linked_source_summary_text": _list_text(
+            [_linked_source_text(item) for item in linked_source_summary],
+            limit=5,
+        ),
+        "linked_source_summary_json": _json_text(linked_source_summary),
+        "corroboration_summary_json": _json_text(corroboration_summary),
+        "subscore_math_json": _json_text(details.get("subscore_math") or {}),
+        "top_clauses_text": _top_clauses_text(details, limit=5),
+        "top_kw_pairs_text": top_pairs_text,
+        "top_kw_pairs_json": _json_text(top_pairs),
+        "why_summary": review_row.get("why_summary"),
+        "score_details_json": _json_text(details or {}),
+    }
+
+
+def _build_review_summary_payload(
+    *,
+    snapshot: dict[str, Any],
+    rows: list[dict[str, Any]],
+    csv_path: Path,
+    json_path: Path,
+    review_summary_path: Path,
+    lead_family_filter: Optional[str],
+) -> dict[str, Any]:
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "review_contract_version": RANKED_LEAD_REVIEW_CONTRACT_VERSION,
+        "canonical_review_fields": list(CANONICAL_RANKED_LEAD_REVIEW_FIELDS),
+        "snapshot_id": snapshot.get("id"),
+        "snapshot_source": snapshot.get("source"),
+        "snapshot_created_at": snapshot.get("created_at"),
+        "scoring_version": snapshot.get("scoring_version"),
+        "lead_family_filter": lead_family_filter,
+        "row_count": len(rows),
+        "effective_window": review_effective_window(rows),
+        "completeness_counts": review_completeness_counts(rows),
+        "review_artifact_filenames": {
+            "lead_snapshot_csv": csv_path.name,
+            "lead_snapshot_json": json_path.name,
+            "review_summary_json": review_summary_path.name,
+        },
+        "evidence_package_availability": {
+            "available": bool(snapshot.get("id")) and bool(rows),
+            "package_type": "lead_evidence_package",
+            "snapshot_id": snapshot.get("id"),
+            "row_count": len(rows),
+            "selectors": ["rank", "event_id"],
+        },
+    }
+
+
 def build_lead_snapshot_export(
     *,
     snapshot_id: int,
@@ -297,6 +335,7 @@ def build_lead_snapshot_export(
     events_by_id, correlations_by_event, linked_source_context = _load_event_context(database_url, event_ids)
 
     rows_out: list[dict[str, Any]] = []
+    csv_rows: list[dict[str, Any]] = []
     for it in items:
         event = events_by_id.get(int(it.event_id))
         details = it.score_details if isinstance(it.score_details, dict) else {}
@@ -314,104 +353,18 @@ def build_lead_snapshot_export(
         if lead_family and not lead_matches_family(details, lead_family):
             continue
 
-        pair_correlations = [
-            c for c in (details.get("contributing_correlations") or []) if str(c.get("lane") or "") == "kw_pair"
-        ]
-        top_pairs = pair_correlations[:5]
-        top_pairs_text = "; ".join(
-            [
-                f"{p.get('pair_label') or p.get('pair_label_raw') or p.get('correlation_key')}(n={p.get('event_count')})"
-                for p in top_pairs
-            ]
+        review_row = serialize_ranked_lead_review_row(
+            snapshot=snap,
+            item=it,
+            event=event,
+            details=details,
         )
-        matched_rules = details.get("matched_ontology_rules") or []
-        matched_rules_text = _list_text([str(v) for v in matched_rules], limit=10)
-        contributing_lanes = details.get("contributing_lanes") or []
-        contributing_lanes_text = _list_text([str(v) for v in contributing_lanes], limit=20)
-        contributing_correlations = details.get("contributing_correlations") or []
-        contributing_correlations_text = _list_text([_correlation_text(c) for c in contributing_correlations], limit=5)
-        top_positive_signals = details.get("top_positive_signals") or []
-        top_positive_signals_text = _list_text([_signal_text(signal) for signal in top_positive_signals], limit=5)
-        top_suppressors = details.get("top_suppressors") or []
-        top_suppressors_text = _list_text([_suppressor_text(signal) for signal in top_suppressors], limit=5)
-        corroboration_sources = details.get("corroboration_sources") or []
-        corroboration_sources_text = _list_text([_signal_text(signal) for signal in corroboration_sources], limit=5)
-        corroboration_summary = details.get("corroboration_summary") or {}
-        candidate_join_evidence = corroboration_summary.get("candidate_join_evidence") or []
-        linked_source_summary = corroboration_summary.get("linked_source_summary") or []
-        correlation_types_hit = corroboration_summary.get("correlation_types_hit") or []
-        lead_family_assignments = details.get("lead_family_assignments") or []
-        top_clauses_text = _top_clauses_text(details, limit=5)
-        why_summary = _why_summary(details)
-
-        rows_out.append(
-            {
-                "snapshot_id": int(snapshot_id),
-                "snapshot_item_id": int(it.id),
-                "rank": int(it.rank),
-                "score": int(it.score),
-                "event_id": int(it.event_id),
-                "event_hash": it.event_hash,
-                "source": None if event is None else event.source,
-                "doc_id": None if event is None else event.doc_id,
-                "source_url": None if event is None else event.source_url,
-                "occurred_at": None if (event is None or event.occurred_at is None) else event.occurred_at.isoformat(),
-                "created_at": None if (event is None or event.created_at is None) else event.created_at.isoformat(),
-                "entity_id": None if event is None else event.entity_id,
-                "snippet": None if event is None else (event.snippet or ""),
-                "place_text": None if event is None else (event.place_text or ""),
-                "snapshot_scoring_version": getattr(snap, "scoring_version", None),
-                "scoring_version": details.get("scoring_version"),
-                "lead_family": details.get("lead_family"),
-                "lead_family_label": details.get("lead_family_label"),
-                "secondary_lead_families_text": _list_text([str(v) for v in (details.get("secondary_lead_families") or [])], limit=10),
-                "secondary_lead_families_json": _json_text(details.get("secondary_lead_families") or []),
-                "lead_family_assignments_text": _list_text([_family_assignment_text(item) for item in lead_family_assignments], limit=5),
-                "lead_family_assignments_json": _json_text(lead_family_assignments),
-                "clause_score": _score_part(details, "clause_score", 0),
-                "clause_score_raw": _score_part(details, "clause_score_raw", None),
-                "keyword_score": _score_part(details, "keyword_score", 0),
-                "entity_bonus": _score_part(details, "entity_bonus", 0),
-                "pair_bonus": _score_part(details, "pair_bonus", 0),
-                "pair_bonus_applied": _score_part(details, "pair_bonus_applied", _score_part(details, "pair_bonus", 0)),
-                "pair_count": _score_part(details, "pair_count", 0),
-                "pair_strength": _score_part(details, "pair_strength", 0.0),
-                "has_noise": bool(_score_part(details, "has_noise", False)),
-                "noise_penalty": _score_part(details, "noise_penalty", 0),
-                "noise_penalty_applied": _score_part(details, "noise_penalty_applied", _score_part(details, "noise_penalty", 0)),
-                "proxy_relevance_score": _score_part(details, "proxy_relevance_score", 0),
-                "investigability_score": _score_part(details, "investigability_score", 0),
-                "corroboration_score": _score_part(details, "corroboration_score", 0),
-                "structural_context_score": _score_part(details, "structural_context_score", 0),
-                "total_score": _score_part(details, "total_score", 0),
-                "contributing_lanes_text": contributing_lanes_text,
-                "contributing_lanes_json": _json_text(contributing_lanes),
-                "contributing_correlations_text": contributing_correlations_text,
-                "contributing_correlations_json": _json_text(contributing_correlations),
-                "matched_ontology_rules_text": matched_rules_text,
-                "matched_ontology_rules_json": _json_text(matched_rules),
-                "matched_ontology_clauses_json": _json_text(details.get("matched_ontology_clauses") or []),
-                "top_positive_signals_text": top_positive_signals_text,
-                "top_positive_signals_json": _json_text(top_positive_signals),
-                "top_suppressors_text": top_suppressors_text,
-                "top_suppressors_json": _json_text(top_suppressors),
-                "corroboration_sources_text": corroboration_sources_text,
-                "corroboration_sources_json": _json_text(corroboration_sources),
-                "correlation_types_hit_text": _list_text([str(v) for v in correlation_types_hit], limit=10),
-                "correlation_types_hit_json": _json_text(correlation_types_hit),
-                "candidate_join_evidence_text": _list_text([_candidate_join_text(item) for item in candidate_join_evidence], limit=5),
-                "candidate_join_evidence_json": _json_text(candidate_join_evidence),
-                "linked_source_summary_text": _list_text([_linked_source_text(item) for item in linked_source_summary], limit=5),
-                "linked_source_summary_json": _json_text(linked_source_summary),
-                "corroboration_summary_json": _json_text(corroboration_summary),
-                "subscore_math_json": _json_text(details.get("subscore_math") or {}),
-                "top_clauses_text": top_clauses_text,
-                "top_kw_pairs_text": top_pairs_text,
-                "top_kw_pairs_json": _json_text(top_pairs),
-                "why_summary": why_summary,
-                "score_details_json": _json_text(details or {}),
-            }
-        )
+        export_row = {
+            **review_row,
+            **_legacy_review_export_fields(snapshot=snap, details=details, review_row=review_row),
+        }
+        rows_out.append(export_row)
+        csv_rows.append(review_row_csv_safe(export_row))
 
     max_items = getattr(snap, "max_items", None)
     if max_items is None:
@@ -429,6 +382,8 @@ def build_lead_snapshot_export(
     }
     payload = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
+        "review_contract_version": RANKED_LEAD_REVIEW_CONTRACT_VERSION,
+        "canonical_review_fields": list(CANONICAL_RANKED_LEAD_REVIEW_FIELDS),
         "scoring_version": snapshot_payload.get("scoring_version"),
         "snapshot": snapshot_payload,
         "lead_family_filter": lead_family,
@@ -444,6 +399,7 @@ def build_lead_snapshot_export(
         "family_groups": payload["family_groups"],
         "count": len(rows_out),
         "items": rows_out,
+        "csv_rows": csv_rows,
         "payload": payload,
     }
 
@@ -481,11 +437,30 @@ def export_lead_snapshot(
 
     csv_path = export_dir / f"{base_name}.csv"
     json_path = export_dir / f"{base_name}.json"
+    review_summary_path = export_dir / f"{base_name}_review_summary.json"
 
-    _write_csv(csv_path, export_data["items"])
+    _write_csv(csv_path, export_data["csv_rows"])
     json_path.write_text(json.dumps(export_data["payload"], ensure_ascii=False, indent=2), encoding="utf-8")
+    review_summary_payload = _build_review_summary_payload(
+        snapshot=export_data["snapshot"],
+        rows=export_data["items"],
+        csv_path=csv_path,
+        json_path=json_path,
+        review_summary_path=review_summary_path,
+        lead_family_filter=lead_family,
+    )
+    review_summary_path.write_text(
+        json.dumps(review_summary_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
-    return {"csv": csv_path, "json": json_path, "count": int(export_data["count"]), "snapshot_id": int(snapshot_id)}
+    return {
+        "csv": csv_path,
+        "json": json_path,
+        "review_summary_json": review_summary_path,
+        "count": int(export_data["count"]),
+        "snapshot_id": int(snapshot_id),
+    }
 
 
 def export_scoring_comparison(

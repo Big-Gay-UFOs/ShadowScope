@@ -148,6 +148,7 @@ Outputs:
 
 - `exports/lead_adjudications.csv`: normalized local copy used for bundle/report refresh
 - `exports/lead_adjudication_metrics.json`: acceptance rate, precision@k, rejection reasons, by-family, and by-scoring-version metrics
+- Lead snapshot exports now also emit a canonical `review_summary.json` alongside `lead_snapshot.csv` and `lead_snapshot.json`; it captures snapshot id, scoring version, effective review window, artifact filenames, completeness counts, and evidence-package availability.
 
 Interpretation:
 

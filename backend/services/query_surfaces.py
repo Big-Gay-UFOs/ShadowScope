@@ -23,6 +23,7 @@ from backend.services.investigator_filters import (
 from backend.services.lead_families import lead_family_label, lead_matches_family, summarize_lead_family_groups
 from backend.services.kw_pair_clusters import list_kw_pair_clusters
 from backend.services.leads import compute_leads
+from backend.services.review_contract import serialize_ranked_lead_review_row
 
 
 _EVENT_SORT_FIELDS: dict[str, Any] = {
@@ -381,34 +382,30 @@ def query_leads(
 
     sliced = filtered[max(int(offset), 0): max(int(offset), 0) + max(int(limit), 0)]
     items: list[dict[str, Any]] = []
-    for score, event, details in sliced:
+    start_rank = max(int(offset), 0) + 1
+    for idx, (score, event, details) in enumerate(sliced, start=start_rank):
+        review_row = serialize_ranked_lead_review_row(
+            snapshot=None,
+            item=None,
+            event=event,
+            details=details,
+            rank=idx,
+            score=int(score),
+        )
         payload = {
-            "score": int(score),
+            **review_row,
             "id": event.id,
-            "entity_id": event.entity_id,
-            "category": event.category,
-            "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
-            "created_at": event.created_at.isoformat() if event.created_at else None,
-            "source": event.source,
-            "doc_id": event.doc_id,
-            "place_text": event.place_text,
-            "place_region": event_place_region_label(event),
-            "snippet": event.snippet,
             "keywords": _norm_list(event.keywords),
             "clauses": _norm_list(event.clauses),
-            "source_url": event.source_url,
-            "scoring_version": details.get("scoring_version"),
-            "lead_family": details.get("lead_family"),
-            "lead_family_label": details.get("lead_family_label") or lead_family_label(details.get("lead_family")),
-            "secondary_lead_families": details.get("secondary_lead_families") or [],
+            "lead_family_label": review_row.get("lead_family_label") or lead_family_label(details.get("lead_family")),
             "corroboration_summary": details.get("corroboration_summary") or {},
             "pair_bonus_applied": details.get("pair_bonus_applied", details.get("pair_bonus", 0)),
             "noise_penalty_applied": details.get("noise_penalty_applied", details.get("noise_penalty", 0)),
             "contributing_lanes": details.get("contributing_lanes") or [],
             "matched_ontology_rules": details.get("matched_ontology_rules") or [],
         }
-        if include_details:
-            payload["score_details"] = details
+        if not include_details:
+            payload.pop("score_details", None)
         items.append(payload)
 
     return {
