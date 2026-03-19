@@ -7,6 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from backend.services.foia_review_board import (
+    FOIA_LEAD_REVIEW_BOARD_HTML_PATH,
+    FOIA_LEAD_REVIEW_BOARD_MD_PATH,
+)
+
 SAM_BUNDLE_VERSION = "samgov.bundle.v1"
 SAM_BUNDLE_MANIFEST_NAME = "bundle_manifest.json"
 SAM_BUNDLE_RESULTS_DIR = Path("results")
@@ -162,6 +167,8 @@ def flatten_bundle_files(*, artifacts: dict[str, Any], bundle_dir: Path) -> dict
         "smoke_summary_json",
         "doctor_status_json",
         "report_html",
+        "foia_lead_review_board_html",
+        "foia_lead_review_board_md",
         "bundle_adjudications_csv",
         "bundle_metrics_json",
         "export_lead_adjudications_csv",
@@ -291,6 +298,14 @@ def render_sam_bundle_report(
         )
     files_table = "".join(file_rows) or "<tr><td colspan='2'>No files recorded.</td></tr>"
     evaluation_markup = _render_evaluation_section(bundle_dir=bundle_dir, artifacts=artifacts)
+    review_board_html = _as_path(artifacts.get("foia_lead_review_board_html")) or (bundle_dir / FOIA_LEAD_REVIEW_BOARD_HTML_PATH)
+    review_board_md = _as_path(artifacts.get("foia_lead_review_board_md")) or (bundle_dir / FOIA_LEAD_REVIEW_BOARD_MD_PATH)
+    review_board_markup = (
+        "<h2>Reviewer Surface</h2>"
+        "<div class=\"meta\">Open the reviewer-first FOIA Lead Review Board for ranked lead evaluation, noise patterns, and next-record targeting.</div>"
+        f"<p><a href=\"{html.escape(review_board_html.name)}\">foia_lead_review_board.html</a>"
+        f" | <a href=\"{html.escape(review_board_md.name)}\">foia_lead_review_board.md</a></p>"
+    )
 
     generated_at = datetime.now(timezone.utc).isoformat()
     comparison_text = ",".join(compare_scoring_versions) if compare_scoring_versions else "none"
@@ -322,6 +337,7 @@ def render_sam_bundle_report(
 
   <h2>Summary</h2>
   <table><tbody>{summary_rows}</tbody></table>
+  {review_board_markup}
 
   <h2>Checks</h2>
   <div class=\"meta\">failed_required={len(failed_required_checks)} failed_advisory={len(warning_checks)}</div>

@@ -675,6 +675,15 @@ def _refresh_bundle_reports(bundle_dir: Path) -> dict[str, Any]:
     errors: list[str] = []
 
     try:
+        from backend.services.foia_review_board import render_foia_lead_review_board_from_bundle
+
+        review_board = render_foia_lead_review_board_from_bundle(bundle_dir)
+        artifacts["foia_lead_review_board_html"] = review_board.get("html")
+        artifacts["foia_lead_review_board_md"] = review_board.get("markdown")
+    except Exception as exc:
+        errors.append(f"foia_review_board_refresh_failed: {exc}")
+
+    try:
         from backend.services.bundle import render_sam_bundle_report_from_bundle
 
         artifacts["bundle_report_html"] = render_sam_bundle_report_from_bundle(bundle_dir)

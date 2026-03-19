@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -18,6 +18,11 @@ from backend.services.bundle import (
     normalize_sam_exports,
     render_sam_bundle_report,
     write_bundle_manifest,
+)
+from backend.services.foia_review_board import (
+    FOIA_LEAD_REVIEW_BOARD_HTML_PATH,
+    FOIA_LEAD_REVIEW_BOARD_MD_PATH,
+    render_foia_lead_review_board_from_bundle,
 )
 
 
@@ -939,6 +944,8 @@ def run_samgov_smoke_workflow_hardened(
         "workflow_summary_json": summary_json,
         "smoke_summary_json": summary_json,
         "doctor_status_json": doctor_json,
+        "foia_lead_review_board_html": bundle_dir / FOIA_LEAD_REVIEW_BOARD_HTML_PATH,
+        "foia_lead_review_board_md": bundle_dir / FOIA_LEAD_REVIEW_BOARD_MD_PATH,
         "exports": (workflow_res.get("exports") if isinstance(workflow_res, dict) else None),
     }
 
@@ -948,9 +955,15 @@ def run_samgov_smoke_workflow_hardened(
         "smoke_summary_json": summary_json,
         "bundle_manifest_json": artifacts.get("bundle_manifest_json"),
         "report_html": bundle_dir / "report" / "bundle_report.html",
+        "foia_lead_review_board_html": artifacts.get("foia_lead_review_board_html"),
+        "foia_lead_review_board_md": artifacts.get("foia_lead_review_board_md"),
         "exports": artifacts.get("exports"),
     }
     workflow_module._write_json(summary_json, summary_payload)
+
+    review_board_artifacts = render_foia_lead_review_board_from_bundle(bundle_dir)
+    artifacts["foia_lead_review_board_html"] = review_board_artifacts["html"]
+    artifacts["foia_lead_review_board_md"] = review_board_artifacts["markdown"]
 
     report_summary = {
         "status": workflow_status,
@@ -1055,6 +1068,7 @@ def run_samgov_smoke_workflow_hardened(
             "created_after": _iso_or_none(created_after),
             "created_before": _iso_or_none(created_before),
             "since_days": int(since_days) if since_days is not None else None,
+            "ontology_path": str(Path(ontology_path)),
         },
         "ingest_diagnostics": ingest_request_diag,
         "generated_files": flatten_bundle_files(artifacts=artifacts, bundle_dir=bundle_dir),
