@@ -498,12 +498,16 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     workflow_path = Path(artifacts["workflow_result_json"])
     manifest_path = Path(artifacts["bundle_manifest_json"])
     report_path = Path(artifacts["report_html"])
+    review_board_path = Path(artifacts["foia_lead_review_board_html"])
+    review_board_md_path = Path(artifacts["foia_lead_review_board_md"])
 
     assert summary_path.exists()
     assert doctor_path.exists()
     assert workflow_path.exists()
     assert manifest_path.exists()
     assert report_path.exists()
+    assert review_board_path.exists()
+    assert review_board_md_path.exists()
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary_payload["smoke_passed"] is True
@@ -527,6 +531,8 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert "workflow_summary_json" in generated_files
     assert "bundle_manifest_json" in generated_files
     assert "report_html" in generated_files
+    assert "foia_lead_review_board_html" in generated_files
+    assert "foia_lead_review_board_md" in generated_files
     assert "export_lead_review_summary_json" in generated_files
 
     exports = artifacts.get("exports") or {}
@@ -543,11 +549,16 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
 
     report_html = report_path.read_text(encoding="utf-8")
     assert "SAM.gov Workflow Bundle Report" in report_html
+    assert "foia_lead_review_board.html" in report_html
     assert "workflow_type=samgov-smoke" in report_html
     assert "scoring_version=v3" in report_html
     assert "Pipeline health" in report_html
     assert "Source coverage/context health" in report_html
     assert "Lead-signal quality" in report_html
+
+    review_board_html = review_board_path.read_text(encoding="utf-8")
+    assert "FOIA Lead Review Board" in review_board_html
+    assert "Top Leads" in review_board_html
 
     baseline = summary_payload.get("baseline", {})
     entity_cov = baseline.get("entity_coverage", {})
@@ -715,6 +726,7 @@ def test_samgov_bundle_reports_include_adjudication_metrics_when_present(tmp_pat
     bundle_report_path = artifacts.get("bundle_report_html") or artifacts.get("report_html")
     bundle_report_html = Path(bundle_report_path).read_text(encoding="utf-8")
     report_html = Path(artifacts["report_html"]).read_text(encoding="utf-8")
+    review_board_html = Path(artifacts["foia_lead_review_board_html"]).read_text(encoding="utf-8")
     assert "Evaluation" in bundle_report_html
     assert "Precision @ k" in bundle_report_html
     assert "low_signal" in bundle_report_html
@@ -722,6 +734,8 @@ def test_samgov_bundle_reports_include_adjudication_metrics_when_present(tmp_pat
     assert "Evaluation" in report_html
     assert "By Scoring Version" in report_html
     assert "alpha_family" in report_html
+    assert "Adjudication" in review_board_html
+    assert "Precision @ k" in review_board_html
 
 
 

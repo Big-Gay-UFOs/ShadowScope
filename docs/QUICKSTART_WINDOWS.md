@@ -1,4 +1,4 @@
-﻿# ShadowScope Windows Quick Start
+# ShadowScope Windows Quick Start
 
 ## Prerequisites
 - Windows PowerShell 5+ or PowerShell 7
@@ -124,6 +124,8 @@ Key SAM bundle files:
 - `results/workflow_result.json`
 - `results/doctor_status.json`
 - `report/bundle_report.html`
+- `report/foia_lead_review_board.html`
+- `report/foia_lead_review_board.md`
 - stable `exports/*.csv|json|jsonl`
 
 If larger runs are slow/rate-limited, tune:

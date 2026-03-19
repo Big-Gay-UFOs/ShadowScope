@@ -537,6 +537,8 @@ Normalized SAM bundle contract (`samgov.bundle.v1`):
     events.csv/jsonl
   report/
     bundle_report.html
+    foia_lead_review_board.html
+    foia_lead_review_board.md
 ```
 
 Lead snapshot review exports now include a canonical `review_summary.json` artifact that records the snapshot id, scoring version, effective review window, review artifact filenames, completeness counts, and whether per-row evidence packages are available.
@@ -546,6 +548,7 @@ Bundle interpretation:
 - `workflow_summary.json`: machine-readable run quality/check outcomes (`ok`, `warning`, `failed`) and partial-usefulness classification.
 - `bundle_manifest.json`: single source of truth for bundle discovery (`generated_files`, status, summary counts, run parameters).
 - `bundle_report.html`: human-oriented run review surface aligned to manifest paths.
+- `foia_lead_review_board.html` / `foia_lead_review_board.md`: reviewer-first lead triage surface focused on top leads, noise patterns, draftability, and next-record targets.
 
 Warnings vs failures:
 

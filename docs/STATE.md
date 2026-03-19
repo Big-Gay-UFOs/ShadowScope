@@ -77,6 +77,8 @@ SAM workflow bundles now use `samgov.bundle.v1` with:
 - `results/workflow_summary.json`
 - `results/doctor_status.json`
 - `report/bundle_report.html`
+- `report/foia_lead_review_board.html`
+- `report/foia_lead_review_board.md`
 - stable `exports/` artifact names (lead snapshot, review summary, keyword pairs, entities, event_entities, events)
 
 ### Diagnostics

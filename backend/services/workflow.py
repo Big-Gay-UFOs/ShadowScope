@@ -486,6 +486,7 @@ def _build_sam_workflow_run_metadata(
     start_page: int,
     window_days: int,
     keywords: Optional[list[str]],
+    ontology_path: Path,
 ) -> dict[str, Any]:
     payload = serialize_sam_posted_window(date_window)
     return {
@@ -501,6 +502,7 @@ def _build_sam_workflow_run_metadata(
         "start_page": int(start_page),
         "window_days": int(window_days),
         "keywords": list(keywords or []),
+        "ontology_path": str(Path(ontology_path)),
     }
 
 
@@ -961,6 +963,7 @@ def run_samgov_workflow(
         start_page=int(start_page),
         window_days=int(window_days),
         keywords=keywords,
+        ontology_path=Path(ontology_path),
     )
     return res
 
