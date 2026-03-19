@@ -313,7 +313,6 @@ def render_sam_bundle_report(
     validation_mode = str(summary.get("validation_mode") or "smoke")
     scoring_version = str(summary.get("scoring_version") or "Unavailable")
     compare_scoring_versions = list(summary.get("compare_scoring_versions") or [])
-    checks = list(summary.get("checks") or [])
     check_groups = summary.get("check_groups") if isinstance(summary.get("check_groups"), dict) else {}
     failed_required_checks = list(summary.get("failed_required_checks") or [])
     warning_checks = list(summary.get("warning_checks") or summary.get("failed_advisory_checks") or [])
