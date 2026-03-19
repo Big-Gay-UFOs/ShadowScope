@@ -360,6 +360,7 @@ def build_lead_snapshot_export(
                 "entity_id": None if event is None else event.entity_id,
                 "snippet": None if event is None else (event.snippet or ""),
                 "place_text": None if event is None else (event.place_text or ""),
+                "snapshot_scoring_version": getattr(snap, "scoring_version", None),
                 "scoring_version": details.get("scoring_version"),
                 "lead_family": details.get("lead_family"),
                 "lead_family_label": details.get("lead_family_label"),
