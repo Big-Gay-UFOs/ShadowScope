@@ -234,3 +234,67 @@ def test_compute_leads_treats_proxy_noise_pack_as_noise(tmp_path):
     assert details["has_noise"] is True
     assert details["noise_penalty"] == 8
     assert score == -5
+
+
+def test_compute_leads_v3_exposes_structural_context_and_lead_family(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_v3_structural.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        rich = Event(
+            category="opportunity",
+            source="SAM.gov",
+            hash="lead_v3_rich",
+            created_at=now,
+            doc_id="RICH-1",
+            source_url="https://sam.gov/opp/rich-1",
+            snippet="Structurally rich SAM notice",
+            raw_json={
+                "noticeType": "Sources Sought",
+                "solicitationNumber": "RICH-1",
+                "naicsCode": "541330",
+                "typeOfSetAside": "SBA",
+                "responseDeadLine": "2026-03-20",
+                "fullParentPathCode": "DOE.HQ",
+                "Recipient Name": "Acme Federal",
+            },
+            keywords=["sam_procurement_starter:notice_type_sources_sought"],
+            clauses=[],
+        )
+        thin = Event(
+            category="opportunity",
+            source="SAM.gov",
+            hash="lead_v3_thin",
+            created_at=now,
+            doc_id="THIN-1",
+            source_url="https://sam.gov/opp/thin-1",
+            snippet="Thin SAM notice",
+            raw_json={},
+            keywords=["sam_procurement_starter:notice_type_sources_sought"],
+            clauses=[],
+        )
+        db.add_all([rich, thin])
+        db.commit()
+
+        ranked, scanned = compute_leads(
+            db,
+            source="SAM.gov",
+            min_score=0,
+            limit=10,
+            scan_limit=50,
+            scoring_version="v3",
+        )
+
+    assert scanned == 2
+    assert len(ranked) == 2
+
+    by_doc = {event.doc_id: details for _score, event, details in ranked}
+    rich_details = by_doc["RICH-1"]
+    thin_details = by_doc["THIN-1"]
+    assert rich_details["scoring_version"] == "v3"
+    assert thin_details["scoring_version"] == "v3"
+    assert "structural_context_score" in rich_details
+    assert "noise_penalty" in rich_details
+    assert (rich_details.get("subscore_math") or {}).get("formula")

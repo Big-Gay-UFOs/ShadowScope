@@ -37,18 +37,39 @@ from backend.services.lead_families import classify_lead_families
 from backend.services.investigator_filters import event_time_expr, investigator_event_conditions
 
 
+SUPPORTED_SCORING_VERSIONS: tuple[str, ...] = ("v1", "v2", "v3")
+DEFAULT_SCORING_VERSION = "v3"
+
 _DOD_PACK_PREFIX = "sam_dod_"
 _NOISE_PACK_PREFIXES = ("operational_noise_terms:", "sam_proxy_noise_expansion:")
 _FOIA_MATRIX_BONUS_CAP = 3
-_VALID_SCORING_VERSIONS = {"v1", "v2", "v3"}
+_VALID_SCORING_VERSIONS = set(SUPPORTED_SCORING_VERSIONS)
+_MAX_COMPARISON_VERSIONS = 2
 _MIN_SORT_DT = datetime.min.replace(tzinfo=timezone.utc)
 
 
-def normalize_scoring_version(value: Any, *, default: str = "v2") -> str:
+def normalize_scoring_version(value: Any, *, default: str = DEFAULT_SCORING_VERSION) -> str:
     raw = str(value or default).strip().lower() or default
     if raw not in _VALID_SCORING_VERSIONS:
-        raise ValueError("scoring_version must be v1, v2, or v3")
+        allowed = ", ".join(SUPPORTED_SCORING_VERSIONS)
+        raise ValueError(f"Unsupported scoring_version '{value}'. Expected one of: {allowed}")
     return raw
+
+
+def normalize_comparison_versions(versions: Optional[list[str]]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in versions or []:
+        version = normalize_scoring_version(raw)
+        if version in seen:
+            continue
+        normalized.append(version)
+        seen.add(version)
+    if not normalized:
+        return []
+    if len(normalized) != _MAX_COMPARISON_VERSIONS:
+        raise ValueError("compare_scoring_versions must contain exactly two distinct scoring versions")
+    return normalized
 
 
 
@@ -60,6 +81,28 @@ def _norm_list(value: Any) -> list:
     if isinstance(value, list):
         return value
     return []
+
+
+def _norm_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _first_present(*values: Any) -> Optional[str]:
+    for value in values:
+        text = _norm_text(value)
+        if text:
+            return text
+    return None
+
+
+def _score_number(details: Optional[dict[str, Any]], key: str) -> int:
+    try:
+        return int((details or {}).get(key) or 0)
+    except Exception:
+        return 0
 
 
 
@@ -179,6 +222,51 @@ def _lead_sort_values(event: Event) -> tuple[Any, ...]:
     return relevant_at, occurred_at, created_at, int(event.id)
 
 
+def _comparison_state(baseline_rank: Optional[int], target_rank: Optional[int]) -> str:
+    if baseline_rank is None and target_rank is None:
+        return "absent"
+    if baseline_rank is None:
+        return "entered_target"
+    if target_rank is None:
+        return "dropped_from_target"
+    return "shared"
+
+
+def build_scoring_delta_explanation(
+    baseline_details: Optional[dict[str, Any]],
+    target_details: Optional[dict[str, Any]],
+) -> str:
+    baseline = baseline_details if isinstance(baseline_details, dict) else {}
+    target = target_details if isinstance(target_details, dict) else {}
+
+    parts: list[str] = []
+    for key, label in (
+        ("clause_score", "clauses"),
+        ("keyword_score", "keywords"),
+        ("entity_bonus", "entity"),
+        ("pair_bonus", "pair"),
+        ("structural_context_score", "structural"),
+        ("foia_matrix_bonus", "foia"),
+        ("noise_penalty", "noise"),
+    ):
+        base_value = _score_number(baseline, key)
+        target_value = _score_number(target, key)
+        delta = target_value - base_value
+        if delta == 0:
+            continue
+        sign = "+" if delta > 0 else ""
+        parts.append(f"{label} {sign}{delta}")
+
+    baseline_family = _first_present(baseline.get("lead_family"))
+    target_family = _first_present(target.get("lead_family"))
+    if baseline_family != target_family and (baseline_family or target_family):
+        parts.append(f"lead_family {baseline_family or 'n/a'} -> {target_family or 'n/a'}")
+
+    if not parts:
+        return "No material score-component change."
+    return "; ".join(parts[:4])
+
+
 def _event_scoring_context(event: Event) -> dict[str, Any]:
     return {
         "category": event.category,
@@ -238,7 +326,7 @@ def compute_leads(
     award_id: Optional[str] = None,
     recipient_uei: Optional[str] = None,
     place_region: Optional[str] = None,
-    scoring_version: str = "v2",
+    scoring_version: str = DEFAULT_SCORING_VERSION,
     pair_bonus_multiplier: int = 6,
     pair_bonus_cap: int = 12,
     noise_pair_bonus_cap: int = 2,
@@ -436,6 +524,143 @@ def compute_leads(
     return enriched_selected, scanned
 
 
+def compare_lead_scoring_versions(
+    db: Session,
+    *,
+    versions: list[str],
+    scan_limit: int = 5000,
+    limit: int = 200,
+    min_score: int = 1,
+    source: Optional[str] = None,
+    exclude_source: Optional[str] = None,
+    date_from: Optional[Any] = None,
+    date_to: Optional[Any] = None,
+    occurred_after: Optional[Any] = None,
+    occurred_before: Optional[Any] = None,
+    created_after: Optional[Any] = None,
+    created_before: Optional[Any] = None,
+    since_days: Optional[int] = None,
+) -> dict[str, Any]:
+    baseline_version, target_version = normalize_comparison_versions(versions)
+
+    ranked_by_version: dict[str, list[dict[str, Any]]] = {}
+    scanned_by_version: dict[str, int] = {}
+    for version in (baseline_version, target_version):
+        ranked, scanned = compute_leads(
+            db,
+            scan_limit=scan_limit,
+            limit=limit,
+            min_score=min_score,
+            source=source,
+            exclude_source=exclude_source,
+            date_from=date_from,
+            date_to=date_to,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            created_after=created_after,
+            created_before=created_before,
+            since_days=since_days,
+            scoring_version=version,
+        )
+        scanned_by_version[version] = int(scanned)
+        ranked_by_version[version] = [
+            {
+                "rank": int(rank),
+                "score": int(score),
+                "event": event,
+                "details": details,
+            }
+            for rank, (score, event, details) in enumerate(ranked, start=1)
+        ]
+
+    baseline_rows = ranked_by_version[baseline_version]
+    target_rows = ranked_by_version[target_version]
+    baseline_by_event = {int(item["event"].id): item for item in baseline_rows}
+    target_by_event = {int(item["event"].id): item for item in target_rows}
+
+    items: list[dict[str, Any]] = []
+    for event_id in sorted(set(baseline_by_event) | set(target_by_event)):
+        baseline = baseline_by_event.get(event_id)
+        target = target_by_event.get(event_id)
+        event = (target or baseline)["event"]
+        baseline_rank = int(baseline["rank"]) if baseline else None
+        target_rank = int(target["rank"]) if target else None
+        baseline_score = int(baseline["score"]) if baseline else None
+        target_score = int(target["score"]) if target else None
+        baseline_details = baseline.get("details") if baseline else {}
+        target_details = target.get("details") if target else {}
+        lead_family = _first_present(
+            (target_details or {}).get("lead_family"),
+            (baseline_details or {}).get("lead_family"),
+        )
+
+        items.append(
+            {
+                "event_id": int(event.id),
+                "event_hash": event.hash,
+                "doc_id": event.doc_id,
+                "source": event.source,
+                "source_url": event.source_url,
+                "snippet": event.snippet,
+                "lead_family": lead_family,
+                "baseline_version": baseline_version,
+                "target_version": target_version,
+                f"{baseline_version}_rank": baseline_rank,
+                f"{baseline_version}_score": baseline_score,
+                f"{target_version}_rank": target_rank,
+                f"{target_version}_score": target_score,
+                "baseline_rank": baseline_rank,
+                "baseline_score": baseline_score,
+                "target_rank": target_rank,
+                "target_score": target_score,
+                "delta_rank": (
+                    int(baseline_rank) - int(target_rank)
+                    if baseline_rank is not None and target_rank is not None
+                    else None
+                ),
+                "delta_score": (
+                    int(target_score) - int(baseline_score)
+                    if baseline_score is not None and target_score is not None
+                    else None
+                ),
+                "comparison_state": _comparison_state(baseline_rank, target_rank),
+                "explanation_delta": build_scoring_delta_explanation(baseline_details, target_details),
+                "baseline_score_details": baseline_details if isinstance(baseline_details, dict) else {},
+                "target_score_details": target_details if isinstance(target_details, dict) else {},
+            }
+        )
+
+    items.sort(
+        key=lambda item: (
+            item.get("target_rank") is None,
+            item.get("target_rank") if item.get("target_rank") is not None else 10**9,
+            item.get("baseline_rank") is None,
+            item.get("baseline_rank") if item.get("baseline_rank") is not None else 10**9,
+            -(item.get("target_score") if item.get("target_score") is not None else item.get("baseline_score") or 0),
+            item.get("event_id") or 0,
+        )
+    )
+
+    state_counts = {
+        "shared": sum(1 for item in items if item["comparison_state"] == "shared"),
+        "entered_target": sum(1 for item in items if item["comparison_state"] == "entered_target"),
+        "dropped_from_target": sum(1 for item in items if item["comparison_state"] == "dropped_from_target"),
+    }
+    return {
+        "baseline_version": baseline_version,
+        "target_version": target_version,
+        "versions": [baseline_version, target_version],
+        "source": source,
+        "exclude_source": exclude_source,
+        "min_score": int(min_score),
+        "limit": int(limit),
+        "scan_limit": int(scan_limit),
+        "scanned": scanned_by_version,
+        "count": len(items),
+        "state_counts": state_counts,
+        "items": items,
+    }
+
 
 def create_lead_snapshot(
     *,
@@ -452,7 +677,7 @@ def create_lead_snapshot(
     min_score: int = 1,
     limit: int = 200,
     scan_limit: int = 5000,
-    scoring_version: str = "v2",
+    scoring_version: str = DEFAULT_SCORING_VERSION,
     notes: Optional[str] = None,
     database_url: Optional[str] = None,
 ) -> Dict[str, Any]:

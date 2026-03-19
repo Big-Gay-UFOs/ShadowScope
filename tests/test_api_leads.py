@@ -12,7 +12,7 @@ from backend.db.models import Correlation, CorrelationLink, Event, LeadSnapshotI
 from backend.services.leads import create_lead_snapshot
 
 
-def test_api_leads_defaults_to_v2_and_supports_v1_and_v3(tmp_path):
+def test_api_leads_defaults_to_v3_and_supports_v1_and_v2(tmp_path):
     db_path = tmp_path / "api_leads.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
 
@@ -41,8 +41,8 @@ def test_api_leads_defaults_to_v2_and_supports_v1_and_v3(tmp_path):
         response = client.get("/api/leads?limit=10")
         assert response.status_code == 200
         payload = response.json()
-        assert payload and payload[0]["score_details"]["scoring_version"] == "v2"
-        assert payload[0]["scoring_version"] == "v2"
+        assert payload and payload[0]["score_details"]["scoring_version"] == "v3"
+        assert payload[0]["scoring_version"] == "v3"
 
         legacy = client.get("/api/leads?limit=10&scoring_version=v1")
         assert legacy.status_code == 200
@@ -50,11 +50,11 @@ def test_api_leads_defaults_to_v2_and_supports_v1_and_v3(tmp_path):
         assert payload_v1 and payload_v1[0]["score_details"]["scoring_version"] == "v1"
         assert payload_v1[0]["scoring_version"] == "v1"
 
-        v3 = client.get("/api/leads?limit=10&scoring_version=v3")
-        assert v3.status_code == 200
-        payload_v3 = v3.json()
-        assert payload_v3 and payload_v3[0]["score_details"]["scoring_version"] == "v3"
-        assert payload_v3[0]["scoring_version"] == "v3"
+        v2 = client.get("/api/leads?limit=10&scoring_version=v2")
+        assert v2.status_code == 200
+        payload_v2 = v2.json()
+        assert payload_v2 and payload_v2[0]["score_details"]["scoring_version"] == "v2"
+        assert payload_v2[0]["scoring_version"] == "v2"
 
 
 def test_api_leads_and_snapshot_scoring_agree_on_identical_input(tmp_path):
@@ -136,7 +136,7 @@ def test_api_leads_and_snapshot_scoring_agree_on_identical_input(tmp_path):
 
     os.environ["DATABASE_URL"] = db_url
     with TestClient(app) as client:
-        response = client.get("/api/leads?limit=10&scan_limit=50&min_score=0&source=USAspending")
+        response = client.get("/api/leads?limit=10&scan_limit=50&min_score=0&source=USAspending&scoring_version=v2")
         assert response.status_code == 200
         payload = response.json()
 

@@ -26,6 +26,8 @@ def _sample_payloads(bundle_dir: Path) -> tuple[dict, dict, dict, dict]:
                 {
                     "rank": 1,
                     "score": 9,
+                    "snapshot_scoring_version": "v3",
+                    "lead_family": "foia_contextual",
                     "doc_id": "DOC-001",
                     "entity_id": 101,
                     "source_url": "https://sam.gov/opp/1",
@@ -67,7 +69,7 @@ def _sample_payloads(bundle_dir: Path) -> tuple[dict, dict, dict, dict]:
             "same_entity": {"correlations_created": 1, "correlations_updated": 0, "links_created": 2},
             "kw_pair": {"correlations_created": 4, "correlations_updated": 1, "links_created": 9},
         },
-        "snapshot": {"snapshot_id": 7, "items": 3, "scanned": 10},
+        "snapshot": {"snapshot_id": 7, "items": 3, "scanned": 10, "scoring_version": "v3"},
         "exports": {
             "lead_snapshot": {"json": str(lead_json), "csv": str(bundle_dir / "exports" / "lead_snapshot_demo.csv")},
             "entities": {
@@ -104,6 +106,8 @@ def _sample_payloads(bundle_dir: Path) -> tuple[dict, dict, dict, dict]:
     smoke = {
         "generated_at": "2026-03-09T12:00:00+00:00",
         "source": "SAM.gov",
+        "scoring_version": "v3",
+        "compare_scoring_versions": ["v2", "v3"],
         "smoke_passed": True,
         "checks": [],
         "baseline": {},
@@ -111,6 +115,8 @@ def _sample_payloads(bundle_dir: Path) -> tuple[dict, dict, dict, dict]:
         "run_metadata": {
             "source": "SAM.gov",
             "workflow_type": "samgov-smoke",
+            "scoring_version": "v3",
+            "compare_scoring_versions": ["v2", "v3"],
             "run_timestamp": "2026-03-09T12:00:00+00:00",
             "ingest_days": 30,
             "posted_window_mode": "explicit_dates",
@@ -248,6 +254,8 @@ def test_generate_sam_report_contains_expected_sections(tmp_path: Path):
     assert "Top Leads" in html
     assert "Top Entities" in html
     assert "Artifacts" in html
+    assert "Scoring Version" in html
+    assert "v3" in html
     assert "DOC-001" in html
     assert "Acme Federal" in html
     assert "2024-01-01" in html

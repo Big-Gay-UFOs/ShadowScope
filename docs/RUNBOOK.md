@@ -101,13 +101,14 @@ Standard offline rebuild loops:
   `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
   `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
   `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
-  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000`
+  `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json`
   `ss doctor status --source "SAM.gov" --days 30 --json`
 - Optional exploratory add-on:
   `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json`
   `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
   `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
-  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000`
 
 On a fixed window, look for directional improvement in useful keyword density and `kw_pair` signal without degrading pipeline health or existing suppressor behavior.
 
@@ -170,7 +171,7 @@ DoD ontology keywords are emitted as `pack_id:rule_id` tags and flow directly in
 
 Lead scoring now exposes FOIA triage metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) so analysts can see lane diversity and pair-backed DoD context at a glance.
 
-`ss leads snapshot` and `ss leads query` also accept `--scoring-version v3` for the new FOIA-worthiness / proxy-quality scorer. Default workflows stay on `v2` so operators can compare `v1`, `v2`, and `v3` side by side without changing the baseline sprint surface.
+`ss leads snapshot` and `ss leads query` default to `v3` for the new FOIA-worthiness / proxy-quality scorer. Use `--scoring-version v2` only when you intentionally want an older comparison surface, and `--compare-scoring-versions v2,v3` when you want a side-by-side artifact inside SAM workflow bundles.
 
 ## SAM Larger-Run Validation Runbook (2026-03-09)
 

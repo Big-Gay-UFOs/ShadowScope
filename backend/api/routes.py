@@ -16,7 +16,7 @@ from backend.services.lead_families import (
     lead_matches_family,
     summarize_lead_family_groups,
 )
-from backend.services.leads import normalize_scoring_version
+from backend.services.leads import DEFAULT_SCORING_VERSION, SUPPORTED_SCORING_VERSIONS, normalize_scoring_version
 from backend.db.models import AnalysisRun, Entity, Event, LeadSnapshot, LeadSnapshotItem
 from backend.search.opensearch import opensearch_search
 from backend.services.deltas import lead_deltas
@@ -154,7 +154,7 @@ def list_leads(
     offset: int = 0,
     min_score: int = 1,
     scan_limit: int = 5000,
-    scoring_version: str = "v2",
+    scoring_version: str = DEFAULT_SCORING_VERSION,
     source: str | None = None,
     exclude_source: str | None = None,
     date_from: datetime | None = None,
@@ -203,8 +203,9 @@ def list_leads(
 
     try:
         scoring_version = normalize_scoring_version(scoring_version)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError:
+        allowed = " or ".join(SUPPORTED_SCORING_VERSIONS)
+        raise HTTPException(status_code=400, detail=f"scoring_version must be {allowed}")
 
     payload = query_leads(
         db,

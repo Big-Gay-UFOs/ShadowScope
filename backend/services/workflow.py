@@ -11,7 +11,7 @@ from backend.services.entities import link_entities_from_events
 from backend.services.export import export_events
 from backend.services.export_correlations import export_kw_pairs
 from backend.services.export_entities import export_entities_bundle
-from backend.services.export_leads import export_lead_snapshot
+from backend.services.export_leads import export_lead_snapshot, export_scoring_comparison
 from backend.services.ingest import (
     append_sam_posted_window_note,
     ingest_sam_opportunities,
@@ -19,7 +19,7 @@ from backend.services.ingest import (
     resolve_sam_posted_window,
     serialize_sam_posted_window,
 )
-from backend.services.leads import create_lead_snapshot
+from backend.services.leads import DEFAULT_SCORING_VERSION, create_lead_snapshot
 from backend.services.tagging import apply_ontology_to_events
 
 _IngestFn = Callable[..., dict[str, Any]]
@@ -530,6 +530,7 @@ def _run_source_workflow(
     snapshot_limit: int,
     scan_limit: int,
     scoring_version: str,
+    compare_scoring_versions: Optional[list[str]],
     notes: Optional[str],
     notes_resolver: Optional[Callable[[dict[str, Any], Optional[str]], Optional[str]]],
     output: Optional[Path],
@@ -712,6 +713,16 @@ def _run_source_workflow(
                 database_url=database_url,
                 output=out("lead_snapshot", snapshot_id),
             )
+            if compare_scoring_versions:
+                exports["scoring_comparison"] = export_scoring_comparison(
+                    versions=list(compare_scoring_versions),
+                    source=source,
+                    min_score=int(min_score),
+                    limit=int(snapshot_limit),
+                    scan_limit=int(scan_limit),
+                    database_url=database_url,
+                    output=out("scoring_comparison"),
+                )
 
         exports["kw_pairs"] = export_kw_pairs(
             database_url=database_url,
@@ -813,6 +824,7 @@ def run_usaspending_workflow(
         snapshot_limit=int(snapshot_limit),
         scan_limit=int(scan_limit),
         scoring_version=str(scoring_version),
+        compare_scoring_versions=None,
         notes=notes,
         notes_resolver=None,
         output=Path(output).expanduser() if output else None,
@@ -860,7 +872,8 @@ def run_samgov_workflow(
     min_score: int = 1,
     snapshot_limit: int = 200,
     scan_limit: int = 5000,
-    scoring_version: str = "v2",
+    scoring_version: str = DEFAULT_SCORING_VERSION,
+    compare_scoring_versions: Optional[list[str]] = None,
     notes: Optional[str] = None,
     output: Optional[Path] = None,
     export_events_flag: bool = True,
@@ -920,6 +933,7 @@ def run_samgov_workflow(
         snapshot_limit=int(snapshot_limit),
         scan_limit=int(scan_limit),
         scoring_version=str(scoring_version),
+        compare_scoring_versions=list(compare_scoring_versions or []),
         notes=notes,
         notes_resolver=_resolve_snapshot_notes,
         output=Path(output).expanduser() if output else None,
@@ -982,7 +996,8 @@ def run_samgov_smoke_workflow(
     min_score: int = 1,
     snapshot_limit: int = 200,
     scan_limit: int = 5000,
-    scoring_version: str = "v2",
+    scoring_version: str = DEFAULT_SCORING_VERSION,
+    compare_scoring_versions: Optional[list[str]] = None,
     notes: Optional[str] = None,
     bundle_root: Optional[Path] = None,
     database_url: Optional[str] = None,
@@ -1024,6 +1039,7 @@ def run_samgov_smoke_workflow(
         snapshot_limit=int(snapshot_limit),
         scan_limit=int(scan_limit),
         scoring_version=str(scoring_version),
+        compare_scoring_versions=list(compare_scoring_versions or []),
         notes=notes,
         bundle_root=(Path(bundle_root).expanduser() if bundle_root else None),
         database_url=database_url,
@@ -1065,7 +1081,8 @@ def run_samgov_validation_workflow(
     min_score: int = 1,
     snapshot_limit: int = 200,
     scan_limit: int = 5000,
-    scoring_version: str = "v2",
+    scoring_version: str = DEFAULT_SCORING_VERSION,
+    compare_scoring_versions: Optional[list[str]] = None,
     notes: Optional[str] = "samgov larger-run validation",
     bundle_root: Optional[Path] = None,
     database_url: Optional[str] = None,
@@ -1105,6 +1122,7 @@ def run_samgov_validation_workflow(
         snapshot_limit=int(snapshot_limit),
         scan_limit=int(scan_limit),
         scoring_version=str(scoring_version),
+        compare_scoring_versions=list(compare_scoring_versions or []),
         notes=notes,
         bundle_root=(Path(bundle_root).expanduser() if bundle_root else None),
         database_url=database_url,

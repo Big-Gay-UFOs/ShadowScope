@@ -53,6 +53,7 @@ tools/make_demo_report.py
 
 # local artifacts
 _branch_protection_*.json
+.codex-runtime/
 
 # local Codex worktrees/scratch dirs
 .codex-*/

@@ -508,6 +508,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary_payload["smoke_passed"] is True
     assert summary_payload["required_checks_passed"] is True
+    assert summary_payload["scoring_version"] == "v3"
     check_names = {c.get("name") for c in summary_payload.get("checks", [])}
     assert "events_window_threshold" in check_names
     assert "sam_research_context_events_threshold" in check_names
@@ -520,6 +521,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest_payload.get("bundle_version") == "samgov.bundle.v1"
     assert manifest_payload.get("workflow_type") == "samgov-smoke"
+    assert manifest_payload.get("scoring_version") == "v3"
     generated_files = manifest_payload.get("generated_files") or {}
     assert "workflow_result_json" in generated_files
     assert "workflow_summary_json" in generated_files
@@ -540,6 +542,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     report_html = report_path.read_text(encoding="utf-8")
     assert "SAM.gov Workflow Bundle Report" in report_html
     assert "workflow_type=samgov-smoke" in report_html
+    assert "scoring_version=v3" in report_html
     assert "Pipeline health" in report_html
     assert "Source coverage/context health" in report_html
     assert "Lead-signal quality" in report_html
@@ -602,15 +605,55 @@ def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
     assert run_metadata.get("posted_window_mode") == "explicit_dates"
     assert run_metadata.get("effective_posted_from") == "2024-01-01"
     assert run_metadata.get("effective_posted_to") == "2024-03-31"
+    assert summary_payload.get("scoring_version") == "v3"
 
     run_parameters = manifest_payload.get("run_parameters") or {}
     assert run_parameters.get("posted_window_mode") == "explicit_dates"
     assert run_parameters.get("effective_posted_from") == "2024-01-01"
     assert run_parameters.get("effective_posted_to") == "2024-03-31"
+    assert run_parameters.get("scoring_version") == "v3"
 
     assert "SAM postedDate window 2024-01-01..2024-03-31" in (lead_snapshot_payload.get("snapshot") or {}).get("notes", "")
+    assert lead_snapshot_payload.get("scoring_version") == "v3"
     assert "2024-01-01" in report_html
     assert "2024-03-31" in report_html
+    assert "scoring_version=v3" in report_html
+
+
+def test_samgov_smoke_bundle_can_emit_scoring_comparison_artifact(tmp_path: Path):
+    db_path = tmp_path / "sam_smoke_compare.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_smoke_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        scoring_version="v3",
+        compare_scoring_versions=["v2", "v3"],
+        bundle_root=tmp_path / "smoke_compare_artifacts",
+        require_nonzero=True,
+    )
+
+    artifacts = res.get("artifacts") or {}
+    comparison = (artifacts.get("exports") or {}).get("scoring_comparison") or {}
+    assert Path(comparison.get("csv")).exists()
+    assert Path(comparison.get("json")).exists()
+
+    report_html = Path(artifacts["report_html"]).read_text(encoding="utf-8")
+    assert "compare_scoring_versions=v2,v3" in report_html
 
 
 def test_samgov_bundle_reports_include_adjudication_metrics_when_present(tmp_path: Path):
@@ -667,7 +710,8 @@ def test_samgov_bundle_reports_include_adjudication_metrics_when_present(tmp_pat
     assert "export_lead_adjudications_csv" in generated_files
     assert "export_lead_adjudication_metrics_json" in generated_files
 
-    bundle_report_html = Path(artifacts["bundle_report_html"]).read_text(encoding="utf-8")
+    bundle_report_path = artifacts.get("bundle_report_html") or artifacts.get("report_html")
+    bundle_report_html = Path(bundle_report_path).read_text(encoding="utf-8")
     report_html = Path(artifacts["report_html"]).read_text(encoding="utf-8")
     assert "Evaluation" in bundle_report_html
     assert "Precision @ k" in bundle_report_html
@@ -711,6 +755,7 @@ def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
 
     assert res.get("validation_mode") == "larger"
     assert res.get("workflow_type") == "samgov-validation"
+    assert res.get("scoring_version") == "v3"
     assert res.get("quality_gate_policy", {}).get("required_checks")
     assert res.get("quality_gate_policy", {}).get("advisory_checks")
     assert res.get("status") in {"ok", "warning"}

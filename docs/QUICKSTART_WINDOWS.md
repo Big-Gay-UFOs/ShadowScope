@@ -78,13 +78,13 @@ Each check prints expected threshold, observed value, pass/fail, and next comman
   `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
   `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
   `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
-  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000`
   `ss doctor status --source "SAM.gov" --days 30 --json`
 - Optional exploratory add-on:
   `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json`
   `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
   `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
-  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000`
 - On a fixed window, expect directional improvement in useful keyword density and `kw_pair` signal without degrading pipeline health or suppressor behavior.
 
 ### 6) Fixture verification (offline)
@@ -132,4 +132,4 @@ If larger runs are slow/rate-limited, tune:
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
 
-
+SAM operator review defaults now use scoring `v3`. Keep `--scoring-version v2` only for explicit comparison runs.

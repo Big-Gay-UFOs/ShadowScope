@@ -62,7 +62,7 @@ ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 
 ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
 ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45
-ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2
+ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000
 ss doctor status --source "SAM.gov" --days 30 --json
 ```
 
@@ -72,7 +72,7 @@ Optional exploratory hidden-program proxy loop:
 ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json
 ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
-ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2
+ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000
 ```
 
 On a fixed window, treat improvement as directional: we want denser useful keyword and `kw_pair` signal without degrading pipeline health or weakening the existing suppressors.
@@ -390,7 +390,8 @@ Typical workflow (SAM.gov tuning loop):
 - `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
 - `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
-- `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --scoring-version v2 --notes "sam context tuning pass"`
+- `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --notes "sam context tuning pass"`
+- Optional scoring-surface comparison: `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json`
 - Optional exploratory add-on: `ss workflow samgov --skip-ingest --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory --window-days 30 --days 30`
 
 5) Optional maintenance-mode USAspending check
@@ -423,7 +424,7 @@ It is designed for repeatable investigator runs:
 1) ingest a time window (seeded searches)
 2) normalize + persist to Postgres (idempotent)
 3) tag with ontology signals (keywords + clause hits)
-4) score/rank leads (v2 scoring by default)
+4) score/rank leads (v3 scoring by default for SAM/operator review)
 5) snapshot leads (repeatability + deltas)
 6) cluster related records (entity / UEI / keyword / keyword-pair)
 ## Runbook
@@ -457,8 +458,8 @@ Evidence package guardrail:
 - FOIA ontology companion: `examples/ontology_sam_dod_foia_companion.json` (precision-first anchor+pair+exact-probe rules + suppressors)
 - Correlation lanes include `kw_pair` (co-term clustering) and `sam_usaspending_candidate_join` (pairwise cross-source incumbent candidates)
 - Relationship matrix rationale: `same_keyword` captures repeated precision tags while `kw_pair` promotes anchor+pair co-occurrence evidence for triage confidence.
-- Default lead snapshots are **v2**
-- `v3` lead scoring is available via `--scoring-version v3` when you want FOIA-worthiness / proxy-signal ranking with decomposed subscores; `v2` remains the default for comparison stability this sprint.
+- Default lead snapshots are **v3**
+- Use `--scoring-version v2` only when you intentionally want an older comparison surface.
 - Operational noise handling (HRP/DACTS, NASA sponsoring agreement)
 - DOE/NNSA weapons complex pivots (SRS, Y-12, Pantex, KCNSC, CNS, SRNS)
 

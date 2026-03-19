@@ -123,6 +123,11 @@ def load_sam_bundle_payload(bundle_dir: Path | str) -> dict[str, Any]:
     run_metadata.setdefault("workflow_type", manifest.get("workflow_type"))
     run_metadata.setdefault("run_timestamp", manifest.get("generated_at"))
     run_metadata.setdefault("validation_mode", smoke.get("validation_mode") or manifest.get("validation_mode"))
+    run_metadata.setdefault("scoring_version", smoke.get("scoring_version") or manifest.get("scoring_version"))
+    run_metadata.setdefault(
+        "compare_scoring_versions",
+        smoke.get("compare_scoring_versions") or manifest.get("compare_scoring_versions") or [],
+    )
     smoke_run_metadata = smoke.get("run_metadata") if isinstance(smoke.get("run_metadata"), dict) else {}
     if smoke_run_metadata:
         run_metadata.update(smoke_run_metadata)
@@ -291,6 +296,8 @@ def _render_report_html(
         ("Workflow Type", workflow_type),
         ("Validation Mode", smoke.get("validation_mode") or run_metadata.get("validation_mode")),
         ("Workflow Gate Status", smoke.get("status") or workflow.get("status")),
+        ("Scoring Version", snapshot.get("scoring_version") or run_metadata.get("scoring_version") or smoke.get("scoring_version")),
+        ("Compare Scoring Versions", ",".join(run_metadata.get("compare_scoring_versions") or smoke.get("compare_scoring_versions") or [])),
         ("Quality", quality.get("quality")),
         ("Required Checks Passed", smoke.get("required_checks_passed")),
         ("Required Failure Categories", required_failure_categories),
@@ -331,7 +338,7 @@ def _render_report_html(
     correlation_lanes = _correlation_lanes_rows(doctor)
     top_leads = _table_rows_from_list(
         rows=lead_items,
-        expected=("rank", "score", "doc_id", "entity_id", "source_url", "why_summary"),
+        expected=("rank", "score", "scoring_version", "lead_family", "doc_id", "entity_id", "source_url", "why_summary"),
     )
     top_entities = _table_rows_from_list(
         rows=entity_items,
@@ -718,6 +725,7 @@ def _load_top_lead_rows(*, workflow: dict[str, Any], bundle_dir: Path, limit: in
             {
                 "rank": item.get("rank"),
                 "score": item.get("score"),
+                "scoring_version": item.get("snapshot_scoring_version") or item.get("scoring_version"),
                 "lead_family": item.get("lead_family"),
                 "doc_id": item.get("doc_id"),
                 "entity_id": item.get("entity_id"),

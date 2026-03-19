@@ -18,6 +18,7 @@ from backend.services.explainability import (
     load_event_linked_source_summary,
 )
 from backend.services.lead_families import classify_lead_families, lead_matches_family, summarize_lead_family_groups
+from backend.services.leads import compare_lead_scoring_versions
 
 
 def _score_part(details: dict[str, Any], key: str, default: Any = 0) -> Any:
@@ -359,6 +360,7 @@ def build_lead_snapshot_export(
                 "entity_id": None if event is None else event.entity_id,
                 "snippet": None if event is None else (event.snippet or ""),
                 "place_text": None if event is None else (event.place_text or ""),
+                "snapshot_scoring_version": getattr(snap, "scoring_version", None),
                 "scoring_version": details.get("scoring_version"),
                 "lead_family": details.get("lead_family"),
                 "lead_family_label": details.get("lead_family_label"),
@@ -427,6 +429,7 @@ def build_lead_snapshot_export(
     }
     payload = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
+        "scoring_version": snapshot_payload.get("scoring_version"),
         "snapshot": snapshot_payload,
         "lead_family_filter": lead_family,
         "family_groups": summarize_lead_family_groups(rows_out, lead_family_filter=lead_family),
@@ -436,6 +439,7 @@ def build_lead_snapshot_export(
 
     return {
         "snapshot": snapshot_payload,
+        "scoring_version": snapshot_payload.get("scoring_version"),
         "lead_family_filter": lead_family,
         "family_groups": payload["family_groups"],
         "count": len(rows_out),
@@ -482,6 +486,92 @@ def export_lead_snapshot(
     json_path.write_text(json.dumps(export_data["payload"], ensure_ascii=False, indent=2), encoding="utf-8")
 
     return {"csv": csv_path, "json": json_path, "count": int(export_data["count"]), "snapshot_id": int(snapshot_id)}
+
+
+def export_scoring_comparison(
+    *,
+    versions: list[str],
+    source: Optional[str] = None,
+    exclude_source: Optional[str] = None,
+    min_score: int = 1,
+    limit: int = 200,
+    scan_limit: int = 5000,
+    database_url: Optional[str] = None,
+    output: Optional[Path] = None,
+) -> Dict[str, Any]:
+    ensure_runtime_directories()
+    SessionFactory = get_session_factory(database_url)
+
+    with SessionFactory() as db:
+        comparison = compare_lead_scoring_versions(
+            db,
+            versions=versions,
+            source=source,
+            exclude_source=exclude_source,
+            min_score=min_score,
+            limit=limit,
+            scan_limit=scan_limit,
+        )
+
+    baseline_version = str(comparison.get("baseline_version") or "baseline")
+    target_version = str(comparison.get("target_version") or "target")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    base_name = f"lead_scoring_comparison_{baseline_version}_vs_{target_version}_{ts}"
+    export_dir = EXPORTS_DIR
+
+    if output:
+        output = output.expanduser()
+        if output.suffix:
+            export_dir = output.parent if output.parent else Path(".")
+            export_dir.mkdir(parents=True, exist_ok=True)
+            base_name = output.stem or base_name
+        else:
+            export_dir = output
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = export_dir / f"{base_name}.csv"
+    json_path = export_dir / f"{base_name}.json"
+
+    rows: list[dict[str, Any]] = []
+    for item in comparison.get("items", []):
+        rows.append(
+            {
+                "event_id": item.get("event_id"),
+                "event_hash": item.get("event_hash"),
+                "doc_id": item.get("doc_id"),
+                "source": item.get("source"),
+                "source_url": item.get("source_url"),
+                "snippet": item.get("snippet"),
+                "lead_family": item.get("lead_family"),
+                "baseline_version": baseline_version,
+                "target_version": target_version,
+                f"{baseline_version}_rank": item.get(f"{baseline_version}_rank"),
+                f"{baseline_version}_score": item.get(f"{baseline_version}_score"),
+                f"{target_version}_rank": item.get(f"{target_version}_rank"),
+                f"{target_version}_score": item.get(f"{target_version}_score"),
+                "delta_rank": item.get("delta_rank"),
+                "delta_score": item.get("delta_score"),
+                "comparison_state": item.get("comparison_state"),
+                "explanation_delta": item.get("explanation_delta"),
+                "baseline_score_details_json": json.dumps(item.get("baseline_score_details") or {}, ensure_ascii=False),
+                "target_score_details_json": json.dumps(item.get("target_score_details") or {}, ensure_ascii=False),
+            }
+        )
+
+    _write_csv(csv_path, rows)
+    json_path.write_text(
+        json.dumps({"exported_at": datetime.now(timezone.utc).isoformat(), **comparison}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    return {
+        "csv": csv_path,
+        "json": json_path,
+        "count": len(rows),
+        "baseline_version": baseline_version,
+        "target_version": target_version,
+        "versions": comparison.get("versions") or [baseline_version, target_version],
+    }
 
 
 def export_lead_deltas(
@@ -654,4 +744,4 @@ def _write_csv(path: Path, rows):
         writer.writerows(rows)
 
 
-__all__ = ["build_lead_snapshot_export", "export_lead_snapshot", "export_lead_deltas"]
+__all__ = ["build_lead_snapshot_export", "export_lead_snapshot", "export_lead_deltas", "export_scoring_comparison"]

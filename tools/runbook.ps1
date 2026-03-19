@@ -42,7 +42,7 @@ docker compose exec backend ss correlate rebuild-keyword-pairs --window-days $Da
 $aid = (docker compose exec -T db psql -U postgres -d shadowscope -t -A -c "select max(id) from analysis_runs where analysis_type='ontology_apply' and source='USAspending';").Trim()
 Write-Host "analysis_run_id=$aid"
 
-Write-Host "Creating lead snapshot (default scoring v2)..."
+Write-Host "Creating lead snapshot (default scoring v3)..."
 docker compose exec backend ss leads snapshot --analysis-run-id $aid --source USAspending --min-score $MinScore --limit $Limit --scan-limit $ScanLimit --notes "runbook snapshot"
 
 Write-Host "Top 15 leads:"
