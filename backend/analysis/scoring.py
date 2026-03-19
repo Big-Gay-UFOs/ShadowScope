@@ -332,11 +332,13 @@ def score_from_keywords_clauses_v3(
     pair_strength: float = 0.0,
     correlations: Any = None,
     event_context: dict[str, Any] | None = None,
+    allow_source_metadata_boosts: bool = True,
 ) -> Tuple[int, Dict[str, Any]]:
     kw = _norm_list(keywords)
     cl = _norm_list(clauses)
     correlation_items = [dict(item) for item in _norm_list(correlations) if isinstance(item, dict)]
     context = dict(event_context or {})
+    allow_source_metadata_boosts = bool(allow_source_metadata_boosts)
 
     pack_hits: set[str] = set()
     rule_hits: set[tuple[str, str]] = set()
@@ -693,7 +695,8 @@ def score_from_keywords_clauses_v3(
         )
 
     entity_bonus = 1 if has_entity else 0
-    if entity_bonus or any(_has_text(context.get(field)) for field in ("recipient_uei", "recipient_name", "recipient_cage_code")):
+    has_vendor_handle = any(_has_text(context.get(field)) for field in ("recipient_uei", "recipient_name", "recipient_cage_code"))
+    if entity_bonus or (allow_source_metadata_boosts and has_vendor_handle):
         investigability_signal_scores.append(1)
         investigability_signals.append(
             _copy_signal(
@@ -721,7 +724,7 @@ def score_from_keywords_clauses_v3(
             )
         )
 
-    if _has_text(context.get("naics_code")) or _has_text(context.get("psc_code")):
+    if allow_source_metadata_boosts and (_has_text(context.get("naics_code")) or _has_text(context.get("psc_code"))):
         structural_signal_scores.append(1)
         structural_signals.append(
             _copy_signal(
@@ -733,7 +736,10 @@ def score_from_keywords_clauses_v3(
             )
         )
 
-    if any(_has_text(context.get(field)) for field in ("place_of_performance_state", "place_of_performance_country", "place_text")):
+    if allow_source_metadata_boosts and any(
+        _has_text(context.get(field))
+        for field in ("place_of_performance_state", "place_of_performance_country", "place_text")
+    ):
         structural_signal_scores.append(1)
         structural_signals.append(
             _copy_signal(
@@ -745,7 +751,7 @@ def score_from_keywords_clauses_v3(
             )
         )
 
-    if _has_text(context.get("notice_award_type")) or _has_text(context.get("category")):
+    if allow_source_metadata_boosts and (_has_text(context.get("notice_award_type")) or _has_text(context.get("category"))):
         structural_signal_scores.append(1)
         structural_signals.append(
             _copy_signal(
@@ -757,7 +763,10 @@ def score_from_keywords_clauses_v3(
             )
         )
 
-    if any(_has_text(context.get(field)) for field in ("solicitation_number", "notice_id", "document_id", "award_id")):
+    if allow_source_metadata_boosts and any(
+        _has_text(context.get(field))
+        for field in ("solicitation_number", "notice_id", "document_id", "award_id")
+    ):
         structural_signal_scores.append(1)
         structural_signals.append(
             _copy_signal(

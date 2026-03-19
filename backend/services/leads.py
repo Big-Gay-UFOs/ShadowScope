@@ -72,6 +72,13 @@ def normalize_comparison_versions(versions: Optional[list[str]]) -> list[str]:
     return normalized
 
 
+def _normalized_source_key(value: Any) -> str:
+    return "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum())
+
+
+def _supports_v3_source_metadata_boosts(source: Any) -> bool:
+    return _normalized_source_key(source) == "samgov"
+
 
 def _norm_list(value: Any) -> list:
     if value is None:
@@ -252,6 +259,9 @@ def build_scoring_delta_explanation(
         base_value = _score_number(baseline, key)
         target_value = _score_number(target, key)
         delta = target_value - base_value
+        if key == "noise_penalty":
+            # noise_penalty is stored as a positive magnitude but reduces the total score.
+            delta = -delta
         if delta == 0:
             continue
         sign = "+" if delta > 0 else ""
@@ -462,6 +472,7 @@ def compute_leads(
                 pair_strength=float(strength),
                 correlations=correlations,
                 event_context=_event_scoring_context(e),
+                allow_source_metadata_boosts=_supports_v3_source_metadata_boosts(e.source),
             )
         else:
             score, details = score_from_keywords_clauses(
