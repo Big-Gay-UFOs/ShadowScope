@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from backend.db.models import Event, ensure_schema, get_session_factory
 from backend.services.export_leads import export_scoring_comparison
+from backend.services.leads import build_scoring_delta_explanation
 
 
 def test_export_scoring_comparison_emits_side_by_side_v2_v3_artifact(tmp_path):
@@ -88,3 +89,17 @@ def test_export_scoring_comparison_emits_side_by_side_v2_v3_artifact(tmp_path):
     assert "v2_rank" in header
     assert "v3_rank" in header
     assert "lead_family" in header
+
+
+def test_build_scoring_delta_explanation_inverts_noise_penalty_direction():
+    worse = build_scoring_delta_explanation(
+        {"noise_penalty": 0, "keyword_score": 4},
+        {"noise_penalty": 8, "keyword_score": 4},
+    )
+    better = build_scoring_delta_explanation(
+        {"noise_penalty": 8, "keyword_score": 4},
+        {"noise_penalty": 0, "keyword_score": 4},
+    )
+
+    assert "noise -8" in worse
+    assert "noise +8" in better

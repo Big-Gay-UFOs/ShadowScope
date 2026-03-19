@@ -510,6 +510,91 @@ def test_compute_leads_v3_counts_starter_context_ontology_as_structural_signal(t
     assert starter_score > blank_score
 
 
+def test_compute_leads_v3_non_sam_events_do_not_get_source_metadata_boosts(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_source_gate.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        sam_event = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="v3_sam_metadata_boost",
+            created_at=now - timedelta(hours=2),
+            snippet="Secure facility upgrade support.",
+            source_url="https://example.com/sam",
+            doc_id="SAM-BOOST-1",
+            award_id="AWARD-SAM-BOOST-1",
+            solicitation_number="SOL-SAM-BOOST-1",
+            awarding_agency_name="Department of the Air Force",
+            recipient_name="Acme Federal",
+            recipient_uei="UEI-SAM-BOOST-1",
+            naics_code="541715",
+            psc_code="R425",
+            place_of_performance_state="CA",
+            place_of_performance_country="USA",
+            notice_award_type="Solicitation",
+            raw_json={},
+            keywords=["sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context"],
+            clauses=[
+                _clause(
+                    "sam_proxy_secure_compartmented_facility_engineering",
+                    "icd705_scif_sapf_facility_upgrade_context",
+                )
+            ],
+            place_text="Edwards AFB, CA",
+        )
+        usa_event = Event(
+            category="notice",
+            source="USAspending",
+            hash="v3_usaspending_no_metadata_boost",
+            created_at=now - timedelta(hours=1),
+            snippet="Secure facility upgrade support.",
+            source_url="https://example.com/usa",
+            doc_id="USA-BOOST-1",
+            award_id="AWARD-USA-BOOST-1",
+            solicitation_number="SOL-USA-BOOST-1",
+            awarding_agency_name="Department of the Air Force",
+            recipient_name="Acme Federal",
+            recipient_uei="UEI-USA-BOOST-1",
+            naics_code="541715",
+            psc_code="R425",
+            place_of_performance_state="CA",
+            place_of_performance_country="USA",
+            notice_award_type="Award Notice",
+            raw_json={},
+            keywords=["sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context"],
+            clauses=[
+                _clause(
+                    "sam_proxy_secure_compartmented_facility_engineering",
+                    "icd705_scif_sapf_facility_upgrade_context",
+                )
+            ],
+            place_text="Edwards AFB, CA",
+        )
+        db.add_all([sam_event, usa_event])
+        db.commit()
+
+        ranked, scanned = compute_leads(
+            db,
+            min_score=-20,
+            limit=10,
+            scan_limit=50,
+            scoring_version="v3",
+        )
+
+    assert scanned == 2
+    by_hash = {event.hash: (score, details) for score, event, details in ranked}
+    sam_score, sam_details = by_hash["v3_sam_metadata_boost"]
+    usa_score, usa_details = by_hash["v3_usaspending_no_metadata_boost"]
+
+    assert sam_details["investigability_score"] == usa_details["investigability_score"] + 1
+    assert sam_details["structural_context_score"] > usa_details["structural_context_score"]
+    assert usa_details["structural_context_score"] == 0
+    assert sam_score > usa_score
+
+
 def test_compute_leads_v3_negative_proxy_weights_reduce_score(tmp_path):
     db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_negative_weight.db').as_posix()}"
     ensure_schema(db_url)
