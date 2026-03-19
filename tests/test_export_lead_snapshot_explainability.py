@@ -336,3 +336,111 @@ def test_linked_source_summary_orders_records_before_sampling(tmp_path):
         "usa-doc-2",
         "usa-doc-3",
     ]
+
+
+def test_linked_source_summary_sampling_ignores_correlation_insert_order(tmp_path):
+    db_path = tmp_path / "linked_source_multi_corr.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        target_event = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="target-link-multi-corr",
+            snippet="classified follow-on support",
+            doc_id="target-multi-doc",
+            solicitation_number="ORDER-MULTI-001",
+            source_url="http://example.com/target-link-multi-corr",
+            raw_json={},
+            keywords=[],
+            clauses=[],
+            created_at=now,
+        )
+        db.add(target_event)
+        db.commit()
+        db.refresh(target_event)
+
+        linked_events: dict[int, Event] = {}
+        for idx in [6, 2, 5, 1, 4, 3]:
+            linked_event = Event(
+                category="award",
+                source="USAspending",
+                hash=f"linked-multi-{idx}",
+                snippet=f"linked multi award {idx}",
+                doc_id=f"usa-doc-{idx}",
+                award_id=f"AWARD-MULTI-{idx}",
+                source_url=f"http://example.com/linked/multi/{idx}",
+                raw_json={},
+                keywords=[],
+                clauses=[],
+                created_at=now,
+            )
+            db.add(linked_event)
+            db.commit()
+            db.refresh(linked_event)
+            linked_events[idx] = linked_event
+
+        first_correlation = Correlation(
+            correlation_key="sam_usaspending_candidate_join|SAM.gov|365|order-multi-a",
+            score="65",
+            window_days=365,
+            radius_km=0.0,
+            lanes_hit={
+                "lane": "sam_usaspending_candidate_join",
+                "event_count": 4,
+                "score_signal": 65,
+            },
+        )
+        second_correlation = Correlation(
+            correlation_key="sam_usaspending_candidate_join|SAM.gov|365|order-multi-b",
+            score="64",
+            window_days=365,
+            radius_km=0.0,
+            lanes_hit={
+                "lane": "sam_usaspending_candidate_join",
+                "event_count": 4,
+                "score_signal": 64,
+            },
+        )
+        db.add_all([first_correlation, second_correlation])
+        db.commit()
+        db.refresh(first_correlation)
+        db.refresh(second_correlation)
+
+        db.add(CorrelationLink(correlation_id=int(first_correlation.id), event_id=int(target_event.id)))
+        for idx in [6, 2, 4]:
+            db.add(CorrelationLink(correlation_id=int(first_correlation.id), event_id=int(linked_events[idx].id)))
+        db.add(CorrelationLink(correlation_id=int(second_correlation.id), event_id=int(target_event.id)))
+        for idx in [5, 1, 3]:
+            db.add(CorrelationLink(correlation_id=int(second_correlation.id), event_id=int(linked_events[idx].id)))
+        db.commit()
+
+        target_event_id = int(target_event.id)
+        first_correlation_id = int(first_correlation.id)
+        second_correlation_id = int(second_correlation.id)
+        context = load_event_linked_source_summary(db, event_ids=[target_event_id])
+
+    event_context = context[target_event_id]
+    source_summary = event_context["linked_source_summary"][0]
+    assert source_summary["sample_doc_ids"] == [
+        "usa-doc-1",
+        "usa-doc-2",
+        "usa-doc-3",
+        "usa-doc-4",
+        "usa-doc-5",
+    ]
+
+    assert [record["doc_id"] for record in event_context["linked_records_by_correlation"][first_correlation_id]] == [
+        "usa-doc-2",
+        "usa-doc-4",
+        "usa-doc-6",
+    ]
+    assert [record["doc_id"] for record in event_context["linked_records_by_correlation"][second_correlation_id]] == [
+        "usa-doc-1",
+        "usa-doc-3",
+        "usa-doc-5",
+    ]

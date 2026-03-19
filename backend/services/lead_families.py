@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import Counter
 from typing import Any
 
@@ -687,6 +688,20 @@ def lead_family_label(family: str | None) -> str | None:
     return family_key.replace("_", " ")
 
 
+def _summary_secondary_families(item: dict[str, Any]) -> list[Any]:
+    secondaries = _norm_list(item.get("secondary_lead_families"))
+    if secondaries:
+        return secondaries
+    payload = item.get("secondary_lead_families_json")
+    if not isinstance(payload, str) or not payload.strip():
+        return []
+    try:
+        decoded = json.loads(payload)
+    except Exception:
+        return []
+    return decoded if isinstance(decoded, list) else []
+
+
 def _summary_family(item: dict[str, Any], *, lead_family_filter: str | None = None) -> str | None:
     primary = _norm_text(item.get("lead_family")) or None
     family_key = _norm_key(lead_family_filter)
@@ -694,7 +709,7 @@ def _summary_family(item: dict[str, Any], *, lead_family_filter: str | None = No
         return primary
     if _norm_key(primary) == family_key:
         return primary
-    for secondary in _norm_list(item.get("secondary_lead_families")):
+    for secondary in _summary_secondary_families(item):
         secondary_text = _norm_text(secondary)
         if _norm_key(secondary_text) == family_key:
             return secondary_text or family_key

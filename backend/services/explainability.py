@@ -474,11 +474,11 @@ def _append_unique_value(bucket: list[Any], value: Any, *, limit: int = 5) -> No
 def _linked_source_row_sort_key(row: Any) -> tuple[int, int, str, str, str, int]:
     return (
         safe_int(getattr(row, "target_event_id", None), default=0),
-        safe_int(getattr(row, "correlation_id", None), default=0),
         str(getattr(row, "source", None) or "").strip(),
         str(getattr(row, "doc_id", None) or "").strip(),
         str(getattr(row, "award_id", None) or getattr(row, "solicitation_number", None) or "").strip(),
         safe_int(getattr(row, "linked_event_id", None), default=0),
+        safe_int(getattr(row, "correlation_id", None), default=0),
     )
 
 
