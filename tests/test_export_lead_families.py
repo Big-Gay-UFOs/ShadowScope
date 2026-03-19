@@ -92,3 +92,92 @@ def test_export_lead_snapshot_includes_lead_family_and_candidate_corroboration(t
 
     assignments = json.loads(item["lead_family_assignments_json"])
     assert assignments[0]["family"] == "vendor_network_contract_lineage"
+
+
+def test_export_lead_snapshot_groups_filtered_secondary_family_under_requested_bucket(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'export_lead_family_secondary.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        sam_event = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="sam-export-multi-family",
+            snippet="classified follow-on continuity support with DD254 handling",
+            doc_id="sam-export-multi-family-doc",
+            solicitation_number="EXPORT-MULTI-001",
+            awarding_agency_code="DOE",
+            awarding_agency_name="Department of Energy",
+            recipient_name="Acme Mission Support LLC",
+            recipient_uei="UEI-EXPORT-MULTI",
+            source_url="http://example.com/sam/export-multi-family",
+            raw_json={},
+            keywords=[
+                "sam_proxy_procurement_continuity_classified_followon:sole_source_follow_on_classified_context",
+                "sam_proxy_classified_contract_security_admin:dd254_classification_guide_contract_context",
+            ],
+            clauses=[
+                {
+                    "pack": "sam_proxy_procurement_continuity_classified_followon",
+                    "rule": "sole_source_follow_on_classified_context",
+                    "weight": 2,
+                    "field": "snippet",
+                    "match": "classified follow-on",
+                },
+                {
+                    "pack": "sam_proxy_classified_contract_security_admin",
+                    "rule": "dd254_classification_guide_contract_context",
+                    "weight": 2,
+                    "field": "snippet",
+                    "match": "DD254",
+                },
+            ],
+            created_at=now,
+        )
+        usa_event = Event(
+            category="award",
+            source="USAspending",
+            hash="usa-export-multi-family",
+            snippet="prior award",
+            doc_id="usa-export-multi-family-doc",
+            piid="EXPORT-MULTI-001",
+            awarding_agency_code="DOE",
+            awarding_agency_name="Department of Energy",
+            recipient_name="ACME MISSION SUPPORT",
+            recipient_uei="UEI-EXPORT-MULTI",
+            source_url="http://example.com/usa/export-multi-family",
+            raw_json={},
+            keywords=[],
+            clauses=[],
+            created_at=now - timedelta(days=30),
+        )
+        db.add_all([sam_event, usa_event])
+        db.commit()
+
+    rebuild_sam_usaspending_candidate_joins(database_url=db_url)
+    snapshot = create_lead_snapshot(
+        source="SAM.gov",
+        min_score=0,
+        limit=10,
+        scan_limit=50,
+        scoring_version="v2",
+        database_url=db_url,
+    )
+
+    out_dir = tmp_path / "out_secondary"
+    result = export_lead_snapshot(
+        snapshot_id=int(snapshot["snapshot_id"]),
+        database_url=db_url,
+        output=out_dir,
+        lead_family="compartmented_support_intel",
+    )
+    payload = json.loads(result["json"].read_text(encoding="utf-8"))
+
+    assert payload["lead_family_filter"] == "compartmented_support_intel"
+    assert payload["count"] == 1
+    assert payload["family_groups"][0]["lead_family"] == "compartmented_support_intel"
+
+    item = payload["items"][0]
+    assert "compartmented_support_intel" in json.loads(item["secondary_lead_families_json"])
