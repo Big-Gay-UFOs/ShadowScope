@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from backend.db.models import Event, LeadSnapshot, LeadSnapshotItem
@@ -110,6 +110,16 @@ def _norm_dict(value: Any) -> dict[str, Any]:
 def _score_part(details: dict[str, Any], key: str, default: Any = 0) -> Any:
     value = details.get(key, default)
     return default if value is None else value
+
+
+def _normalize_review_window_timestamp(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def list_text(values: list[Any], *, limit: int = 5) -> str:
@@ -446,6 +456,8 @@ def serialize_ranked_lead_review_row(
     score: Optional[int] = None,
 ) -> dict[str, Any]:
     event_context = serialize_event_procurement_context(event)
+    if item is not None and _norm_text(getattr(item, "event_hash", None)):
+        event_context["event_hash"] = item.event_hash
     details_dict = _norm_dict(details)
     corroboration_summary = _norm_dict(details_dict.get("corroboration_summary"))
     row = {
@@ -498,10 +510,10 @@ def review_effective_window(rows: list[dict[str, Any]]) -> dict[str, Any]:
         timestamp = row.get("occurred_at") or row.get("created_at")
         if not isinstance(timestamp, str) or not timestamp.strip():
             continue
-        try:
-            parsed.append(datetime.fromisoformat(timestamp.replace("Z", "+00:00")))
-        except ValueError:
+        normalized = _normalize_review_window_timestamp(timestamp)
+        if normalized is None:
             continue
+        parsed.append(normalized)
     if not parsed:
         return {
             "basis": "occurred_at_or_created_at",

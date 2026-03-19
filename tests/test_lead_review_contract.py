@@ -19,6 +19,7 @@ from backend.services.export_leads import export_lead_snapshot
 from backend.services.review_contract import (
     CANONICAL_RANKED_LEAD_REVIEW_FIELDS,
     RANKED_LEAD_REVIEW_CONTRACT_VERSION,
+    review_effective_window,
 )
 
 
@@ -288,6 +289,48 @@ def test_export_lead_snapshot_writes_review_summary(tmp_path):
     assert summary_payload["evidence_package_availability"]["available"] is True
     assert summary_payload["evidence_package_availability"]["snapshot_id"] == snapshot_id
     assert summary_payload["completeness_counts"]["has_vendor_context"] == 1
+
+
+def test_review_effective_window_normalizes_naive_and_aware_timestamps():
+    summary = review_effective_window(
+        [
+            {"occurred_at": "2026-03-01T00:00:00"},
+            {"created_at": "2026-03-02T00:00:00+00:00"},
+            {"occurred_at": "2026-03-03T00:00:00Z"},
+            {"occurred_at": "not-a-date"},
+        ]
+    )
+
+    assert summary["earliest"] == "2026-03-01T00:00:00+00:00"
+    assert summary["latest"] == "2026-03-03T00:00:00+00:00"
+    assert summary["span_days"] == 2
+
+
+def test_export_lead_snapshot_preserves_snapshot_event_hash(tmp_path):
+    db_url, snapshot_id = _seed_review_contract_snapshot(tmp_path)
+    SessionFactory = get_session_factory(db_url)
+
+    with SessionFactory() as db:
+        notice_event = db.query(Event).filter(Event.hash == "review-notice").one()
+        notice_item = (
+            db.query(LeadSnapshotItem)
+            .filter(LeadSnapshotItem.snapshot_id == snapshot_id)
+            .filter(LeadSnapshotItem.event_id == int(notice_event.id))
+            .one()
+        )
+        notice_event.hash = "review-notice-renormalized"
+        db.commit()
+        db.refresh(notice_item)
+
+    result = export_lead_snapshot(
+        snapshot_id=snapshot_id,
+        database_url=db_url,
+        output=tmp_path / "review_hash_export",
+    )
+    payload = json.loads(result["json"].read_text(encoding="utf-8"))
+    notice_item = next(item for item in payload["items"] if item["category"] == "notice")
+
+    assert notice_item["event_hash"] == "review-notice"
 
 
 def test_api_ranked_lead_routes_share_review_contract_fields(tmp_path):
