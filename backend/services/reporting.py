@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import html
 import json
@@ -34,43 +34,135 @@ def find_latest_sam_smoke_bundle(bundle_root: Optional[Path | str] = None) -> Op
     return dirs[0]
 
 
+def _generated_file_map(manifest: dict[str, Any]) -> dict[str, Any]:
+    return manifest.get("generated_files") if isinstance(manifest.get("generated_files"), dict) else {}
+
+
+def _resolve_bundle_generated_path(
+    bundle_dir: Path,
+    manifest: dict[str, Any],
+    *file_ids: str,
+    legacy_names: tuple[str, ...] = (),
+) -> Optional[Path]:
+    generated_files = _generated_file_map(manifest)
+    fallback: Optional[Path] = None
+    for file_id in file_ids:
+        if file_id not in generated_files:
+            continue
+        resolved = _resolve_path(bundle_dir, generated_files.get(file_id))
+        if resolved is None:
+            continue
+        if resolved.exists():
+            return resolved
+        if fallback is None:
+            fallback = resolved
+    for legacy_name in legacy_names:
+        resolved = _resolve_path(bundle_dir, legacy_name)
+        if resolved is None:
+            continue
+        if resolved.exists():
+            return resolved
+        if fallback is None:
+            fallback = resolved
+    return fallback
+
+
+def _manifest_artifacts(bundle_dir: Path, manifest: dict[str, Any], workflow: dict[str, Any]) -> dict[str, Any]:
+    artifacts: dict[str, Any] = {}
+    for file_id, rel_path in _generated_file_map(manifest).items():
+        resolved = _resolve_path(bundle_dir, rel_path)
+        if resolved is not None:
+            artifacts[str(file_id)] = resolved
+    if isinstance(workflow.get("exports"), dict):
+        artifacts["exports"] = workflow.get("exports")
+    return artifacts
+
+
 def load_sam_bundle_payload(bundle_dir: Path | str) -> dict[str, Any]:
     bundle = resolve_bundle_directory(bundle_dir)
-    workflow_doc = _load_json_payload(_first_existing_path(bundle, "results/workflow_result.json", "workflow_result.json"))
-    doctor_doc = _load_json_payload(_first_existing_path(bundle, "results/doctor_status.json", "doctor_status.json"))
+    manifest = _load_json_payload(bundle / "bundle_manifest.json")
+
+    workflow_doc = _load_json_payload(
+        _resolve_bundle_generated_path(
+            bundle,
+            manifest,
+            "workflow_result_json",
+            legacy_names=("results/workflow_result.json", "workflow_result.json"),
+        )
+        or (bundle / "workflow_result.json")
+    )
+    doctor_doc = _load_json_payload(
+        _resolve_bundle_generated_path(
+            bundle,
+            manifest,
+            "doctor_status_json",
+            legacy_names=("results/doctor_status.json", "doctor_status.json"),
+        )
+        or (bundle / "doctor_status.json")
+    )
     smoke_doc = _load_json_payload(
-        _first_existing_path(bundle, "results/workflow_summary.json", "smoke_summary.json", "workflow_summary.json")
+        _resolve_bundle_generated_path(
+            bundle,
+            manifest,
+            "workflow_summary_json",
+            "smoke_summary_json",
+            legacy_names=("results/workflow_summary.json", "workflow_summary.json", "smoke_summary.json"),
+        )
+        or (bundle / "smoke_summary.json")
     )
 
     workflow = workflow_doc.get("result") if isinstance(workflow_doc.get("result"), dict) else {}
     doctor = doctor_doc.get("result") if isinstance(doctor_doc.get("result"), dict) else {}
     smoke = smoke_doc if isinstance(smoke_doc, dict) else {}
 
-    run_metadata = smoke.get("run_metadata") if isinstance(smoke.get("run_metadata"), dict) else {}
-    if not run_metadata:
-        run_metadata = {
-            "source": smoke.get("source") or workflow.get("source"),
-            "workflow_type": smoke.get("workflow_type"),
-            "validation_mode": smoke.get("validation_mode"),
-            "scoring_version": smoke.get("scoring_version") or (workflow.get("snapshot") or {}).get("scoring_version"),
-            "compare_scoring_versions": smoke.get("compare_scoring_versions"),
-        }
+    run_metadata: dict[str, Any] = {}
+    manifest_run_parameters = manifest.get("run_parameters") if isinstance(manifest.get("run_parameters"), dict) else {}
+    if manifest_run_parameters:
+        run_metadata.update(manifest_run_parameters)
+    run_metadata.setdefault("source", manifest.get("source"))
+    run_metadata.setdefault("workflow_type", manifest.get("workflow_type"))
+    run_metadata.setdefault("run_timestamp", manifest.get("generated_at"))
+    run_metadata.setdefault("validation_mode", smoke.get("validation_mode") or manifest.get("validation_mode"))
+    run_metadata.setdefault("scoring_version", smoke.get("scoring_version") or manifest.get("scoring_version"))
+    run_metadata.setdefault(
+        "compare_scoring_versions",
+        smoke.get("compare_scoring_versions") or manifest.get("compare_scoring_versions") or [],
+    )
+    smoke_run_metadata = smoke.get("run_metadata") if isinstance(smoke.get("run_metadata"), dict) else {}
+    if smoke_run_metadata:
+        run_metadata.update(smoke_run_metadata)
+
     artifacts = smoke.get("artifacts") if isinstance(smoke.get("artifacts"), dict) else {}
+    if not artifacts:
+        artifacts = _manifest_artifacts(bundle, manifest, workflow)
 
     generated_at = (
         smoke.get("generated_at")
+        or manifest.get("generated_at")
         or workflow_doc.get("generated_at")
         or doctor_doc.get("generated_at")
         or datetime.now(timezone.utc).isoformat()
     )
-    workflow_type = str(run_metadata.get("workflow_type") or smoke.get("workflow_type") or _infer_workflow_type(smoke))
-    source = str(run_metadata.get("source") or workflow.get("source") or smoke.get("source") or "SAM.gov")
+    workflow_type = str(
+        smoke.get("workflow_type")
+        or run_metadata.get("workflow_type")
+        or manifest.get("workflow_type")
+        or _infer_workflow_type(smoke)
+    )
+    source = str(
+        run_metadata.get("source")
+        or manifest.get("source")
+        or workflow.get("source")
+        or smoke.get("source")
+        or "SAM.gov"
+    )
 
     return {
         "bundle_dir": bundle,
         "generated_at": generated_at,
         "workflow_type": workflow_type,
         "source": source,
+        "manifest": manifest,
         "run_metadata": run_metadata,
         "workflow_result": workflow,
         "doctor_status": doctor,
@@ -196,15 +288,24 @@ def _render_report_html(
     artifacts: dict[str, Any],
     report_path: Path,
 ) -> str:
+    quality = smoke.get("quality") if isinstance(smoke.get("quality"), dict) else {}
+    required_failure_categories = ", ".join([str(v) for v in quality.get("required_failure_categories") or []]) or None
+    advisory_failure_categories = ", ".join([str(v) for v in quality.get("advisory_failure_categories") or []]) or None
     run_meta_rows = [
         ("Source", source),
         ("Workflow Type", workflow_type),
+        ("Validation Mode", smoke.get("validation_mode") or run_metadata.get("validation_mode")),
+        ("Workflow Gate Status", smoke.get("status") or workflow.get("status")),
         ("Scoring Version", snapshot.get("scoring_version") or run_metadata.get("scoring_version") or smoke.get("scoring_version")),
-        (
-            "Compare Versions",
-            ",".join(run_metadata.get("compare_scoring_versions") or smoke.get("compare_scoring_versions") or []),
-        ),
+        ("Compare Scoring Versions", ",".join(run_metadata.get("compare_scoring_versions") or smoke.get("compare_scoring_versions") or [])),
+        ("Quality", quality.get("quality")),
+        ("Required Checks Passed", smoke.get("required_checks_passed")),
+        ("Required Failure Categories", required_failure_categories),
+        ("Advisory Failure Categories", advisory_failure_categories),
         ("Run Timestamp", generated_at),
+        ("Posted Window Mode", run_metadata.get("posted_window_mode")),
+        ("Posted From", run_metadata.get("effective_posted_from")),
+        ("Posted To", run_metadata.get("effective_posted_to")),
         ("Ingest", _summary_label(ingest, keys=("fetched", "inserted", "normalized"))),
         ("Ontology", _summary_label(ontology, keys=("updated", "unchanged", "scanned"))),
         ("Entities", _summary_label(entities, keys=("linked", "entities_created", "scanned"))),
@@ -219,6 +320,9 @@ def _render_report_html(
         ("Inserted", ingest.get("inserted")),
         ("Normalized", ingest.get("normalized")),
         ("Date Window (days)", run_metadata.get("ingest_days")),
+        ("Posted Window Mode", run_metadata.get("posted_window_mode")),
+        ("Posted From", run_metadata.get("effective_posted_from")),
+        ("Posted To", run_metadata.get("effective_posted_to")),
         ("Pages", run_metadata.get("pages")),
         ("Page Size", run_metadata.get("page_size")),
         ("Limit", run_metadata.get("max_records")),
@@ -243,9 +347,14 @@ def _render_report_html(
 
     hint_rows = [{"hint": h} for h in (doctor.get("hints") or []) if str(h).strip()]
     last_runs_rows = _last_runs_rows((doctor.get("last_runs") if isinstance(doctor, dict) else None) or {})
+    validation_category_rows = _validation_category_rows(smoke)
     artifact_rows = _artifact_rows(
         bundle_dir=bundle_dir,
         report_path=report_path,
+        artifact_payload=artifacts,
+    )
+    evaluation_section = _render_evaluation_section(
+        bundle_dir=bundle_dir,
         artifact_payload=artifacts,
     )
 
@@ -376,6 +485,10 @@ def _render_report_html(
         {_render_table(last_runs_rows, fallback="No run references available.")}
       </section>
       <section class="section">
+        <h2>Validation Categories</h2>
+        {_render_table(validation_category_rows, fallback="Validation category summary unavailable.")}
+      </section>
+      <section class="section">
         <h2>Top Keywords</h2>
         {_render_table(top_keywords, fallback="Top keyword data unavailable.")}
       </section>
@@ -395,6 +508,7 @@ def _render_report_html(
         <h2>Hints</h2>
         {_render_table(hint_rows, fallback="No hints reported.")}
       </section>
+      {evaluation_section}
       <section class="section">
         <h2>Artifacts</h2>
         {_render_table(artifact_rows, fallback="No artifacts found for this bundle.")}
@@ -408,14 +522,146 @@ def _render_report_html(
 """
 
 
+def _format_metric_value(value: Any) -> str:
+    if value is None:
+        return "Unavailable"
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def _render_evaluation_section(*, bundle_dir: Path, artifact_payload: dict[str, Any]) -> str:
+    from backend.services.adjudication import load_bundle_adjudication_state
+
+    state = load_bundle_adjudication_state(bundle_dir=bundle_dir, artifact_payload=artifact_payload)
+    adjudications_csv = state.get("adjudications_csv")
+    metrics = state.get("metrics") if isinstance(state.get("metrics"), dict) else {}
+    if adjudications_csv is None and not metrics:
+        return ""
+
+    summary = metrics.get("summary") if isinstance(metrics.get("summary"), dict) else {}
+    if isinstance(adjudications_csv, Path):
+        try:
+            adjudications_label: Any = adjudications_csv.relative_to(bundle_dir)
+        except ValueError:
+            adjudications_label = adjudications_csv
+    else:
+        adjudications_label = "Unavailable"
+    summary_rows = [
+        ("Adjudications CSV", adjudications_label),
+        ("Reviewed Rows", summary.get("reviewed_count")),
+        ("Decisive Rows", summary.get("decisive_count")),
+        ("Acceptance Rate (%)", _format_metric_value(summary.get("acceptance_rate_pct"))),
+        ("FOIA Ready Yes", summary.get("foia_ready_yes_count")),
+    ]
+
+    if not metrics:
+        body = _render_kv_table(summary_rows)
+        note = "<p class=\"small\">Adjudications are present, but no metrics JSON was found yet.</p>"
+        return f"<section class=\"section\"><h2>Evaluation</h2>{note}{body}</section>"
+
+    precision_rows = []
+    for entry in (summary.get("precision_at_k") or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        precision_rows.append(
+            {
+                "k": entry.get("k"),
+                "precision_pct": _format_metric_value(entry.get("precision_pct")),
+                "reviewed": entry.get("reviewed_count"),
+                "decisive": entry.get("decisive_count"),
+                "keep": entry.get("keep_count"),
+                "reject": entry.get("reject_count"),
+            }
+        )
+
+    scoring_rows = []
+    for entry in metrics.get("by_scoring_version") or []:
+        if not isinstance(entry, dict):
+            continue
+        scoring_rows.append(
+            {
+                "scoring_version": entry.get("scoring_version"),
+                "rows": entry.get("row_count"),
+                "keep": entry.get("keep_count"),
+                "reject": entry.get("reject_count"),
+                "acceptance_pct": _format_metric_value(entry.get("acceptance_rate_pct")),
+            }
+        )
+
+    family_rows = []
+    for entry in (metrics.get("by_lead_family") or [])[:10]:
+        if not isinstance(entry, dict):
+            continue
+        family_rows.append(
+            {
+                "lead_family": entry.get("lead_family"),
+                "rows": entry.get("row_count"),
+                "keep": entry.get("keep_count"),
+                "reject": entry.get("reject_count"),
+                "acceptance_pct": _format_metric_value(entry.get("acceptance_rate_pct")),
+            }
+        )
+
+    rejection_rows = []
+    for entry in (metrics.get("rejection_reasons") or [])[:10]:
+        if not isinstance(entry, dict):
+            continue
+        rejection_rows.append(
+            {
+                "reason_code": entry.get("reason_code"),
+                "count": entry.get("count"),
+                "share_pct": _format_metric_value(entry.get("share_of_rejects_pct")),
+            }
+        )
+
+    return (
+        "<section class=\"section\">"
+        "<h2>Evaluation</h2>"
+        "<p class=\"small\">Reviewer adjudications are local artifacts. Precision@k uses decisive reviewer labels only.</p>"
+        f"{_render_kv_table(summary_rows)}"
+        "<h2>Precision @ k</h2>"
+        f"{_render_table(precision_rows, fallback='Precision metrics unavailable.')}"
+        "<h2>By Scoring Version</h2>"
+        f"{_render_table(scoring_rows, fallback='Scoring-version metrics unavailable.')}"
+        "<h2>By Lead Family</h2>"
+        f"{_render_table(family_rows, fallback='Lead-family metrics unavailable.')}"
+        "<h2>Rejection Reasons</h2>"
+        f"{_render_table(rejection_rows, fallback='No rejection reasons recorded.')}"
+        "</section>"
+    )
+
+
 def _resolve_report_status(*, smoke: dict[str, Any], workflow: dict[str, Any]) -> str:
+    summary_status = str(smoke.get("status") or "").strip().lower()
+    if summary_status in {"failed", "fail", "error"}:
+        return "FAIL"
+    if smoke.get("required_checks_passed") is False:
+        return "FAIL"
+    if smoke.get("failed_required_checks"):
+        return "FAIL"
+
+    if summary_status in {"warning", "warn"}:
+        return "WARNING"
+    if (smoke.get("failed_advisory_checks") or smoke.get("warning_checks")):
+        return "WARNING"
+
+    quality = smoke.get("quality") if isinstance(smoke.get("quality"), dict) else {}
+    quality_name = str(quality.get("quality") or "").strip().lower()
+    if quality_name == "hard_failure":
+        return "FAIL"
+    if quality_name in {"partially_useful", "rate_limited_degraded", "sparse_valid", "degraded"}:
+        return "WARNING"
+
     smoke_passed = smoke.get("smoke_passed")
-    if smoke_passed is True:
+    if smoke_passed is True and summary_status in {"", "ok"}:
         return "PASS"
     if smoke_passed is False:
         return "FAIL"
 
     status = str(workflow.get("status") or "").strip().lower()
+    if status in {"warning", "warn"}:
+        return "WARNING"
     if status in {"ok", "success", "passed"}:
         return "PASS"
     if status in {"failed", "fail", "error"}:
@@ -606,6 +852,24 @@ def _table_rows_from_list(*, rows: list[Any], expected: tuple[str, ...]) -> list
     return out
 
 
+def _validation_category_rows(smoke: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    groups = smoke.get("check_groups") if isinstance(smoke.get("check_groups"), dict) else {}
+    for category, group in groups.items():
+        if not isinstance(group, dict):
+            continue
+        rows.append(
+            {
+                "category": group.get("category_label") or category,
+                "required_total": group.get("required_total"),
+                "advisory_total": group.get("advisory_total"),
+                "failed_required": group.get("failed_required"),
+                "failed_advisory": group.get("failed_advisory"),
+            }
+        )
+    return rows
+
+
 def _render_kv_table(rows: list[tuple[str, Any]]) -> str:
     clean = [{"field": k, "value": v} for k, v in rows if k]
     return _render_table(clean, fallback="Section unavailable.")
@@ -713,14 +977,6 @@ def _find_first(bundle_dir: Path, contains: str, suffix: str, exclude_prefix: st
     return candidates[0]
 
 
-def _first_existing_path(bundle_dir: Path, *relative_paths: str) -> Path:
-    for relative_path in relative_paths:
-        candidate = bundle_dir / relative_path
-        if candidate.exists():
-            return candidate
-    return bundle_dir / relative_paths[0]
-
-
 def _load_json_payload(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -730,7 +986,20 @@ def _load_json_payload(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _load_first_json_payload(*paths: Path) -> dict[str, Any]:
+    for path in paths:
+        payload = _load_json_payload(path)
+        if payload:
+            return payload
+    return {}
+
+
 def _infer_workflow_type(smoke_summary: dict[str, Any]) -> str:
+    workflow_type = smoke_summary.get("workflow_type")
+    if workflow_type:
+        return str(workflow_type)
+    if str(smoke_summary.get("validation_mode") or "").strip().lower() == "larger":
+        return "samgov-validation"
     if smoke_summary:
         return "samgov-smoke"
     return "samgov"

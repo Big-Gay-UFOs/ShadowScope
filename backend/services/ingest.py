@@ -21,6 +21,115 @@ from backend.runtime import RAW_SOURCES, ensure_runtime_directories
 LOGGER = logging.getLogger("shadowscope.ingest")
 
 
+def _normalize_sam_posted_date(value: object, *, field_name: str) -> Optional[date]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        raise ValueError(f"{field_name} must be a date in YYYY-MM-DD format, not a datetime.")
+    if isinstance(value, date):
+        return value
+
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a date in YYYY-MM-DD format.") from exc
+
+
+def resolve_sam_posted_window(
+    *,
+    days: Optional[int] = None,
+    posted_from: Optional[object] = None,
+    posted_to: Optional[object] = None,
+    today: Optional[date] = None,
+) -> dict[str, object]:
+    resolved_posted_from = _normalize_sam_posted_date(posted_from, field_name="posted_from")
+    resolved_posted_to = _normalize_sam_posted_date(posted_to, field_name="posted_to")
+    has_explicit_range = resolved_posted_from is not None or resolved_posted_to is not None
+
+    if has_explicit_range and days is not None:
+        raise ValueError("Use either days or posted_from/posted_to, but not both.")
+
+    if has_explicit_range:
+        if resolved_posted_from is None or resolved_posted_to is None:
+            raise ValueError("posted_from and posted_to must be provided together in YYYY-MM-DD format.")
+        if resolved_posted_from > resolved_posted_to:
+            raise ValueError("posted_from must be on or before posted_to.")
+        return {
+            "mode": "explicit_dates",
+            "requested_days": None,
+            "effective_days": None,
+            "posted_from": resolved_posted_from,
+            "posted_to": resolved_posted_to,
+            "calendar_span_days": int((resolved_posted_to - resolved_posted_from).days),
+        }
+
+    resolved_days = 30 if days is None else int(days)
+    if resolved_days < 1 or resolved_days > 365:
+        raise ValueError("days must be between 1 and 365.")
+
+    anchor_day = today or date.today()
+    effective_posted_to = anchor_day
+    effective_posted_from = effective_posted_to - timedelta(days=resolved_days)
+    return {
+        "mode": "days",
+        "requested_days": resolved_days,
+        "effective_days": resolved_days,
+        "posted_from": effective_posted_from,
+        "posted_to": effective_posted_to,
+        "calendar_span_days": int((effective_posted_to - effective_posted_from).days),
+    }
+
+
+def serialize_sam_posted_window(window: dict[str, object]) -> dict[str, object]:
+    posted_from = window.get("posted_from")
+    posted_to = window.get("posted_to")
+    return {
+        "mode": window.get("mode"),
+        "requested_days": window.get("requested_days"),
+        "effective_days": window.get("effective_days"),
+        "posted_from": posted_from.isoformat() if isinstance(posted_from, date) else posted_from,
+        "posted_to": posted_to.isoformat() if isinstance(posted_to, date) else posted_to,
+        "calendar_span_days": window.get("calendar_span_days"),
+    }
+
+
+def format_sam_posted_window_cli_args(window: dict[str, object]) -> list[str]:
+    payload = serialize_sam_posted_window(window)
+    if payload.get("mode") == "explicit_dates":
+        return [
+            f"--posted-from {payload.get('posted_from')}",
+            f"--posted-to {payload.get('posted_to')}",
+        ]
+    return [f"--days {int(payload.get('effective_days') or 30)}"]
+
+
+def describe_sam_posted_window(window: dict[str, object]) -> str:
+    payload = serialize_sam_posted_window(window)
+    mode = str(payload.get("mode") or "days")
+    if mode == "explicit_dates":
+        return f"{payload.get('posted_from')} -> {payload.get('posted_to')} (mode=explicit_dates)"
+    return (
+        f"{payload.get('posted_from')} -> {payload.get('posted_to')} "
+        f"(mode=days, days={payload.get('effective_days')})"
+    )
+
+
+def append_sam_posted_window_note(notes: Optional[str], *, window: dict[str, object]) -> str:
+    payload = serialize_sam_posted_window(window)
+    audit_note = (
+        f"SAM postedDate window {payload.get('posted_from')}..{payload.get('posted_to')} "
+        f"(mode={payload.get('mode')}"
+    )
+    if payload.get("effective_days") is not None:
+        audit_note += f", days={payload.get('effective_days')}"
+    audit_note += ")"
+    base = str(notes or "").strip()
+    return f"{base} | {audit_note}" if base else audit_note
+
+
 def _build_retrying_session() -> requests.Session:
     session = requests.Session()
     retry = Retry(
@@ -255,7 +364,9 @@ def _upsert_events(session: Session, events):
 
 def ingest_sam_opportunities(
     api_key: Optional[str] = None,
-    days: int = 30,
+    days: Optional[int] = None,
+    posted_from: Optional[date] = None,
+    posted_to: Optional[date] = None,
     pages: int = 1,
     page_size: int = 100,
     max_records: Optional[int] = None,
@@ -266,13 +377,18 @@ def ingest_sam_opportunities(
     """Ingest SAM.gov opportunities into the events table.
 
     Semantics:
-      - days: lookback window for postedDate (capped to <= 365)
+      - days: lookback window for postedDate when explicit dates are not supplied
+      - posted_from / posted_to: explicit postedDate bounds (YYYY-MM-DD, inclusive)
       - pages: maximum pages to request (starting at start_page)
       - page_size: max records per page (capped to <= 1000 by the upstream API)
       - max_records: optional total cap across all pages (defaults to pages * page_size)
       - keywords: optional title search terms. If multiple are provided, we run one query per keyword and union results.
     """
     ensure_runtime_directories()
+    date_window = resolve_sam_posted_window(days=days, posted_from=posted_from, posted_to=posted_to)
+    resolved_posted_from = date_window["posted_from"]
+    resolved_posted_to = date_window["posted_to"]
+    resolved_days = date_window["effective_days"]
 
     # Back-compat: allow callers to pass api_key positionally,
     # but default to env var for operator ergonomics.
@@ -281,15 +397,13 @@ def ingest_sam_opportunities(
 
     if not api_key:
         LOGGER.info("SAM_API_KEY not provided; skipping SAM.gov ingest")
-        return {"status": "skipped", "reason": "missing_api_key"}
+        return {
+            "status": "skipped",
+            "reason": "missing_api_key",
+            "date_window": serialize_sam_posted_window(date_window),
+        }
 
     session = _build_retrying_session()
-
-    days = max(1, int(days))
-    days = min(days, 365)
-
-    posted_to = date.today()
-    posted_from = posted_to - timedelta(days=days)
 
     page_size = max(1, min(int(page_size), samgov.MAX_LIMIT))
     pages = max(1, int(pages))
@@ -319,7 +433,7 @@ def ingest_sam_opportunities(
     run = IngestRun(
         source="SAM.gov",
         status="running",
-        days=days,
+        days=int(resolved_days) if resolved_days is not None else None,
         start_page=start_page,
         pages=pages,
         page_size=page_size,
@@ -358,8 +472,8 @@ def ingest_sam_opportunities(
                 offset = (page - 1) * page_size
 
                 filters = samgov.OpportunityFilter(
-                    posted_from=posted_from,
-                    posted_to=posted_to,
+                    posted_from=resolved_posted_from,
+                    posted_to=resolved_posted_to,
                     limit=page_limit,
                     offset=offset,
                     title=term,
@@ -447,6 +561,7 @@ def ingest_sam_opportunities(
         "snapshot_dir": snapshot_dir,
         "page_size": page_size,
         "max_total": max_total,
+        "date_window": serialize_sam_posted_window(date_window),
         "paging": {
             "terms_requested": len(terms),
             "pages_requested_per_term": pages,
@@ -462,9 +577,15 @@ def ingest_sam_opportunities(
             "rate_limit_retries": rate_limit_retries,
             "retry_sleep_seconds_total": round(float(retry_sleep_seconds_total), 3),
         },
-    }
+}
 
 
-__all__ = ["ingest_usaspending", "ingest_sam_opportunities"]
-
-
+__all__ = [
+    "append_sam_posted_window_note",
+    "describe_sam_posted_window",
+    "format_sam_posted_window_cli_args",
+    "ingest_usaspending",
+    "ingest_sam_opportunities",
+    "resolve_sam_posted_window",
+    "serialize_sam_posted_window",
+]

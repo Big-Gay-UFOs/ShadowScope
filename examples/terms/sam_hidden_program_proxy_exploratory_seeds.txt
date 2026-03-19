@@ -1,0 +1,44 @@
+thermal vacuum chamber
+TVAC
+ultra-high vacuum
+cryostat
+cryocooler
+helium leak detection
+magnetic shielding
+magnetic field mapping
+SQUID
+Hall probe
+pulsed power
+Marx generator
+high-voltage feedthrough
+plasma diagnostics
+plume diagnostics
+Langmuir probe
+retarding potential analyzer
+Faraday probe
+thrust stand
+Hall thruster
+ion thruster
+arcjet
+high-enthalpy
+vacuum firing
+refractory metal
+superalloy
+ultra-high temperature ceramic
+UHTC
+ceramic matrix composite
+CMC
+metamaterial
+radome material
+ablative material
+thermal protection system
+vacuum induction melting
+electron beam melting
+vacuum arc remelt
+hot isostatic pressing
+diffusion bonding
+friction stir welding
+directed energy deposition
+powder bed fusion
+sputter deposition
+plasma spray

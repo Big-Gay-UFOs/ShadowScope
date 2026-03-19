@@ -1,0 +1,1182 @@
+{
+    "version":  "2",
+    "defaults":  {
+                     "fields":  [
+                                    "snippet",
+                                    "raw_json"
+                                ]
+                 },
+    "packs":  [
+                  {
+                      "id":  "sam_procurement_starter",
+                      "name":  "SAM Procurement Starter",
+                      "enabled":  true,
+                      "description":  "High-precision starter ontology for SAM.gov research pivots. Rules favor notice metadata and procurement context over broad single-word matches.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "notice_type_sources_sought",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*sources sought[^\\\"]*\\\"|\\bSources Sought\\b",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "notice_type_combined_synopsis_solicitation",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*combined synopsis/?solicitation[^\\\"]*\\\"|Combined Synopsis/?Solicitation",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "notice_type_presolicitation",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*presolicitation[^\\\"]*\\\"|\\bPresolicitation\\b",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "notice_type_solicitation",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_notice_type\\\"|\\\"noticeType\\\"):\\\"[^\\\"]*solicitation[^\\\"]*\\\"|\\bSolicitation\\b",
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "request_for_proposal",
+                                        "type":  "regex",
+                                        "pattern":  "\\bRFP\\b|Request for Proposal",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "request_for_quote",
+                                        "type":  "regex",
+                                        "pattern":  "\\bRFQ\\b|Request for Quotation",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "invitation_for_bid",
+                                        "type":  "regex",
+                                        "pattern":  "\\bIFB\\b|Invitation for Bid",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "idiq_vehicle",
+                                        "type":  "regex",
+                                        "pattern":  "\\bIDIQ\\b|Indefinite Delivery(?:,? Indefinite Quantity)?",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "task_or_delivery_order",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(task|delivery) order\\b",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "naics_context",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_naics_code\\\"|\\\"naicsCode\\\"):\\\"[0-9A-Z]{2,}\\\"|\\bNAICS\\b",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "set_aside_context",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_set_aside_(?:code|description)\\\"|\\\"typeOfSetAside(?:Description)?\\\"):\\\"[^\\\"]*(?:small business|sba|8\\(a\\)|hubzone|sdvosb|wosb)[^\\\"]*\\\"|small business set-?aside",
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "response_deadline_present",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_response_deadline\\\"|\\\"responseDeadLine\\\"|\\\"responseDeadline\\\"):\\\"[^\\\"]+\\\"",
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "solicitation_number_present",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_solicitation_number\\\"|\\\"solicitationNumber\\\"):\\\"[^\\\"]+\\\"",
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "agency_path_code_present",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\\"sam_agency_path_code\\\"|\\\"fullParentPathCode\\\"):\\\"[^\\\"]+\\\"",
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_program_protection_sap",
+                      "name":  "SAM DoD Program Protection and SAP",
+                      "enabled":  true,
+                      "description":  "Contextual indicators for AFOSI/SAP security and program protection work where procurement language is present.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "afosi_program_security_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:AFOSI|Office of Special Investigations)\\b.{0,120}\\b(?:program protection|program security|industrial security|special access(?:\\s+program)?|SAP security)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "sap_facility_modernization_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:special access(?:\\s+program)?|SAP(?:\\s+security)?|SCIF|sensitive compartmented information facility)\\b.{0,140}\\b(?:facility|infrastructure|modernization|upgrade|hardening|renovation)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "program_protection_plan_support",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:program protection plan|PPP|trusted systems?|classified integration)\\b.{0,120}\\b(?:support|implementation|assessment|compliance|engineering)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "saf_org_code_program_protection_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:AFTTEZ?|SAF/(?:AQL|AQR|AQX|AAH|AAZ|OCX)|NPMS|SAPCO|AFOSIPJ|Office of Competitive Activities|Air Force Test Center|Air Force Test Pilot School|DAF Rapid Capabilities Office|RCO)\\b.{0,180}\\b(?:program protection|security|compliance|test support|operations support|engineering support|infrastructure|staff support|acquisition support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "doe_nnsa_material_handling_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Restricted Data|(?-i:RD)|Formerly Restricted Data|FRD|Special Nuclear Material|SNM|transclassified foreign nuclear information|TFNI|Foreign Intelligence Information|FII|non-contract\\s+FII|Q\\s+clearance|Q\\s*\\+\\s*SEI|Office of Intelligence and Counterintelligence|OICI|DOE-INT)\\b.{0,180}\\b(?:handling|access|custody|transport|control|compliance|security|operations support|program support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "doe_secure_transport_response_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Office of Secure Transportation|OST|Safeguards Transporter|SGT|Mobile Guardian Transporter|MGT|Nuclear Emergency Support Team|NEST|Special Response Team|SRT|DTRA|Defense Threat Reduction Agency)\\b.{0,180}\\b(?:exercise|readiness|escort|convoy|security|operations support|logistics support|maintenance|integration|training|response)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "statutory_authority_compliance_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Atomic Energy Act of 1954|DOE Order\\s*153\\.1A|Executive Order\\s*12656)\\b.{0,180}\\b(?:implementation|compliance|planning|exercise|requirements|program support|operations support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "archival_program_handle_procurement_probe",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Project Sentient|Recent Sentient Highlights|Deep Submergence Systems Project|DSSP|Project Sand Dollar|Project Jennifer|Project Azorian|OPNAV\\s*3820|Project Sundance|Project Palladium|Operation Fishbowl|Bluegill Triple Prime)\\b.{0,180}\\b(?:contract|solicitation|task order|IDIQ|sole source|support|analysis|program support|historical research|FOIA)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_flight_test_range_instrumentation",
+                      "name":  "SAM DoD Flight Test and Range Instrumentation",
+                      "enabled":  true,
+                      "description":  "Flight test and range instrumentation cues tied to Edwards/412th/Plant 42 and NAWCWD China Lake contexts.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "edwards_412th_plant42_range_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Edwards(?:\\s+AFB)?|412th(?:\\s+Test Wing)?|Plant\\s*42)\\b.{0,140}\\b(?:flight test|test and evaluation|T\u0026E|range instrumentation|telemetry|mission instrumentation)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "nawcwd_china_lake_instrumentation_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:NAWCWD|Naval Air Warfare Center Weapons Division|China Lake)\\b.{0,140}\\b(?:telemetry|instrumentation|flight test|T\u0026E integration|test and evaluation integration)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "range_telemetry_support_services",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:range instrumentation|telemetry systems?|data acquisition systems?)\\b.{0,120}\\b(?:integration|sustainment|engineering support|operations support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "site_range_anchor_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Dugway Proving Ground|DPG|West Desert Test Center|WDTC|Utah Test and Training Range|UTTR|Tonopah Test Range|TTR|Nevada Test and Training Range|NTTR|Area\\s*6|Aerial Operations Facility|AOF|NVH1|Yucca Flat|NNSA Nevada Field Office|NFO|N2S2|Kirtland(?:\\s+Air\\s+Force\\s+Base)?|KAFB|Manzano Storage Area|Site Able|Coyote Test Field|Technical Area\\s*-?\\s*(?:1|2|3|4|5)|TA(?:1|2|3|4|5)|R2508|Helendale|Tehachapi|Ant Hill|Yuma Proving Ground|YPG)\\b.{0,180}\\b(?:test|range|telemetry|instrumentation|operations support|engineering support|facility support|infrastructure|modernization|sustainment|T\u0026E|test and evaluation)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "maritime_range_anchor_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:NSWC\\s+Crane|Weapons Systems Division\\s+JXN|AUTEC|PMRF|Diego Garcia)\\b.{0,180}\\b(?:test|range|instrumentation|acoustic|navigation|sensor|operations support|engineering support|integration|sustainment|sole source|IDIQ)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "operator_site_pair_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:National Technology and Engineering Solutions of Sandia|NTESS|Sandia Corporation|Battelle Memorial Institute|Bechtel(?:\\s+Nevada|\\s+SAIC)?|EG\u0026G|Martin Marietta|Honeywell International|Wackenhut|WSI|Woods Hole Oceanographic Institution|WHOI|WHI|BDM|TRW|Hamilton Standard|Unitech Technologies|Lockheed Martin Advanced Development Programs|Skunk Works|Boeing Phantom Works|Northrop Grumman Advanced Technology Development Center|MITRE|Aerospace Corporation|CNA Corporation|RAND Corporation)\\b.{0,220}\\b(?:Dugway Proving Ground|DPG|West Desert Test Center|WDTC|Utah Test and Training Range|UTTR|Tonopah Test Range|TTR|Nevada Test and Training Range|NTTR|Area\\s*6|Aerial Operations Facility|AOF|NVH1|Yucca Flat|NNSA Nevada Field Office|NFO|Kirtland|KAFB|Manzano Storage Area|Site Able|Coyote Test Field|R2508|Helendale|Tehachapi|Ant Hill|Yuma Proving Ground|YPG|AUTEC|PMRF|Diego Garcia|NSWC\\s+Crane|Weapons Systems Division\\s+JXN)\\b|\\b(?:Dugway Proving Ground|DPG|West Desert Test Center|WDTC|Utah Test and Training Range|UTTR|Tonopah Test Range|TTR|Nevada Test and Training Range|NTTR|Area\\s*6|Aerial Operations Facility|AOF|NVH1|Yucca Flat|NNSA Nevada Field Office|NFO|Kirtland|KAFB|Manzano Storage Area|Site Able|Coyote Test Field|R2508|Helendale|Tehachapi|Ant Hill|Yuma Proving Ground|YPG|AUTEC|PMRF|Diego Garcia|NSWC\\s+Crane|Weapons Systems Division\\s+JXN)\\b.{0,220}\\b(?:National Technology and Engineering Solutions of Sandia|NTESS|Sandia Corporation|Battelle Memorial Institute|Bechtel(?:\\s+Nevada|\\s+SAIC)?|EG\u0026G|Martin Marietta|Honeywell International|Wackenhut|WSI|Woods Hole Oceanographic Institution|WHOI|WHI|BDM|TRW|Hamilton Standard|Unitech Technologies|Lockheed Martin Advanced Development Programs|Skunk Works|Boeing Phantom Works|Northrop Grumman Advanced Technology Development Center|MITRE|Aerospace Corporation|CNA Corporation|RAND Corporation)\\b).{0,140}\\b(?:operations support|engineering support|test support|instrumentation support|telemetry support|facility support|infrastructure support|sustainment support|integration support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_advanced_aerospace_support",
+                      "name":  "SAM DoD Advanced Aerospace Support",
+                      "enabled":  true,
+                      "description":  "Advanced aerospace and low-observable integration cues with explicit engineering/support context.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "low_observable_rcs_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:low observable|radar cross section|RCS|signature management)\\b.{0,140}\\b(?:analysis|model(?:ing)?|test|integration|engineering support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "advanced_air_vehicle_integration_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:advanced aerospace|air vehicle|aerospace platform|airframe)\\b.{0,140}\\b(?:systems integration|mission systems integration|prototype integration|platform integration)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "survivability_materials_aerospace_support",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:survivability|electromagnetic signature|materials integration)\\b.{0,120}\\b(?:aircraft|aerospace)\\b.{0,120}\\b(?:support|integration|engineering)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_intel_recovery_undersea_support",
+                      "name":  "SAM DoD Intel Recovery and Undersea Support",
+                      "enabled":  true,
+                      "description":  "ONR/ONI/NRO/NGA/SOCOM-adjacent procurement cues plus undersea recovery and technical support context.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "intel_org_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:ONR|Office of Naval Research|ONI|Office of Naval Intelligence|NRO|National Reconnaissance Office|NGA|National Geospatial-Intelligence Agency|SOCOM|USSOCOM)\\b.{0,160}\\b(?:technical support|program support|operations support|integration support|analysis support|engineering support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "undersea_recovery_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:undersea|subsea|maritime|ocean)\\b.{0,140}\\b(?:recovery|salvage|sensor|acoustic|ISR|collection)\\b.{0,140}\\b(?:support|integration|services|operations)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "sensitive_recovery_exploitation_support",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:foreign material exploitation|FME|materiel recovery|sensitive site exploitation|technical exploitation)\\b.{0,140}\\b(?:support|analysis|logistics|integration|operations)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "undersea_precision_capability_pair_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:NURO|Navy Special Program|NSP|NUWC|AUTEC|PMRF|ocean battlespace sensors?|acoustic navigation|side scan|UUV|AUV)\\b.{0,180}\\b(?:recovery|salvage|collection|sensor|comm(?:unications)? systems?|integration|operations support|engineering support|program support|test support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "deep_submergence_platform_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Deep Submergence Rescue Vehicle|DSRV|Mystic\\s+DSRV-?1|Avalon\\s+DSRV-?2|Deep Submergence Search Vehicle|DSSV|dry submersible|Hughes\\s+Glomar\\s+Explorer|NR-1)\\b.{0,180}\\b(?:support|modernization|sustainment|maintenance|integration|operations|recovery|salvage|program support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "nuro_sentient_program_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Project Sentient|Recent Sentient Highlights|NURO|Navy Special Program|NSP|Deep Submergence Systems Project|DSSP|Project Sand Dollar|Project Jennifer|Project Azorian|OPNAV\\s*3820|Project Sundance|Project Palladium|Operation Fishbowl|Bluegill Triple Prime)\\b.{0,180}\\b(?:contract|solicitation|task order|IDIQ|sole source|support|analysis|program support|historical research|FOIA)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_dod_hardened_subsurface_infrastructure",
+                      "name":  "SAM DoD Hardened Subsurface Infrastructure",
+                      "enabled":  true,
+                      "description":  "Subsurface, shaft, and hardened infrastructure cues that only score when paired with engineering/procurement context.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "subsurface_shaft_tunneling_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:hidden cavities?|deep shaft structures?|incline shaft|vertical elevator shaft|access shaft|tunnel boring machine|TBM|Robbins(?:\\s+Company)?\\s+TBM|nuclear subterrene|subter tunnel machine|vitrified(?:\\s+|-)tunnels?|glass-lined tunnels?)\\b.{0,180}\\b(?:design|construction|installation|engineering|survey|study|modernization|hardening|support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "hardened_facility_design_study_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:design of underground installations in rock|literature survey of underground construction methods for application to hardened facilities|utilization of nuclear power plants in underground installation|subsurface deployment of naval facilities|National Committee on Tunneling Technology|NCTT|intercontinental ballistic missile deep basing communication study|life support and chemical biological agent mitigation|iron-chlorine fuel cells)\\b.{0,180}\\b(?:study|analysis|design|engineering|planning|support|application|assessment)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "hardened_portal_life_support_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:blast door|hardened door|portal door|overpressure door|blast valve|blast damper|underground ventilation|shaft exhaust|air handling|HVAC|HEPA|CBRN filtration|redundant power|UPS|standby generation|switchgear|shaft hoist|elevator modernization|portal access control|grouting|shotcrete|rock support|tunnel lining|buried fiber|hardened comms room|protected communications)\\b.{0,180}\\b(?:underground|subsurface|shaft|tunnel|hardened|portal|installation|facility)\\b.{0,120}\\b(?:upgrade|modernization|construction|integration|maintenance|support|services)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "site_hardened_infrastructure_pair_context",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:Dugway Proving Ground|DPG|West Desert Test Center|WDTC|Utah Test and Training Range|UTTR|Tonopah Test Range|TTR|Nevada Test and Training Range|NTTR|Area\\s*6|Aerial Operations Facility|AOF|NVH1|Yucca Flat|NNSA Nevada Field Office|NFO|N2S2|Kirtland(?:\\s+Air\\s+Force\\s+Base)?|KAFB|Manzano Storage Area|Site Able|Coyote Test Field|Technical Area\\s*-?\\s*(?:1|2|3|4|5)|TA(?:1|2|3|4|5)|R2508|Helendale|Tehachapi|Ant Hill|Yuma Proving Ground|YPG)\\b.{0,200}\\b(?:tunnel boring machine|TBM|shaft|portal|blast door|overpressure door|hardened comms room|protected communications|underground ventilation|CBRN filtration|shotcrete|rock support|tunnel lining)\\b.{0,120}\\b(?:support|services|engineering|construction|modernization|integration|sustainment)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "operational_noise_terms",
+                      "name":  "Operational Noise Terms",
+                      "enabled":  true,
+                      "description":  "SAM commodity/admin suppressors for NSN line-item buys, medical/clinical purchases, and event/hospitality noise.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "nsn_line_item_commodity_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:NSN|National Stock Number|FSC|Federal Supply Class|CLIN)\\b.{0,120}\\b(?:bolt|valve|gasket|filter|bearing|hose|nut|screw|commodity|line item|spare parts?)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "nsn_part_number_quantity_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b\\d{4}-\\d{2}-\\d{3}-\\d{4}\\b.{0,80}\\b(?:qty|quantity|unit price|part(?:\\s+number)?|NSN)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "medical_clinical_procurement_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:hospital|medical center|clinic|pharmacy|dental|clinical)\\b.{0,140}\\b(?:staffing|supplies|equipment|services|patient care|laboratory)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "event_hospitality_admin_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:conference|workshop|seminar|symposium|training event|town hall)\\b.{0,140}\\b(?:venue|catering|lodging|hospitality|audio[ -]?visual|A/V|event support)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "admin_facility_ops_noise",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:office supplies|janitorial|custodial|grounds maintenance|furniture|copy paper|toner|mailroom)\\b.{0,120}\\b(?:delivery|services?|purchase|procurement)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "explicit_uap_lore_noise_terms",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:UAP|UFO|alien|extraterrestrial|non-human|nonhuman|NHI|crash retrieval|crash recovery|reverse engineering|biologics|USAP|black budget)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "uap_lore_with_generic_secrecy_noise",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:program|research|materials?|technology|underground|tunnels?|base|facility|classified|secrecy laws?)\\b.{0,80}\\b(?:UAP|UFO|alien|extraterrestrial|non-human|nonhuman|NHI|crash retrieval|crash recovery|reverse engineering|biologics|craft)\\b|\\b(?:UAP|UFO|alien|extraterrestrial|non-human|nonhuman|NHI|crash retrieval|crash recovery|reverse engineering|biologics|craft)\\b.{0,80}\\b(?:program|research|materials?|technology|underground|tunnels?|base|facility|classified|secrecy laws?)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_secure_compartmented_facility_engineering",
+                      "name":  "SAM Proxy Secure Compartmented Facility Engineering",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for secure compartmented facility upgrades, emanations security, and hardened support infrastructure.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "icd705_scif_sapf_facility_upgrade_context",
+                                        "concept_id":  "secure_compartmented_facility",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:ICD\\s+705|SCIF|sensitive\\s+compartmented\\s+information\\s+facility|SAPF|special\\s+access\\s+facility|accredited\\s+area|closed\\s+area|vault\\s+door)\\b.{0,160}\\b(?:construction|renovation|modernization|hardening|design|accreditation|installation|integration|upgrade)\\b|\\b(?:construction|renovation|modernization|hardening|design|accreditation|installation|integration|upgrade)\\b.{0,120}\\b(?:ICD\\s+705|SCIF|sensitive\\s+compartmented\\s+information\\s+facility|SAPF|special\\s+access\\s+facility|accredited\\s+area|closed\\s+area|vault\\s+door)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "tempest_emanations_shielding_context",
+                                        "concept_id":  "emanations_security",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:TEMPEST|compromising\\s+emanations|emanations\\s+security|RED/BLACK|red\\s+black|RF\\s+shielding|shielded\\s+enclosure|shielded\\s+room)\\b.{0,160}\\b(?:testing|certification|installation|modernization|upgrade|construction|integration)\\b|\\b(?:testing|certification|installation|modernization|upgrade|construction|integration)\\b.{0,120}\\b(?:TEMPEST|compromising\\s+emanations|emanations\\s+security|RED/BLACK|red\\s+black|RF\\s+shielding|shielded\\s+enclosure|shielded\\s+room)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "secure_power_env_control_hardening_context",
+                                        "concept_id":  "hardened_secure_facility_support",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:protected\\s+communications|buried\\s+fiber|underground\\s+ventilation|overpressure\\s+door|blast\\s+valve|blast\\s+damper|redundant\\s+power|standby\\s+generation|UPS|switchgear|HEPA|CBRN\\s+filtration)\\b.{0,120}\\b(?:secure\\s+facility|SCIF|SAPF|hardened|underground|portal)\\b.{0,120}\\b(?:upgrade|modernization|construction|integration|sustainment|services)\\b|\\b(?:secure\\s+facility|SCIF|SAPF|hardened|underground|portal)\\b.{0,120}\\b(?:protected\\s+communications|buried\\s+fiber|underground\\s+ventilation|overpressure\\s+door|blast\\s+valve|blast\\s+damper|redundant\\s+power|standby\\s+generation|UPS|switchgear|HEPA|CBRN\\s+filtration)\\b.{0,120}\\b(?:upgrade|modernization|construction|integration|sustainment|services)\\b|\\b(?:protected\\s+communications|buried\\s+fiber|underground\\s+ventilation|overpressure\\s+door|blast\\s+valve|blast\\s+damper|redundant\\s+power|standby\\s+generation|UPS|switchgear|HEPA|CBRN\\s+filtration)\\b.{0,180}\\b(?:upgrade|modernization|construction|integration|sustainment|services)\\b.{0,120}\\b(?:secure\\s+facility|SCIF|SAPF|hardened|underground|portal)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_materials_exploitation_forensics",
+                      "name":  "SAM Proxy Materials Exploitation and Forensics",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for materials forensics, exploitation chains, and advanced material signature analysis.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "materials_forensic_lab_context",
+                                        "concept_id":  "materials_forensics",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:materials\\s+characterization|failure\\s+analysis|fractography|metallography|forensic\\s+metallurgy|microstructure\\s+analysis|forensic\\s+analysis|non-destructive\\s+evaluation|nondestructive\\s+evaluation|NDE|computed\\s+tomography|CT\\s+scanning|x-ray\\s+diffraction|XRD|scanning\\s+electron\\s+microscopy|SEM|electron\\s+backscatter\\s+diffraction|EBSD|spectroscopy|mass\\s+spectrometry|isotopic\\s+analysis)\\b.{0,120}\\b(?:material|sample|fragment|debris|component|coating|alloy|airframe|propulsion|thermal\\s+protection)\\b.{0,120}\\b(?:analysis|evaluation|laboratory|support|services|testing)\\b|\\b(?:material|sample|fragment|debris|component|coating|alloy|airframe|propulsion|thermal\\s+protection)\\b.{0,120}\\b(?:materials\\s+characterization|failure\\s+analysis|fractography|metallography|forensic\\s+metallurgy|microstructure\\s+analysis|forensic\\s+analysis|non-destructive\\s+evaluation|nondestructive\\s+evaluation|NDE|computed\\s+tomography|CT\\s+scanning|x-ray\\s+diffraction|XRD|scanning\\s+electron\\s+microscopy|SEM|electron\\s+backscatter\\s+diffraction|EBSD|spectroscopy|mass\\s+spectrometry|isotopic\\s+analysis)\\b.{0,120}\\b(?:analysis|evaluation|laboratory|support|services|testing)\\b|\\b(?:materials\\s+characterization|failure\\s+analysis|fractography|metallography|forensic\\s+metallurgy|microstructure\\s+analysis|forensic\\s+analysis|non-destructive\\s+evaluation|nondestructive\\s+evaluation|NDE|computed\\s+tomography|CT\\s+scanning|x-ray\\s+diffraction|XRD|scanning\\s+electron\\s+microscopy|SEM|electron\\s+backscatter\\s+diffraction|EBSD|spectroscopy|mass\\s+spectrometry|isotopic\\s+analysis)\\b.{0,180}\\b(?:analysis|evaluation|laboratory|support|services|testing)\\b.{0,120}\\b(?:material|sample|fragment|debris|component|coating|alloy|airframe|propulsion|thermal\\s+protection)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "recovered_or_foreign_material_exploitation_context",
+                                        "concept_id":  "exploitation_chain",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:foreign\\s+material\\s+exploitation|technical\\s+exploitation|sensitive\\s+site\\s+exploitation|captured\\s+materiel\\s+exploitation|DOMEX|document\\s+and\\s+media\\s+exploitation|chain\\s+of\\s+custody|evidence\\s+handling|sample\\s+preparation|sample\\s+prep)\\b.{0,180}\\b(?:laboratory|analysis|forensics|logistics|transport|support|operations)\\b|\\b(?:laboratory|analysis|forensics|logistics|transport|support|operations)\\b.{0,140}\\b(?:foreign\\s+material\\s+exploitation|technical\\s+exploitation|sensitive\\s+site\\s+exploitation|captured\\s+materiel\\s+exploitation|DOMEX|document\\s+and\\s+media\\s+exploitation|chain\\s+of\\s+custody|evidence\\s+handling|sample\\s+preparation|sample\\s+prep)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "advanced_material_signature_context",
+                                        "concept_id":  "advanced_materials_signature",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:refractory\\s+metal|superalloy|ultra\\s+high\\s+temperature\\s+ceramic|ultra-high\\s+temperature\\s+ceramic|UHTC|ceramic\\s+matrix\\s+composite|CMC|metamaterial|radome\\s+material|ablative\\s+material|thermal\\s+protection\\s+system)\\b.{0,160}\\b(?:analysis|characterization|testing|evaluation|integration|support)\\b|\\b(?:analysis|characterization|testing|evaluation|integration|support)\\b.{0,120}\\b(?:refractory\\s+metal|superalloy|ultra\\s+high\\s+temperature\\s+ceramic|ultra-high\\s+temperature\\s+ceramic|UHTC|ceramic\\s+matrix\\s+composite|CMC|metamaterial|radome\\s+material|ablative\\s+material|thermal\\s+protection\\s+system)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_signature_phenomenology_measurement",
+                      "name":  "SAM Proxy Signature Phenomenology and Measurement",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for MASINT, signature facilities, and EO/IR multispectral collection support.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "masint_signature_phenomenology_context",
+                                        "concept_id":  "signature_phenomenology",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:MASINT|measurement\\s+and\\s+signature\\s+intelligence|phenomenology|signature\\s+phenomenology|spectral\\s+signature|RF\\s+signature|IR\\s+signature|acoustic\\s+signature)\\b.{0,160}\\b(?:analysis|collection|modeling|calibration|testing|support)\\b|\\b(?:analysis|collection|modeling|calibration|testing|support)\\b.{0,120}\\b(?:MASINT|measurement\\s+and\\s+signature\\s+intelligence|phenomenology|signature\\s+phenomenology|spectral\\s+signature|RF\\s+signature|IR\\s+signature|acoustic\\s+signature)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "chamber_or_signature_measurement_facility_context",
+                                        "concept_id":  "signature_measurement_facility",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:anechoic\\s+chamber|compact\\s+range|RCS\\s+chamber|radar\\s+cross\\s+section\\s+range|signature\\s+measurement\\s+facility|far-field\\s+range|near-field\\s+range)\\b.{0,160}\\b(?:upgrade|calibration|integration|testing|operations\\s+support|instrumentation)\\b|\\b(?:upgrade|calibration|integration|testing|operations\\s+support|instrumentation)\\b.{0,120}\\b(?:anechoic\\s+chamber|compact\\s+range|RCS\\s+chamber|radar\\s+cross\\s+section\\s+range|signature\\s+measurement\\s+facility|far-field\\s+range|near-field\\s+range)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "eoir_multispectral_collection_context",
+                                        "concept_id":  "spectral_collection",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:EO/IR|electro-optical|infrared|multispectral|hyperspectral|MWIR|LWIR|SWIR|sensor\\s+phenomenology)\\b.{0,140}\\b(?:calibration|collection|analysis|testing|instrumentation|range\\s+support)\\b|\\b(?:calibration|collection|analysis|testing|instrumentation|range\\s+support)\\b.{0,120}\\b(?:EO/IR|electro-optical|infrared|multispectral|hyperspectral|MWIR|LWIR|SWIR|sensor\\s+phenomenology)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_recovery_chain_support",
+                      "name":  "SAM Proxy Recovery Chain Support",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for debris recovery, secure handling, and recovery logistics.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "component_fragment_debris_recovery_context",
+                                        "concept_id":  "recovery_chain",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:recovery|salvage|retrieval|evidence\\s+recovery)\\b.{0,100}\\b(?:debris|fragment|component|payload|sensor|airframe|material)\\b.{0,120}\\b(?:operations|support|analysis|logistics|transport)\\b|\\b(?:debris|fragment|component|payload|sensor|airframe|material)\\b.{0,100}\\b(?:recovery|salvage|retrieval|evidence\\s+recovery)\\b.{0,120}\\b(?:operations|support|analysis|logistics|transport)\\b|\\b(?:recovery|salvage|retrieval|evidence\\s+recovery)\\b.{0,160}\\b(?:operations|support|analysis|logistics|transport)\\b.{0,120}\\b(?:debris|fragment|component|payload|sensor|airframe|material)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "chain_of_custody_secure_material_handling_context",
+                                        "concept_id":  "secure_material_handling",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:chain\\s+of\\s+custody|evidence\\s+handling|secure\\s+transport|special\\s+transport|packaging\\s+and\\s+preservation)\\b.{0,100}\\b(?:material|sample|fragment|component)\\b.{0,120}\\b(?:laboratory|analysis|support|logistics)\\b|\\b(?:material|sample|fragment|component)\\b.{0,100}\\b(?:chain\\s+of\\s+custody|evidence\\s+handling|secure\\s+transport|special\\s+transport|packaging\\s+and\\s+preservation)\\b.{0,120}\\b(?:laboratory|analysis|support|logistics)\\b|\\b(?:chain\\s+of\\s+custody|evidence\\s+handling|secure\\s+transport|special\\s+transport|packaging\\s+and\\s+preservation)\\b.{0,160}\\b(?:laboratory|analysis|support|logistics)\\b.{0,120}\\b(?:material|sample|fragment|component)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_operator_site_program_pairs",
+                      "name":  "SAM Proxy Operator Site Program Pairs",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues that require operator/site or office/site pairs plus support language.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "operator_site_pair_proxy_context",
+                                        "concept_id":  "operator_site_pair",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:Mission\\s+Support\\s+and\\s+Test\\s+Services|MSTS|JT4|MTSI|Modern\\s+Technology\\s+Solutions|Jacobs\\s+Technology|ENSCO|NTESS|Bechtel\\s+Nevada|EG\u0026G|Amentum|Peraton|Leidos|SAIC|KBR|Parsons|MITRE|Aerospace\\s+Corporation|Battelle|Draper|JHU/APL|Lincoln\\s+Laboratory|CNA|RAND)\\b.{0,240}\\b(?:Edwards\\s+AFB|Plant\\s+42|China\\s+Lake|Dugway\\s+Proving\\s+Ground|Utah\\s+Test\\s+and\\s+Training\\s+Range|Tonopah\\s+Test\\s+Range|Nevada\\s+Test\\s+and\\s+Training\\s+Range|Kirtland\\s+AFB|Manzano\\s+Storage\\s+Area|White\\s+Sands\\s+Missile\\s+Range|Holloman\\s+High\\s+Speed\\s+Test\\s+Track|Arnold\\s+Engineering\\s+Development\\s+Complex|Nevada\\s+National\\s+Security\\s+Site|Site\\s+300|Wright-Patterson\\s+AFB|Patuxent\\s+River|NSWC\\s+Dahlgren|NSWC\\s+Crane|Port\\s+Hueneme|Los\\s+Alamos|Lawrence\\s+Livermore|Sandia)\\b.{0,140}\\b(?:engineering\\s+support|operations\\s+support|test\\s+support|range\\s+support|instrumentation|sustainment|integration)\\b|\\b(?:Edwards\\s+AFB|Plant\\s+42|China\\s+Lake|Dugway\\s+Proving\\s+Ground|Utah\\s+Test\\s+and\\s+Training\\s+Range|Tonopah\\s+Test\\s+Range|Nevada\\s+Test\\s+and\\s+Training\\s+Range|Kirtland\\s+AFB|Manzano\\s+Storage\\s+Area|White\\s+Sands\\s+Missile\\s+Range|Holloman\\s+High\\s+Speed\\s+Test\\s+Track|Arnold\\s+Engineering\\s+Development\\s+Complex|Nevada\\s+National\\s+Security\\s+Site|Site\\s+300|Wright-Patterson\\s+AFB|Patuxent\\s+River|NSWC\\s+Dahlgren|NSWC\\s+Crane|Port\\s+Hueneme|Los\\s+Alamos|Lawrence\\s+Livermore|Sandia)\\b.{0,240}\\b(?:Mission\\s+Support\\s+and\\s+Test\\s+Services|MSTS|JT4|MTSI|Modern\\s+Technology\\s+Solutions|Jacobs\\s+Technology|ENSCO|NTESS|Bechtel\\s+Nevada|EG\u0026G|Amentum|Peraton|Leidos|SAIC|KBR|Parsons|MITRE|Aerospace\\s+Corporation|Battelle|Draper|JHU/APL|Lincoln\\s+Laboratory|CNA|RAND)\\b.{0,140}\\b(?:engineering\\s+support|operations\\s+support|test\\s+support|range\\s+support|instrumentation|sustainment|integration)\\b|\\b(?:Mission\\s+Support\\s+and\\s+Test\\s+Services|MSTS|JT4|MTSI|Modern\\s+Technology\\s+Solutions|Jacobs\\s+Technology|ENSCO|NTESS|Bechtel\\s+Nevada|EG\u0026G|Amentum|Peraton|Leidos|SAIC|KBR|Parsons|MITRE|Aerospace\\s+Corporation|Battelle|Draper|JHU/APL|Lincoln\\s+Laboratory|CNA|RAND)\\b.{0,260}\\b(?:engineering\\s+support|operations\\s+support|test\\s+support|range\\s+support|instrumentation|sustainment|integration)\\b.{0,140}\\b(?:Edwards\\s+AFB|Plant\\s+42|China\\s+Lake|Dugway\\s+Proving\\s+Ground|Utah\\s+Test\\s+and\\s+Training\\s+Range|Tonopah\\s+Test\\s+Range|Nevada\\s+Test\\s+and\\s+Training\\s+Range|Kirtland\\s+AFB|Manzano\\s+Storage\\s+Area|White\\s+Sands\\s+Missile\\s+Range|Holloman\\s+High\\s+Speed\\s+Test\\s+Track|Arnold\\s+Engineering\\s+Development\\s+Complex|Nevada\\s+National\\s+Security\\s+Site|Site\\s+300|Wright-Patterson\\s+AFB|Patuxent\\s+River|NSWC\\s+Dahlgren|NSWC\\s+Crane|Port\\s+Hueneme|Los\\s+Alamos|Lawrence\\s+Livermore|Sandia)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "rapid_capabilities_office_support_context",
+                                        "concept_id":  "rapid_capabilities_support",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:DAF\\s+Rapid\\s+Capabilities\\s+Office|Rapid\\s+Capabilities\\s+Office|Strategic\\s+Capabilities\\s+Office|Space\\s+Rapid\\s+Capabilities\\s+Office|Air\\s+Force\\s+Test\\s+Center\\s+Detachment\\s+3|AFRL|AFRL\\s+Materials\\s+and\\s+Manufacturing\\s+Directorate|AFRL\\s+Sensors\\s+Directorate|AFRL\\s+Directed\\s+Energy\\s+Directorate|OUSD\\(R\u0026E\\))\\b.{0,180}\\b(?:program\\s+support|engineering\\s+support|prototype|integration|testing|range\\s+support|operations\\s+support)\\b|\\b(?:program\\s+support|engineering\\s+support|prototype|integration|testing|range\\s+support|operations\\s+support)\\b.{0,120}\\b(?:DAF\\s+Rapid\\s+Capabilities\\s+Office|Rapid\\s+Capabilities\\s+Office|Strategic\\s+Capabilities\\s+Office|Space\\s+Rapid\\s+Capabilities\\s+Office|Air\\s+Force\\s+Test\\s+Center\\s+Detachment\\s+3|AFRL|AFRL\\s+Materials\\s+and\\s+Manufacturing\\s+Directorate|AFRL\\s+Sensors\\s+Directorate|AFRL\\s+Directed\\s+Energy\\s+Directorate|OUSD\\(R\u0026E\\))\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "doe_site_secure_support_context",
+                                        "concept_id":  "doe_secure_site_support",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:Nevada\\s+National\\s+Security\\s+Site|NNSS|Site\\s+300|Los\\s+Alamos|LANL|Lawrence\\s+Livermore|LLNL|TA-55|Pantex|Y-12|Sandia|Savannah\\s+River|Oak\\s+Ridge)\\b.{0,200}\\b(?:DTRA|Office\\s+of\\s+Secure\\s+Transportation|OICI|DOE-INT|AFNWC)\\b.{0,120}\\b(?:secure\\s+transport|protected\\s+communications|instrumentation|materials\\s+analysis|hardening|special\\s+response|program\\s+support)\\b|\\b(?:DTRA|Office\\s+of\\s+Secure\\s+Transportation|OICI|DOE-INT|AFNWC)\\b.{0,200}\\b(?:Nevada\\s+National\\s+Security\\s+Site|NNSS|Site\\s+300|Los\\s+Alamos|LANL|Lawrence\\s+Livermore|LLNL|TA-55|Pantex|Y-12|Sandia|Savannah\\s+River|Oak\\s+Ridge)\\b.{0,120}\\b(?:secure\\s+transport|protected\\s+communications|instrumentation|materials\\s+analysis|hardening|special\\s+response|program\\s+support)\\b|\\b(?:Nevada\\s+National\\s+Security\\s+Site|NNSS|Site\\s+300|Los\\s+Alamos|LANL|Lawrence\\s+Livermore|LLNL|TA-55|Pantex|Y-12|Sandia|Savannah\\s+River|Oak\\s+Ridge)\\b.{0,220}\\b(?:secure\\s+transport|protected\\s+communications|instrumentation|materials\\s+analysis|hardening|special\\s+response|program\\s+support)\\b.{0,120}\\b(?:DTRA|Office\\s+of\\s+Secure\\s+Transportation|OICI|DOE-INT|AFNWC)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_classified_contract_security_admin",
+                      "name":  "SAM Proxy Classified Contract Security Administration",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for DD254/SCG administration, COMSEC management, and classified access workflows.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "dd254_classification_guide_contract_context",
+                                        "concept_id":  "classified_contract_admin",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:DD254|Contract\\s+Security\\s+Classification\\s+Specification|security\\s+classification\\s+guide|SCG|classified\\s+contract|classified\\s+annex|classified\\s+attachment|classified\\s+appendix)\\b.{0,160}\\b(?:contract|solicitation|task\\s+order|requirement|compliance|administration|management|program\\s+support|security\\s+support)\\b|\\b(?:contract|solicitation|task\\s+order|requirement|compliance|administration|management|program\\s+support|security\\s+support)\\b.{0,120}\\b(?:DD254|Contract\\s+Security\\s+Classification\\s+Specification|security\\s+classification\\s+guide|SCG|classified\\s+contract|classified\\s+annex|classified\\s+attachment|classified\\s+appendix)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "comsec_type1_secure_comms_context",
+                                        "concept_id":  "secure_comms_admin",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:COMSEC|cryptographic\\s+controlled\\s+item|CCI|Type\\s+1\\s+encryption|TACLANE|KG-175|KIV-7|keymat|fill\\s+device)\\b.{0,120}\\b(?:SCIF|SAPF|TEMPEST|secure\\s+facility|protected\\s+communications)\\b.{0,120}\\b(?:installation|integration|management|distribution|maintenance|operations|sustainment)\\b|\\b(?:SCIF|SAPF|TEMPEST|secure\\s+facility|protected\\s+communications)\\b.{0,120}\\b(?:COMSEC|cryptographic\\s+controlled\\s+item|CCI|Type\\s+1\\s+encryption|TACLANE|KG-175|KIV-7|keymat|fill\\s+device)\\b.{0,120}\\b(?:installation|integration|management|distribution|maintenance|operations|sustainment)\\b|\\b(?:COMSEC|cryptographic\\s+controlled\\s+item|CCI|Type\\s+1\\s+encryption|TACLANE|KG-175|KIV-7|keymat|fill\\s+device)\\b.{0,180}\\b(?:installation|integration|management|distribution|maintenance|operations|sustainment)\\b.{0,120}\\b(?:SCIF|SAPF|TEMPEST|secure\\s+facility|protected\\s+communications)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "visit_authorization_courier_access_context",
+                                        "concept_id":  "classified_access_workflow",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:visit\\s+authorization\\s+request|VAR|classified\\s+courier|courier\\s+card|indoctrination|debriefing|read-in|special\\s+access|badging|access\\s+roster)\\b.{0,160}\\b(?:security|compliance|administration|support|operations|management)\\b|\\b(?:security|compliance|administration|support|operations|management)\\b.{0,120}\\b(?:visit\\s+authorization\\s+request|VAR|classified\\s+courier|courier\\s+card|indoctrination|debriefing|read-in|special\\s+access|badging|access\\s+roster)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_controlled_sample_containment_storage",
+                      "name":  "SAM Proxy Controlled Sample Containment and Storage",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for inert handling, contamination control, and secure sample archives.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "glovebox_inert_sample_handling_context",
+                                        "concept_id":  "controlled_sample_handling",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:glovebox|argon\\s+glovebox|inert\\s+atmosphere|nitrogen\\s+purge|dry\\s+room|desiccation\\s+cabinet)\\b.{0,100}\\b(?:sample|fragment|debris|component|coupon|material)\\b.{0,120}\\b(?:handling|preparation|transfer|preservation|analysis|laboratory)\\b|\\b(?:sample|fragment|debris|component|coupon|material)\\b.{0,100}\\b(?:glovebox|argon\\s+glovebox|inert\\s+atmosphere|nitrogen\\s+purge|dry\\s+room|desiccation\\s+cabinet)\\b.{0,120}\\b(?:handling|preparation|transfer|preservation|analysis|laboratory)\\b|\\b(?:glovebox|argon\\s+glovebox|inert\\s+atmosphere|nitrogen\\s+purge|dry\\s+room|desiccation\\s+cabinet)\\b.{0,160}\\b(?:handling|preparation|transfer|preservation|analysis|laboratory)\\b.{0,120}\\b(?:sample|fragment|debris|component|coupon|material)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "contamination_control_sample_archive_context",
+                                        "concept_id":  "sample_containment_archive",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:contamination\\s+control|clean\\s+room|cleanroom|ISO\\s+Class\\s+5|ISO\\s+Class\\s+6|ISO\\s+Class\\s+7|sample\\s+archive|accessioning|specimen\\s+storage|controlled\\s+storage)\\b.{0,100}\\b(?:sample|fragment|debris|evidence|component)\\b.{0,120}\\b(?:handling|preservation|archive|analysis|laboratory|secure\\s+storage)\\b|\\b(?:sample|fragment|debris|evidence|component)\\b.{0,100}\\b(?:contamination\\s+control|clean\\s+room|cleanroom|ISO\\s+Class\\s+5|ISO\\s+Class\\s+6|ISO\\s+Class\\s+7|sample\\s+archive|accessioning|specimen\\s+storage|controlled\\s+storage)\\b.{0,120}\\b(?:handling|preservation|archive|analysis|laboratory|secure\\s+storage)\\b|\\b(?:contamination\\s+control|clean\\s+room|cleanroom|ISO\\s+Class\\s+5|ISO\\s+Class\\s+6|ISO\\s+Class\\s+7|sample\\s+archive|accessioning|specimen\\s+storage|controlled\\s+storage)\\b.{0,160}\\b(?:handling|preservation|archive|analysis|laboratory|secure\\s+storage)\\b.{0,120}\\b(?:sample|fragment|debris|evidence|component)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "evidence_preservation_secure_storage_context",
+                                        "concept_id":  "evidence_storage_chain",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:tamper\\s+evident|evidence\\s+bag|evidence\\s+locker|sealed\\s+container|packaging\\s+and\\s+preservation|custodial\\s+transfer|secure\\s+archive)\\b.{0,100}\\b(?:sample|fragment|debris|component)\\b.{0,120}\\b(?:chain\\s+of\\s+custody|secure\\s+transport|laboratory|analysis|support)\\b|\\b(?:sample|fragment|debris|component)\\b.{0,100}\\b(?:tamper\\s+evident|evidence\\s+bag|evidence\\s+locker|sealed\\s+container|packaging\\s+and\\s+preservation|custodial\\s+transfer|secure\\s+archive)\\b.{0,120}\\b(?:chain\\s+of\\s+custody|secure\\s+transport|laboratory|analysis|support)\\b|\\b(?:tamper\\s+evident|evidence\\s+bag|evidence\\s+locker|sealed\\s+container|packaging\\s+and\\s+preservation|custodial\\s+transfer|secure\\s+archive)\\b.{0,160}\\b(?:chain\\s+of\\s+custody|secure\\s+transport|laboratory|analysis|support)\\b.{0,120}\\b(?:sample|fragment|debris|component)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_advanced_metrology_trace_analysis",
+                      "name":  "SAM Proxy Advanced Metrology and Trace Analysis",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for trace chemistry, structural metrology, and electron microstructure analysis.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "surface_trace_chemistry_context",
+                                        "concept_id":  "trace_chemistry_analysis",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:EDS|EDX|XPS|XRF|SIMS|ToF-SIMS|Auger|AES|GDMS|ICP-MS|isotope\\s+ratio\\s+mass\\s+spectrometry|Raman|FTIR)\\b.{0,100}\\b(?:sample|fragment|coating|alloy|residue|deposit)\\b.{0,120}\\b(?:analysis|characterization|forensics|laboratory|evaluation)\\b|\\b(?:sample|fragment|coating|alloy|residue|deposit)\\b.{0,100}\\b(?:EDS|EDX|XPS|XRF|SIMS|ToF-SIMS|Auger|AES|GDMS|ICP-MS|isotope\\s+ratio\\s+mass\\s+spectrometry|Raman|FTIR)\\b.{0,120}\\b(?:analysis|characterization|forensics|laboratory|evaluation)\\b|\\b(?:EDS|EDX|XPS|XRF|SIMS|ToF-SIMS|Auger|AES|GDMS|ICP-MS|isotope\\s+ratio\\s+mass\\s+spectrometry|Raman|FTIR)\\b.{0,160}\\b(?:analysis|characterization|forensics|laboratory|evaluation)\\b.{0,120}\\b(?:sample|fragment|coating|alloy|residue|deposit)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "structural_mechanical_metrology_context",
+                                        "concept_id":  "structural_metrology",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:nanoindentation|microhardness|residual\\s+stress|laser\\s+profilometry|interferometry|surface\\s+roughness|coordinate\\s+measuring\\s+machine|CMM|micro-CT|ultrasonic\\s+C-scan|eddy\\s+current\\s+array|thermography)\\b.{0,100}\\b(?:component|fragment|airframe|radome|TPS|composite|material)\\b.{0,120}\\b(?:analysis|characterization|evaluation|forensics|laboratory|inspection)\\b|\\b(?:component|fragment|airframe|radome|TPS|composite|material)\\b.{0,100}\\b(?:nanoindentation|microhardness|residual\\s+stress|laser\\s+profilometry|interferometry|surface\\s+roughness|coordinate\\s+measuring\\s+machine|CMM|micro-CT|ultrasonic\\s+C-scan|eddy\\s+current\\s+array|thermography)\\b.{0,120}\\b(?:analysis|characterization|evaluation|forensics|laboratory|inspection)\\b|\\b(?:nanoindentation|microhardness|residual\\s+stress|laser\\s+profilometry|interferometry|surface\\s+roughness|coordinate\\s+measuring\\s+machine|CMM|micro-CT|ultrasonic\\s+C-scan|eddy\\s+current\\s+array|thermography)\\b.{0,160}\\b(?:analysis|characterization|evaluation|forensics|laboratory|inspection)\\b.{0,120}\\b(?:component|fragment|airframe|radome|TPS|composite|material)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "electron_microstructure_context",
+                                        "concept_id":  "electron_microstructure_analysis",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:TEM|transmission\\s+electron\\s+microscopy|SEM|scanning\\s+electron\\s+microscopy|FIB|focused\\s+ion\\s+beam|EBSD|WDS|electron\\s+microprobe|grain\\s+boundary|phase\\s+analysis)\\b.{0,100}\\b(?:sample|fragment|alloy|ceramic|composite)\\b.{0,120}\\b(?:analysis|characterization|microstructure|laboratory|evaluation)\\b|\\b(?:sample|fragment|alloy|ceramic|composite)\\b.{0,100}\\b(?:TEM|transmission\\s+electron\\s+microscopy|SEM|scanning\\s+electron\\s+microscopy|FIB|focused\\s+ion\\s+beam|EBSD|WDS|electron\\s+microprobe|grain\\s+boundary|phase\\s+analysis)\\b.{0,120}\\b(?:analysis|characterization|microstructure|laboratory|evaluation)\\b|\\b(?:TEM|transmission\\s+electron\\s+microscopy|SEM|scanning\\s+electron\\s+microscopy|FIB|focused\\s+ion\\s+beam|EBSD|WDS|electron\\s+microprobe|grain\\s+boundary|phase\\s+analysis)\\b.{0,160}\\b(?:analysis|characterization|microstructure|laboratory|evaluation)\\b.{0,120}\\b(?:sample|fragment|alloy|ceramic|composite)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_maritime_remote_recovery_systems",
+                      "name":  "SAM Proxy Maritime and Remote Recovery Systems",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for subsea search stacks, remote recovery platforms, and maritime recovery objects.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "sonar_magnetometer_search_context",
+                                        "concept_id":  "subsea_search_stack",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:side\\s+scan\\s+sonar|multibeam\\s+echosounder|sub-bottom\\s+profiler|magnetometer|acoustic\\s+release|towed\\s+body|towfish)\\b.{0,160}\\b(?:search|recovery|salvage|survey|collection|operations\\s+support|engineering\\s+support)\\b|\\b(?:search|recovery|salvage|survey|collection|operations\\s+support|engineering\\s+support)\\b.{0,120}\\b(?:side\\s+scan\\s+sonar|multibeam\\s+echosounder|sub-bottom\\s+profiler|magnetometer|acoustic\\s+release|towed\\s+body|towfish)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "rov_lars_heavy_lift_context",
+                                        "concept_id":  "remote_recovery_platform",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:ROV|remotely\\s+operated\\s+vehicle|AUV|autonomous\\s+underwater\\s+vehicle|UUV|LARS|launch\\s+and\\s+recovery\\s+system|A-frame|winch|heave\\s+compensated|lifting\\s+frame|recovery\\s+basket|dynamic\\s+positioning|DP-2|DP2)\\b.{0,160}\\b(?:recovery|salvage|retrieval|operations|engineering\\s+support|integration|sustainment)\\b|\\b(?:recovery|salvage|retrieval|operations|engineering\\s+support|integration|sustainment)\\b.{0,120}\\b(?:ROV|remotely\\s+operated\\s+vehicle|AUV|autonomous\\s+underwater\\s+vehicle|UUV|LARS|launch\\s+and\\s+recovery\\s+system|A-frame|winch|heave\\s+compensated|lifting\\s+frame|recovery\\s+basket|dynamic\\s+positioning|DP-2|DP2)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "maritime_recovery_object_context",
+                                        "concept_id":  "maritime_recovery_object",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:recovery|salvage|retrieval|collection)\\b.{0,90}\\b(?:debris|fragment|payload|sensor|component|material)\\b.{0,90}\\b(?:undersea|subsea|maritime|ocean)\\b.{0,120}\\b(?:support|logistics|transport|operations|engineering)\\b|\\b(?:undersea|subsea|maritime|ocean)\\b.{0,90}\\b(?:recovery|salvage|retrieval|collection)\\b.{0,90}\\b(?:debris|fragment|payload|sensor|component|material)\\b.{0,120}\\b(?:support|logistics|transport|operations|engineering)\\b|\\b(?:recovery|salvage|retrieval|collection)\\b.{0,90}\\b(?:undersea|subsea|maritime|ocean)\\b.{0,90}\\b(?:debris|fragment|payload|sensor|component|material)\\b.{0,120}\\b(?:support|logistics|transport|operations|engineering)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_optical_tracking_transient_collection",
+                      "name":  "SAM Proxy Optical Tracking and Transient Collection",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for optical tracking, transient imaging, and trajectory reconstruction workflows.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "optical_ir_tracking_context",
+                                        "concept_id":  "optical_tracking_collection",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:optical\\s+tracking|IR\\s+tracking|cinetheodolite|theodolite\\s+tracking|all-sky\\s+camera|wide-field\\s+imaging|wide\\s+field\\s+imaging|electro-optical\\s+tracking)\\b.{0,160}\\b(?:calibration|collection|analysis|instrumentation|range\\s+support|test\\s+support)\\b|\\b(?:calibration|collection|analysis|instrumentation|range\\s+support|test\\s+support)\\b.{0,120}\\b(?:optical\\s+tracking|IR\\s+tracking|cinetheodolite|theodolite\\s+tracking|all-sky\\s+camera|wide-field\\s+imaging|wide\\s+field\\s+imaging|electro-optical\\s+tracking)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "high_speed_photometry_spectrograph_context",
+                                        "concept_id":  "transient_imaging_measurement",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:high-speed\\s+imaging|high-speed\\s+video|photometric\\s+calibration|imaging\\s+spectrometer|spectrograph|hyperspectral|multispectral|SWIR|MWIR|LWIR)\\b.{0,160}\\b(?:collection|calibration|analysis|test\\s+support|instrumentation|operations\\s+support)\\b|\\b(?:collection|calibration|analysis|test\\s+support|instrumentation|operations\\s+support)\\b.{0,120}\\b(?:high-speed\\s+imaging|high-speed\\s+video|photometric\\s+calibration|imaging\\s+spectrometer|spectrograph|hyperspectral|multispectral|SWIR|MWIR|LWIR)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "trajectory_reconstruction_timing_context",
+                                        "concept_id":  "trajectory_reconstruction",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:time-synchronized|time\\s+synchronized|timestamping|data\\s+reduction|trajectory\\s+reconstruction|ephemeris|sensor\\s+fusion)\\b.{0,100}\\b(?:range|test|instrumentation|tracking)\\b.{0,120}\\b(?:analysis|support|operations|engineering)\\b|\\b(?:range|test|instrumentation|tracking)\\b.{0,100}\\b(?:time-synchronized|time\\s+synchronized|timestamping|data\\s+reduction|trajectory\\s+reconstruction|ephemeris|sensor\\s+fusion)\\b.{0,120}\\b(?:analysis|support|operations|engineering)\\b|\\b(?:time-synchronized|time\\s+synchronized|timestamping|data\\s+reduction|trajectory\\s+reconstruction|ephemeris|sensor\\s+fusion)\\b.{0,160}\\b(?:analysis|support|operations|engineering)\\b.{0,120}\\b(?:range|test|instrumentation|tracking)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_lab_office_anchor_expansion",
+                      "name":  "SAM Proxy Lab and Office Anchor Expansion",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues that require lab/office anchors plus materials, signature, or instrumentation support.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "afrl_materials_signature_support_context",
+                                        "concept_id":  "afrl_materials_signature_anchor",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:AFRL|Air\\s+Force\\s+Research\\s+Laboratory|Wright-Patterson\\s+AFB|AFRL\\s+Materials\\s+and\\s+Manufacturing\\s+Directorate|AFRL\\s+Aerospace\\s+Systems\\s+Directorate|AFRL\\s+Sensors\\s+Directorate|AFRL\\s+Directed\\s+Energy\\s+Directorate)\\b.{0,180}\\b(?:materials\\s+analysis|signature|instrumentation|engineering\\s+support|test\\s+support|evaluation|integration)\\b|\\b(?:materials\\s+analysis|signature|instrumentation|engineering\\s+support|test\\s+support|evaluation|integration)\\b.{0,120}\\b(?:AFRL|Air\\s+Force\\s+Research\\s+Laboratory|Wright-Patterson\\s+AFB|AFRL\\s+Materials\\s+and\\s+Manufacturing\\s+Directorate|AFRL\\s+Aerospace\\s+Systems\\s+Directorate|AFRL\\s+Sensors\\s+Directorate|AFRL\\s+Directed\\s+Energy\\s+Directorate)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "aedc_naval_test_anchor_context",
+                                        "concept_id":  "test_center_anchor",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:Arnold\\s+Engineering\\s+Development\\s+Complex|AEDC|NAWCAD|Patuxent\\s+River|NSWC\\s+Dahlgren|NSWC\\s+Crane|Port\\s+Hueneme)\\b.{0,180}\\b(?:test|instrumentation|range\\s+support|engineering\\s+support|facility\\s+support|calibration|operations\\s+support)\\b|\\b(?:test|instrumentation|range\\s+support|engineering\\s+support|facility\\s+support|calibration|operations\\s+support)\\b.{0,120}\\b(?:Arnold\\s+Engineering\\s+Development\\s+Complex|AEDC|NAWCAD|Patuxent\\s+River|NSWC\\s+Dahlgren|NSWC\\s+Crane|Port\\s+Hueneme)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "lab_secure_materials_anchor_context",
+                                        "concept_id":  "secure_materials_anchor",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:Los\\s+Alamos|LANL|Lawrence\\s+Livermore|LLNL|Sandia|Pantex|Y-12|Savannah\\s+River|Oak\\s+Ridge|AFNWC|DTRA|Office\\s+of\\s+Secure\\s+Transportation|OICI|DOE-INT)\\b.{0,180}\\b(?:secure\\s+transport|materials\\s+analysis|special\\s+response|hardening|program\\s+support|operations\\s+support|instrumentation)\\b|\\b(?:secure\\s+transport|materials\\s+analysis|special\\s+response|hardening|program\\s+support|operations\\s+support|instrumentation)\\b.{0,120}\\b(?:Los\\s+Alamos|LANL|Lawrence\\s+Livermore|LLNL|Sandia|Pantex|Y-12|Savannah\\s+River|Oak\\s+Ridge|AFNWC|DTRA|Office\\s+of\\s+Secure\\s+Transportation|OICI|DOE-INT)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_procurement_continuity_classified_followon",
+                      "name":  "SAM Proxy Procurement Continuity and Classified Follow-On",
+                      "enabled":  true,
+                      "description":  "Precision proxy cues for classified follow-on procurement continuity and secure ordering vehicles.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "sole_source_follow_on_classified_context",
+                                        "concept_id":  "classified_followon_continuity",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:sole\\s+source|limited\\s+source|other\\s+than\\s+full\\s+and\\s+open\\s+competition|bridge\\s+contract|follow-on|follow\\s+on|incumbent|transition|extension)\\b.{0,180}\\b(?:classified|program\\s+support|operations\\s+support|engineering\\s+support|continuity|sustainment|mission\\s+support)\\b|\\b(?:classified|program\\s+support|operations\\s+support|engineering\\s+support|continuity|sustainment|mission\\s+support)\\b.{0,120}\\b(?:sole\\s+source|limited\\s+source|other\\s+than\\s+full\\s+and\\s+open\\s+competition|bridge\\s+contract|follow-on|follow\\s+on|incumbent|transition|extension)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  2
+                                    },
+                                    {
+                                        "id":  "idiq_task_order_secure_support_context",
+                                        "concept_id":  "secure_support_ordering",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:IDIQ|task\\s+order|BPA|BOA|option\\s+period|award\\s+term)\\b.{0,100}\\b(?:secure\\s+facility|SCIF|SAPF|telemetry|instrumentation|materials\\s+analysis|secure\\s+transport|chain\\s+of\\s+custody)\\b.{0,120}\\b(?:support|sustainment|integration|operations|engineering)\\b|\\b(?:secure\\s+facility|SCIF|SAPF|telemetry|instrumentation|materials\\s+analysis|secure\\s+transport|chain\\s+of\\s+custody)\\b.{0,100}\\b(?:IDIQ|task\\s+order|BPA|BOA|option\\s+period|award\\s+term)\\b.{0,120}\\b(?:support|sustainment|integration|operations|engineering)\\b|\\b(?:IDIQ|task\\s+order|BPA|BOA|option\\s+period|award\\s+term)\\b.{0,180}\\b(?:support|sustainment|integration|operations|engineering)\\b.{0,120}\\b(?:secure\\s+facility|SCIF|SAPF|telemetry|instrumentation|materials\\s+analysis|secure\\s+transport|chain\\s+of\\s+custody)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "classified_annex_continuity_context",
+                                        "concept_id":  "classified_annex_continuity",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:classified\\s+annex|classified\\s+attachment|classified\\s+appendix|security\\s+classification\\s+guide|DD254)\\b.{0,180}\\b(?:follow-on|extension|bridge|support|sustainment|compliance|administration)\\b|\\b(?:follow-on|extension|bridge|support|sustainment|compliance|administration)\\b.{0,120}\\b(?:classified\\s+annex|classified\\s+attachment|classified\\s+appendix|security\\s+classification\\s+guide|DD254)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_noise_expansion",
+                      "name":  "SAM Proxy Noise Expansion",
+                      "enabled":  true,
+                      "description":  "Additional proxy-specific suppressors for generic lab, training, maintenance, outreach, and clinical noise.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "generic_lab_supply_noise",
+                                        "concept_id":  "noise_generic_lab_supply",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:reagent|consumables|glassware|pipette|centrifuge|freezer|autoclave|lab\\s+furniture|microscope\\s+service|nitrile\\s+gloves|disposable\\s+gown|swab\\s+kit)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "security_training_noise",
+                                        "concept_id":  "noise_security_training",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:training|course|certification|seminar|awareness)\\b.{0,120}\\b(?:ICD\\s+705|TEMPEST|SCIF|COMSEC)\\b|\\b(?:ICD\\s+705|TEMPEST|SCIF|COMSEC)\\b.{0,120}\\b(?:training|course|certification|seminar|awareness)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "generic_facility_maintenance_noise",
+                                        "concept_id":  "noise_generic_facility_maintenance",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:roofing|paving|striping|janitorial|landscaping|pest\\s+control|cafeteria|catering|lodging|copier|office\\s+furniture)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "generic_university_outreach_noise",
+                                        "concept_id":  "noise_university_outreach",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:fellowship|internship|curriculum|outreach|workshop|symposium|conference|student\\s+support|textbook)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "generic_medical_clinical_noise",
+                                        "concept_id":  "noise_medical_clinical",
+                                        "type":  "regex",
+                                        "pattern":  "\\b(?:clinical|patient|dental|pharmacy|vaccine|blood\\s+bank|surgical|veterinary|animal\\s+care)\\b",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_vacuum_cryogenic_high_field_infrastructure",
+                      "name":  "SAM Proxy Vacuum Cryogenic and High-Field Infrastructure",
+                      "enabled":  true,
+                      "description":  "Opt-in exploratory proxy cues for TVAC/UHV/cryogenic and high-field support infrastructure.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "tvac_uhv_cryostat_context",
+                                        "concept_id":  "vacuum_cryogenic_test_infrastructure",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:thermal\\s+vacuum\\s+chamber|TVAC|ultra-high\\s+vacuum|UHV|cryostat|cryocooler|pulse\\s+tube\\s+cryocooler|cold\\s+head|helium\\s+leak\\s+detection|helium\\s+mass\\s+spectrometer\\s+leak\\s+detector)\\b.{0,160}\\b(?:testing|diagnostics|instrumentation|chamber\\s+operations|integration|facility\\s+support)\\b|\\b(?:testing|diagnostics|instrumentation|chamber\\s+operations|integration|facility\\s+support)\\b.{0,120}\\b(?:thermal\\s+vacuum\\s+chamber|TVAC|ultra-high\\s+vacuum|UHV|cryostat|cryocooler|pulse\\s+tube\\s+cryocooler|cold\\s+head|helium\\s+leak\\s+detection|helium\\s+mass\\s+spectrometer\\s+leak\\s+detector)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "pulsed_power_high_voltage_context",
+                                        "concept_id":  "pulsed_power_test_infrastructure",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:pulsed\\s+power|capacitor\\s+bank|Marx\\s+generator|high-voltage\\s+feedthrough|high\\s+voltage\\s+feedthrough|pulse\\s+forming\\s+network|HV\\s+supply)\\b.{0,160}\\b(?:testing|diagnostics|facility|instrumentation|integration|operations\\s+support)\\b|\\b(?:testing|diagnostics|facility|instrumentation|integration|operations\\s+support)\\b.{0,120}\\b(?:pulsed\\s+power|capacitor\\s+bank|Marx\\s+generator|high-voltage\\s+feedthrough|high\\s+voltage\\s+feedthrough|pulse\\s+forming\\s+network|HV\\s+supply)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "magnetic_shielding_field_mapping_context",
+                                        "concept_id":  "high_field_diagnostics",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:magnetic\\s+shielding|magnetic\\s+field\\s+mapping|SQUID|Hall\\s+probe|Helmholtz\\s+coil|Faraday\\s+cage)\\b.{0,160}\\b(?:diagnostics|calibration|instrumentation|testing|analysis)\\b|\\b(?:diagnostics|calibration|instrumentation|testing|analysis)\\b.{0,120}\\b(?:magnetic\\s+shielding|magnetic\\s+field\\s+mapping|SQUID|Hall\\s+probe|Helmholtz\\s+coil|Faraday\\s+cage)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_plasma_propulsion_diagnostics",
+                      "name":  "SAM Proxy Plasma and Propulsion Diagnostics",
+                      "enabled":  true,
+                      "description":  "Opt-in exploratory proxy cues for plasma diagnostics and electric propulsion test support.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "plasma_diagnostics_context",
+                                        "concept_id":  "plasma_diagnostics",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:plasma\\s+diagnostics|plume\\s+diagnostics|Langmuir\\s+probe|emissive\\s+probe|retarding\\s+potential\\s+analyzer|Faraday\\s+probe)\\b.{0,160}\\b(?:testing|instrumentation|analysis|calibration|support)\\b|\\b(?:testing|instrumentation|analysis|calibration|support)\\b.{0,120}\\b(?:plasma\\s+diagnostics|plume\\s+diagnostics|Langmuir\\s+probe|emissive\\s+probe|retarding\\s+potential\\s+analyzer|Faraday\\s+probe)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "electric_propulsion_test_context",
+                                        "concept_id":  "electric_propulsion_test",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:thrust\\s+stand|Hall\\s+thruster|ion\\s+thruster|pulsed\\s+plasma\\s+thruster|electric\\s+propulsion)\\b.{0,160}\\b(?:test|instrumentation|facility|calibration|analysis)\\b|\\b(?:test|instrumentation|facility|calibration|analysis)\\b.{0,120}\\b(?:thrust\\s+stand|Hall\\s+thruster|ion\\s+thruster|pulsed\\s+plasma\\s+thruster|electric\\s+propulsion)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "arcjet_high_enthalpy_facility_context",
+                                        "concept_id":  "high_enthalpy_propulsion_facility",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:arcjet|high-enthalpy|plasma\\s+wind\\s+tunnel|arc\\s+heater|vacuum\\s+firing)\\b.{0,160}\\b(?:facility|testing|instrumentation|analysis|support)\\b|\\b(?:facility|testing|instrumentation|analysis|support)\\b.{0,120}\\b(?:arcjet|high-enthalpy|plasma\\s+wind\\s+tunnel|arc\\s+heater|vacuum\\s+firing)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  },
+                  {
+                      "id":  "sam_proxy_advanced_material_process_chain",
+                      "name":  "SAM Proxy Advanced Material Process Chain",
+                      "enabled":  true,
+                      "description":  "Opt-in exploratory proxy cues for advanced alloy/composite process chains and metamaterial surface work.",
+                      "weight":  1,
+                      "rules":  [
+                                    {
+                                        "id":  "refractory_superalloy_process_context",
+                                        "concept_id":  "advanced_alloy_process_chain",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:vacuum\\s+induction\\s+melting|electron\\s+beam\\s+melting|vacuum\\s+arc\\s+remelt|hot\\s+isostatic\\s+pressing|diffusion\\s+bonding|friction\\s+stir\\s+welding)\\b.{0,120}\\b(?:refractory\\s+metal|superalloy|UHTC|ceramic\\s+matrix\\s+composite)\\b.{0,120}\\b(?:process\\s+development|fabrication|evaluation|repair|support)\\b|\\b(?:refractory\\s+metal|superalloy|UHTC|ceramic\\s+matrix\\s+composite)\\b.{0,120}\\b(?:vacuum\\s+induction\\s+melting|electron\\s+beam\\s+melting|vacuum\\s+arc\\s+remelt|hot\\s+isostatic\\s+pressing|diffusion\\s+bonding|friction\\s+stir\\s+welding)\\b.{0,120}\\b(?:process\\s+development|fabrication|evaluation|repair|support)\\b|\\b(?:vacuum\\s+induction\\s+melting|electron\\s+beam\\s+melting|vacuum\\s+arc\\s+remelt|hot\\s+isostatic\\s+pressing|diffusion\\s+bonding|friction\\s+stir\\s+welding)\\b.{0,180}\\b(?:process\\s+development|fabrication|evaluation|repair|support)\\b.{0,120}\\b(?:refractory\\s+metal|superalloy|UHTC|ceramic\\s+matrix\\s+composite)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "composite_radome_tps_fabrication_context",
+                                        "concept_id":  "advanced_aero_material_fabrication",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:autoclave\\s+cure|resin\\s+transfer\\s+molding|directed\\s+energy\\s+deposition|powder\\s+bed\\s+fusion|sputter\\s+deposition|plasma\\s+spray)\\b.{0,120}\\b(?:radome|composite|ablative\\s+material|thermal\\s+protection\\s+system)\\b.{0,120}\\b(?:fabrication|characterization|repair|evaluation|support)\\b|\\b(?:radome|composite|ablative\\s+material|thermal\\s+protection\\s+system)\\b.{0,120}\\b(?:autoclave\\s+cure|resin\\s+transfer\\s+molding|directed\\s+energy\\s+deposition|powder\\s+bed\\s+fusion|sputter\\s+deposition|plasma\\s+spray)\\b.{0,120}\\b(?:fabrication|characterization|repair|evaluation|support)\\b|\\b(?:autoclave\\s+cure|resin\\s+transfer\\s+molding|directed\\s+energy\\s+deposition|powder\\s+bed\\s+fusion|sputter\\s+deposition|plasma\\s+spray)\\b.{0,180}\\b(?:fabrication|characterization|repair|evaluation|support)\\b.{0,120}\\b(?:radome|composite|ablative\\s+material|thermal\\s+protection\\s+system)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    },
+                                    {
+                                        "id":  "metamaterial_surface_treatment_context",
+                                        "concept_id":  "metamaterial_surface_treatment",
+                                        "type":  "regex",
+                                        "pattern":  "(?:\\b(?:metamaterial|engineered\\s+surface|surface\\s+treatment|thin\\s+film|coating\\s+stack)\\b.{0,160}\\b(?:characterization|fabrication|evaluation|support|integration)\\b|\\b(?:characterization|fabrication|evaluation|support|integration)\\b.{0,120}\\b(?:metamaterial|engineered\\s+surface|surface\\s+treatment|thin\\s+film|coating\\s+stack)\\b)",
+                                        "fields":  [
+                                                       "snippet",
+                                                       "raw_json"
+                                                   ],
+                                        "weight":  1
+                                    }
+                                ]
+                  }
+              ]
+}
+

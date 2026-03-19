@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import html
 import json
@@ -157,6 +157,10 @@ def flatten_bundle_files(*, artifacts: dict[str, Any], bundle_dir: Path) -> dict
         "smoke_summary_json",
         "doctor_status_json",
         "report_html",
+        "bundle_adjudications_csv",
+        "bundle_metrics_json",
+        "export_lead_adjudications_csv",
+        "export_lead_adjudication_metrics_json",
     ):
         _add(key, artifacts.get(key))
 
@@ -184,6 +188,14 @@ def flatten_bundle_files(*, artifacts: dict[str, Any], bundle_dir: Path) -> dict
         if isinstance(events, dict):
             _add("export_events_csv", events.get("csv"))
             _add("export_events_jsonl", events.get("jsonl"))
+        adjudications = exports.get("adjudications") if isinstance(exports.get("adjudications"), dict) else {}
+        if isinstance(adjudications, dict):
+            _add("export_lead_adjudications_csv", adjudications.get("csv"))
+        adjudication_metrics = (
+            exports.get("adjudication_metrics") if isinstance(exports.get("adjudication_metrics"), dict) else {}
+        )
+        if isinstance(adjudication_metrics, dict):
+            _add("export_lead_adjudication_metrics_json", adjudication_metrics.get("json"))
 
     return files
 
@@ -205,6 +217,7 @@ def render_sam_bundle_report(
     scoring_version: str,
     compare_scoring_versions: list[str],
     checks: list[dict[str, Any]],
+    check_groups: dict[str, dict[str, Any]],
     failed_required_checks: list[dict[str, Any]],
     warning_checks: list[dict[str, Any]],
     summary: dict[str, Any],
@@ -218,18 +231,48 @@ def render_sam_bundle_report(
 
     summary_rows = "".join([_row(k, v) for k, v in summary.items()])
 
-    checks_rows: list[str] = []
-    for chk in checks:
-        checks_rows.append(
+    category_rows: list[str] = []
+    for category, group in check_groups.items():
+        category_rows.append(
             "<tr>"
-            f"<td>{html.escape(str(chk.get('status')))}</td>"
-            f"<td>{html.escape(str(chk.get('name')))}</td>"
-            f"<td>{html.escape(str(chk.get('observed', chk.get('actual'))))}</td>"
-            f"<td>{html.escape(str(chk.get('expected')))}</td>"
-            f"<td>{html.escape(str(chk.get('hint') or ''))}</td>"
+            f"<td>{html.escape(str(group.get('category_label') or category))}</td>"
+            f"<td>{html.escape(str(group.get('required_total') or 0))}</td>"
+            f"<td>{html.escape(str(group.get('advisory_total') or 0))}</td>"
+            f"<td>{html.escape(str(group.get('failed_required') or 0))}</td>"
+            f"<td>{html.escape(str(group.get('failed_advisory') or 0))}</td>"
             "</tr>"
         )
-    checks_table = "".join(checks_rows) or "<tr><td colspan='5'>No checks found.</td></tr>"
+    category_table = "".join(category_rows) or "<tr><td colspan='5'>No category data found.</td></tr>"
+
+    def _render_check_table(items: list[dict[str, Any]]) -> str:
+        rows: list[str] = []
+        for chk in items:
+            rows.append(
+                "<tr>"
+                f"<td>{html.escape(str(chk.get('result')))}</td>"
+                f"<td>{html.escape(str(chk.get('severity')))}</td>"
+                f"<td>{html.escape(str(chk.get('policy_level')))}</td>"
+                f"<td>{html.escape(str(chk.get('name')))}</td>"
+                f"<td>{html.escape(str(chk.get('observed', chk.get('actual'))))}</td>"
+                f"<td>{html.escape(str(chk.get('expected', chk.get('threshold'))))}</td>"
+                f"<td>{html.escape(str(chk.get('hint') or ''))}</td>"
+                "</tr>"
+            )
+        return "".join(rows) or "<tr><td colspan='7'>No checks found.</td></tr>"
+
+    check_sections: list[str] = []
+    for category, group in check_groups.items():
+        label = str(group.get("category_label") or category)
+        check_sections.append(
+            f"<h3>{html.escape(label)}</h3>"
+            "<table>"
+            "<thead><tr><th>Result</th><th>Severity</th><th>Policy</th><th>Name</th><th>Observed</th><th>Threshold</th><th>Next</th></tr></thead>"
+            f"<tbody>{_render_check_table(list(group.get('checks') or []))}</tbody>"
+            "</table>"
+        )
+    checks_markup = "".join(check_sections) or (
+        "<table><tbody><tr><td colspan='7'>No checks found.</td></tr></tbody></table>"
+    )
 
     file_rows: list[str] = []
     files = flatten_bundle_files(artifacts=artifacts, bundle_dir=bundle_dir)
@@ -241,6 +284,7 @@ def render_sam_bundle_report(
             "</tr>"
         )
     files_table = "".join(file_rows) or "<tr><td colspan='2'>No files recorded.</td></tr>"
+    evaluation_markup = _render_evaluation_section(bundle_dir=bundle_dir, artifacts=artifacts)
 
     generated_at = datetime.now(timezone.utc).isoformat()
     comparison_text = ",".join(compare_scoring_versions) if compare_scoring_versions else "none"
@@ -251,7 +295,7 @@ def render_sam_bundle_report(
   <title>{html.escape(title)}</title>
   <style>
     body {{ font-family: Segoe UI, Arial, sans-serif; margin: 20px; color: #111; }}
-    h1, h2 {{ margin-bottom: 0.3rem; }}
+    h1, h2, h3 {{ margin-bottom: 0.3rem; }}
     .meta {{ color: #333; margin-bottom: 1rem; }}
     .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: 600; background: #e8eef7; }}
     table {{ border-collapse: collapse; width: 100%; margin-bottom: 1.2rem; }}
@@ -274,11 +318,13 @@ def render_sam_bundle_report(
   <table><tbody>{summary_rows}</tbody></table>
 
   <h2>Checks</h2>
-  <div class=\"meta\">failed_required={len(failed_required_checks)} warning_checks={len(warning_checks)}</div>
+  <div class=\"meta\">failed_required={len(failed_required_checks)} failed_advisory={len(warning_checks)}</div>
   <table>
-    <thead><tr><th>Status</th><th>Name</th><th>Observed</th><th>Expected</th><th>Next</th></tr></thead>
-    <tbody>{checks_table}</tbody>
+    <thead><tr><th>Category</th><th>Required</th><th>Advisory</th><th>Failed Required</th><th>Failed Advisory</th></tr></thead>
+    <tbody>{category_table}</tbody>
   </table>
+  {checks_markup}
+  {evaluation_markup}
 
   <h2>Bundle Files</h2>
   <table>
@@ -292,6 +338,183 @@ def render_sam_bundle_report(
     return report_path
 
 
+def _format_metric(value: Any) -> str:
+    if value is None:
+        return "Unavailable"
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def _kv_row(key: str, value: Any) -> str:
+    return f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(str(value))}</td></tr>"
+
+
+def _load_json_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _render_evaluation_section(*, bundle_dir: Path, artifacts: dict[str, Any]) -> str:
+    from backend.services.adjudication import load_bundle_adjudication_state
+
+    state = load_bundle_adjudication_state(bundle_dir=bundle_dir, artifact_payload=artifacts)
+    adjudications_csv = state.get("adjudications_csv")
+    metrics = state.get("metrics") if isinstance(state.get("metrics"), dict) else {}
+    if adjudications_csv is None and not metrics:
+        return ""
+
+    summary = metrics.get("summary") if isinstance(metrics.get("summary"), dict) else {}
+    precision_rows: list[str] = []
+    for entry in (summary.get("precision_at_k") or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        precision_rows.append(
+            "<tr>"
+            f"<td>{html.escape(_format_metric(entry.get('k')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('precision_pct')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('reviewed_count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('decisive_count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('keep_count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('reject_count')))}</td>"
+            "</tr>"
+        )
+    precision_table = "".join(precision_rows) or "<tr><td colspan='6'>No precision metrics available.</td></tr>"
+
+    version_rows: list[str] = []
+    for entry in metrics.get("by_scoring_version") or []:
+        if not isinstance(entry, dict):
+            continue
+        version_rows.append(
+            "<tr>"
+            f"<td>{html.escape(_format_metric(entry.get('scoring_version')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('row_count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('keep_count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('reject_count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('acceptance_rate_pct')))}</td>"
+            "</tr>"
+        )
+    version_table = "".join(version_rows) or "<tr><td colspan='5'>No scoring-version metrics available.</td></tr>"
+
+    family_rows: list[str] = []
+    for entry in metrics.get("by_lead_family") or []:
+        if not isinstance(entry, dict):
+            continue
+        family_rows.append(
+            "<tr>"
+            f"<td>{html.escape(_format_metric(entry.get('lead_family')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('row_count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('keep_count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('reject_count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('acceptance_rate_pct')))}</td>"
+            "</tr>"
+        )
+    family_table = "".join(family_rows) or "<tr><td colspan='5'>No lead-family metrics available.</td></tr>"
+
+    rejection_rows: list[str] = []
+    for entry in metrics.get("rejection_reasons") or []:
+        if not isinstance(entry, dict):
+            continue
+        rejection_rows.append(
+            "<tr>"
+            f"<td>{html.escape(_format_metric(entry.get('reason_code')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('count')))}</td>"
+            f"<td>{html.escape(_format_metric(entry.get('share_of_rejects_pct')))}</td>"
+            "</tr>"
+        )
+    rejection_table = "".join(rejection_rows) or "<tr><td colspan='3'>No rejection reasons recorded.</td></tr>"
+    if isinstance(adjudications_csv, Path):
+        try:
+            adjudications_label: Any = adjudications_csv.relative_to(bundle_dir)
+        except ValueError:
+            adjudications_label = adjudications_csv
+    else:
+        adjudications_label = "Unavailable"
+
+    summary_rows = "".join(
+        [
+            _kv_row("Adjudications CSV", adjudications_label),
+            _kv_row("Reviewed Rows", summary.get("reviewed_count")),
+            _kv_row("Decisive Rows", summary.get("decisive_count")),
+            _kv_row("Acceptance Rate (%)", _format_metric(summary.get("acceptance_rate_pct"))),
+            _kv_row("FOIA Ready Yes", summary.get("foia_ready_yes_count")),
+        ]
+    )
+    if not metrics:
+        return (
+            "<h2>Evaluation</h2>"
+            "<div class=\"meta\">Adjudications were found, but no metrics JSON is present yet.</div>"
+            f"<table><tbody>{summary_rows}</tbody></table>"
+        )
+
+    return (
+        "<h2>Evaluation</h2>"
+        "<div class=\"meta\">Reviewer adjudications are local bundle artifacts and do not call external services.</div>"
+        f"<table><tbody>{summary_rows}</tbody></table>"
+        "<h3>Precision @ k</h3>"
+        "<table><thead><tr><th>k</th><th>Precision (%)</th><th>Reviewed</th><th>Decisive</th><th>Keep</th><th>Reject</th></tr></thead>"
+        f"<tbody>{precision_table}</tbody></table>"
+        "<h3>By Scoring Version</h3>"
+        "<table><thead><tr><th>Scoring Version</th><th>Rows</th><th>Keep</th><th>Reject</th><th>Acceptance (%)</th></tr></thead>"
+        f"<tbody>{version_table}</tbody></table>"
+        "<h3>By Lead Family</h3>"
+        "<table><thead><tr><th>Lead Family</th><th>Rows</th><th>Keep</th><th>Reject</th><th>Acceptance (%)</th></tr></thead>"
+        f"<tbody>{family_table}</tbody></table>"
+        "<h3>Rejection Reasons</h3>"
+        "<table><thead><tr><th>Reason Code</th><th>Count</th><th>Share of Rejects (%)</th></tr></thead>"
+        f"<tbody>{rejection_table}</tbody></table>"
+    )
+
+
+def render_sam_bundle_report_from_bundle(bundle_dir: Path) -> Path:
+    root = Path(bundle_dir).expanduser()
+    manifest_path = root / SAM_BUNDLE_MANIFEST_NAME
+    summary_path = root / SAM_BUNDLE_RESULTS_DIR / "workflow_summary.json"
+    manifest = _load_json_file(manifest_path)
+    summary = _load_json_file(summary_path)
+    if not manifest and not summary:
+        raise ValueError(f"Bundle manifest/summary not found under {root}")
+
+    artifacts = summary.get("artifacts") if isinstance(summary.get("artifacts"), dict) else {}
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+    artifacts.setdefault("bundle_manifest_json", manifest_path)
+    generated_files = manifest.get("generated_files") if isinstance(manifest.get("generated_files"), dict) else {}
+    for file_id, rel_path in generated_files.items():
+        if file_id in artifacts:
+            continue
+        artifacts[str(file_id)] = root / str(rel_path)
+
+    quality = summary.get("quality") if isinstance(summary.get("quality"), dict) else {}
+    summary_counts = manifest.get("summary_counts") if isinstance(manifest.get("summary_counts"), dict) else {}
+    report_summary = {
+        "status": summary.get("status") or manifest.get("status"),
+        "quality": quality.get("quality") if isinstance(quality, dict) else None,
+        "required_checks_passed": summary.get("required_checks_passed"),
+        "partially_useful": summary.get("partially_useful"),
+        **summary_counts,
+    }
+
+    return render_sam_bundle_report(
+        bundle_dir=root,
+        title="SAM.gov Workflow Bundle Report",
+        status=str(summary.get("status") or manifest.get("status") or "warning"),
+        workflow_type=str(summary.get("workflow_type") or manifest.get("workflow_type") or "samgov-smoke"),
+        validation_mode=str(summary.get("validation_mode") or manifest.get("validation_mode") or "smoke"),
+        checks=list(summary.get("checks") or []),
+        check_groups=summary.get("check_groups") if isinstance(summary.get("check_groups"), dict) else {},
+        failed_required_checks=list(summary.get("failed_required_checks") or []),
+        warning_checks=list(summary.get("warning_checks") or summary.get("failed_advisory_checks") or []),
+        summary=report_summary,
+        artifacts=artifacts,
+    )
+
+
 def inspect_bundle(path: Path) -> dict[str, Any]:
     root = path.expanduser().resolve()
     manifest_path = root / SAM_BUNDLE_MANIFEST_NAME
@@ -303,11 +526,13 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
 
     if not root.exists():
         payload["status"] = "missing_bundle_dir"
+        payload["bundle_status"] = "missing_bundle_dir"
         payload["errors"] = [f"Bundle directory not found: {root}"]
         return payload
 
     if not manifest_path.exists():
         payload["status"] = "missing_manifest"
+        payload["bundle_status"] = "missing_manifest"
         payload["errors"] = [f"Manifest not found: {manifest_path}"]
         legacy_files = {
             "workflow_result_json": root / "workflow_result.json",
@@ -321,6 +546,7 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception as exc:
         payload["status"] = "invalid_manifest_json"
+        payload["bundle_status"] = "invalid_manifest_json"
         payload["errors"] = [str(exc)]
         return payload
 
@@ -334,9 +560,19 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
         if not exists:
             missing_files.append({"id": str(file_id), "path": str(abs_path)})
 
+    quality_payload = manifest.get("quality") if isinstance(manifest.get("quality"), dict) else {}
+    check_summary = manifest.get("check_summary") if isinstance(manifest.get("check_summary"), dict) else {}
+    integrity_status = "ok" if not missing_files else "missing_files"
     payload.update(
         {
-            "status": "ok" if not missing_files else "missing_files",
+            "status": integrity_status,
+            "bundle_status": integrity_status,
+            "bundle_integrity_status": integrity_status,
+            "workflow_status": manifest.get("status"),
+            "workflow_quality": quality_payload.get("quality"),
+            "required_failure_categories": quality_payload.get("required_failure_categories") or [],
+            "advisory_failure_categories": quality_payload.get("advisory_failure_categories") or [],
+            "check_summary": check_summary,
             "manifest": manifest,
             "generated_files": file_status,
             "missing_files": missing_files,
@@ -354,6 +590,7 @@ __all__ = [
     "flatten_bundle_files",
     "inspect_bundle",
     "normalize_sam_exports",
+    "render_sam_bundle_report_from_bundle",
     "render_sam_bundle_report",
     "write_bundle_manifest",
 ]

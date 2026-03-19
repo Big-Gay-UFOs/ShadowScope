@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Optional, List
@@ -15,10 +16,16 @@ from dotenv import load_dotenv
 from backend.db.ops import reset_schema, stamp_head, sync_database
 from backend.logging_config import configure_logging
 from backend.runtime import ensure_runtime_directories
+from backend.services.adjudication import evaluate_lead_adjudications, export_lead_adjudication_template
 from backend.services.export import export_events
 from backend.services.export_correlations import export_kw_pairs
 from backend.services.export_leads import export_lead_snapshot, export_lead_deltas
-from backend.services.ingest import ingest_sam_opportunities, ingest_usaspending
+from backend.services.ingest import (
+    describe_sam_posted_window,
+    ingest_sam_opportunities,
+    ingest_usaspending,
+    resolve_sam_posted_window,
+)
 
 app = typer.Typer(help="ShadowScope control plane")
 db_app = typer.Typer(help="Database lifecycle commands")
@@ -109,12 +116,24 @@ class SamOntologyProfile(str, Enum):
     starter = "starter"
     dod_foia = "dod_foia"
     starter_plus_dod_foia = "starter_plus_dod_foia"
+    hidden_program_proxy = "hidden_program_proxy"
+    hidden_program_proxy_exploratory = "hidden_program_proxy_exploratory"
+    starter_plus_dod_foia_hidden_program_proxy = "starter_plus_dod_foia_hidden_program_proxy"
+    starter_plus_dod_foia_hidden_program_proxy_exploratory = "starter_plus_dod_foia_hidden_program_proxy_exploratory"
 
 
 _SAM_ONTOLOGY_PROFILE_PATHS: dict[SamOntologyProfile, Path] = {
     SamOntologyProfile.starter: Path("examples/ontology_sam_procurement_starter.json"),
     SamOntologyProfile.dod_foia: Path("examples/ontology_sam_dod_foia_companion.json"),
     SamOntologyProfile.starter_plus_dod_foia: Path("examples/ontology_sam_procurement_plus_dod_foia.json"),
+    SamOntologyProfile.hidden_program_proxy: Path("examples/ontology_sam_hidden_program_proxy_companion.json"),
+    SamOntologyProfile.hidden_program_proxy_exploratory: Path("examples/ontology_sam_hidden_program_proxy_exploratory.json"),
+    SamOntologyProfile.starter_plus_dod_foia_hidden_program_proxy: Path(
+        "examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json"
+    ),
+    SamOntologyProfile.starter_plus_dod_foia_hidden_program_proxy_exploratory: Path(
+        "examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json"
+    ),
 }
 
 
@@ -126,6 +145,113 @@ def _resolve_sam_ontology_path(
     if ontology_path is not None:
         return Path(ontology_path)
     return _SAM_ONTOLOGY_PROFILE_PATHS[ontology_profile]
+
+
+# Minimal newline-delimited keyword-file support for SAM ingest/workflow seeding.
+def _load_newline_terms_file(path: Path) -> list[str]:
+    try:
+        text = Path(path).expanduser().read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise typer.BadParameter(f"Unable to read keywords file '{path}': {exc}") from exc
+
+    terms: list[str] = []
+    seen: set[str] = set()
+    for raw_line in text.splitlines():
+        term = str(raw_line).strip()
+        if not term or term.startswith("#"):
+            continue
+        if term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+    return terms
+
+
+def _merge_terms(*groups: Optional[List[str]]) -> Optional[List[str]]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group or []:
+            term = str(item or "").strip()
+            if not term or term in seen:
+                continue
+            seen.add(term)
+            terms.append(term)
+    return terms or None
+
+
+def _resolve_sam_ingest_keywords(*, keyword: Optional[List[str]], keywords_file: Optional[Path]) -> Optional[List[str]]:
+    file_terms = _load_newline_terms_file(keywords_file) if keywords_file is not None else None
+    return _merge_terms(keyword, file_terms)
+
+
+def _parse_datetime_option(value: Optional[str], *, option_name: str) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise typer.BadParameter(f"{option_name} must be an ISO-8601 datetime") from exc
+
+
+def _resolve_sam_ingest_window_or_raise(
+    *,
+    days: Optional[int],
+    posted_from: Optional[str],
+    posted_to: Optional[str],
+    default_days: int,
+) -> dict[str, object]:
+    has_explicit = bool(str(posted_from or "").strip()) or bool(str(posted_to or "").strip())
+    resolved_days = days if days is not None else (None if has_explicit else int(default_days))
+    try:
+        return resolve_sam_posted_window(days=resolved_days, posted_from=posted_from, posted_to=posted_to)
+    except ValueError as exc:
+        # Emit the validation message directly so CLI tests and operators see a
+        # stable error regardless of Typer/Click usage-text formatting.
+        typer.echo(str(exc))
+        raise typer.Exit(code=2) from exc
+
+
+def _extract_sam_posted_window(result: dict) -> Optional[dict[str, object]]:
+    ingest = result.get("ingest")
+    if isinstance(ingest, dict) and isinstance(ingest.get("date_window"), dict):
+        return ingest.get("date_window")
+
+    run_metadata = result.get("run_metadata")
+    if isinstance(run_metadata, dict) and run_metadata.get("effective_posted_from") and run_metadata.get("effective_posted_to"):
+        return {
+            "mode": run_metadata.get("posted_window_mode"),
+            "effective_days": run_metadata.get("ingest_days"),
+            "requested_days": run_metadata.get("ingest_days"),
+            "posted_from": run_metadata.get("effective_posted_from"),
+            "posted_to": run_metadata.get("effective_posted_to"),
+            "calendar_span_days": run_metadata.get("calendar_span_days"),
+        }
+    return None
+
+
+def _resolve_lead_window_kwargs(
+    *,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    occurred_after: Optional[str] = None,
+    occurred_before: Optional[str] = None,
+    created_after: Optional[str] = None,
+    created_before: Optional[str] = None,
+    since_days: Optional[int] = None,
+) -> dict[str, Optional[object]]:
+    return {
+        "date_from": _parse_datetime_option(date_from, option_name="date_from"),
+        "date_to": _parse_datetime_option(date_to, option_name="date_to"),
+        "occurred_after": _parse_datetime_option(occurred_after, option_name="occurred_after"),
+        "occurred_before": _parse_datetime_option(occurred_before, option_name="occurred_before"),
+        "created_after": _parse_datetime_option(created_after, option_name="created_after"),
+        "created_before": _parse_datetime_option(created_before, option_name="created_before"),
+        "since_days": since_days,
+    }
+
+
 @db_app.command("init")
 def db_init(database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command.")):
     status = sync_database(database_url)
@@ -194,12 +320,27 @@ def ingest_usaspending_cli(
 @ingest_app.command("samgov")
 @ingest_app.command("sam")
 def ingest_samgov_cli(
-    days: int = typer.Option(7, help="Days of history to request (lookback window)"),
+    days: Optional[int] = typer.Option(
+        None,
+        "--days",
+        help="Days of history to request when --posted-from/--posted-to are not supplied (defaults to 7).",
+    ),
+    posted_from: Optional[str] = typer.Option(
+        None,
+        "--posted-from",
+        help="Explicit SAM postedDate start in YYYY-MM-DD format. Must be used with --posted-to.",
+    ),
+    posted_to: Optional[str] = typer.Option(
+        None,
+        "--posted-to",
+        help="Explicit SAM postedDate end in YYYY-MM-DD format. Must be used with --posted-from.",
+    ),
     pages: int = typer.Option(1, help="Maximum API pages to request"),
     page_size: int = typer.Option(100, "--page-size", help="Records per API page (max 1000)"),
     max_records: Optional[int] = typer.Option(None, "--max-records", "--limit", help="Total cap across pages (and across keyword union when multiple --keyword are used)."),
     start_page: int = typer.Option(1, "--start-page", help="Start page (resume/chunking)"),
     keywords: Optional[List[str]] = typer.Option(None, "--keyword", help="Optional title search terms (repeat --keyword)."),
+    keywords_file: Optional[Path] = typer.Option(None, "--keywords-file", help="Optional newline-delimited title search terms file."),
     api_key: Optional[str] = typer.Option(None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
@@ -209,15 +350,24 @@ def ingest_samgov_cli(
       - API key is read from SAM_API_KEY unless --api-key is provided.
       - Raw snapshots are written under data/raw/sam/YYYYMMDD/.
     """
+    resolved_window = _resolve_sam_ingest_window_or_raise(
+        days=days,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        default_days=7,
+    )
+    resolved_keywords = _resolve_sam_ingest_keywords(keyword=keywords, keywords_file=keywords_file)
     try:
         result = ingest_sam_opportunities(
             api_key=api_key,
-            days=days,
+            days=resolved_window.get("requested_days"),
+            posted_from=resolved_window.get("posted_from"),
+            posted_to=resolved_window.get("posted_to"),
             pages=pages,
             page_size=page_size,
             max_records=max_records,
             start_page=start_page,
-            keywords=keywords,
+            keywords=resolved_keywords,
             database_url=database_url,
         )
     except Exception as exc:
@@ -234,6 +384,8 @@ def ingest_samgov_cli(
 
     run_id = result.get('run_id')
     typer.echo(f'Run ID: {run_id}')
+    window_payload = result.get("date_window") if isinstance(result.get("date_window"), dict) else resolved_window
+    typer.echo(f"Posted window: {describe_sam_posted_window(window_payload)}")
     typer.echo(
         f"Summary: source=SAM.gov run_id={run_id} fetched={result['fetched']} inserted={result['inserted']} normalized={result['normalized']}"
     )
@@ -245,15 +397,46 @@ def ingest_samgov_cli(
 @export_app.command("events")
 def export_events_cli(
     out: Optional[str] = typer.Option(None, "--out", help="Output directory or CSV file path"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Optional max events to export after filtering"),
+    offset: int = typer.Option(0, "--offset", help="Skip this many filtered events before export"),
+    source: Optional[str] = typer.Option(None, "--source", help="Filter by event source"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Inclusive ISO-8601 start datetime"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Inclusive ISO-8601 end datetime"),
+    entity_id: Optional[int] = typer.Option(None, "--entity-id", help="Filter by entity_id"),
+    keyword: Optional[str] = typer.Option(None, "--keyword", help="Filter by keyword tag"),
+    agency: Optional[str] = typer.Option(None, "--agency", help="Filter by agency code or name"),
+    psc: Optional[str] = typer.Option(None, "--psc", help="Filter by PSC code or description"),
+    naics: Optional[str] = typer.Option(None, "--naics", help="Filter by NAICS code or description"),
+    award_id: Optional[str] = typer.Option(None, "--award-id", help="Filter by award id"),
+    recipient_uei: Optional[str] = typer.Option(None, "--recipient-uei", help="Filter by recipient UEI"),
+    place_region: Optional[str] = typer.Option(None, "--place-region", help="Filter by state/country region"),
+    sort_by: str = typer.Option("occurred_at", "--sort-by", help="Sort by occurred_at, created_at, id, or source"),
+    sort_dir: str = typer.Option("desc", "--sort-dir", help="Sort direction asc or desc"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
     export_path = Path(out).expanduser() if out else None
-    results = export_events(database_url=database_url, output=export_path)
+    results = export_events(
+        database_url=database_url,
+        output=export_path,
+        limit=limit,
+        offset=int(offset),
+        source=source,
+        date_from=_parse_datetime_option(date_from, option_name="date_from"),
+        date_to=_parse_datetime_option(date_to, option_name="date_to"),
+        entity_id=entity_id,
+        keyword=keyword,
+        agency=agency,
+        psc=psc,
+        naics=naics,
+        award_id=award_id,
+        recipient_uei=recipient_uei,
+        place_region=place_region,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
     typer.echo(f"Events CSV: {results['csv'].resolve()}")
     typer.echo(f"Events JSONL: {results['jsonl'].resolve()}")
     typer.echo(f"Rows exported: {results['count']}")
-
-
 @export_app.command("entities")
 def export_entities_cli(
     out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
@@ -269,16 +452,44 @@ def export_entities_cli(
     typer.echo(f"Event->Entity JSON: {res['event_entities_json'].resolve()}")
     typer.echo(f"Entities: {res['entities_count']}  Event mappings: {res['event_entities_count']}")
 
+@export_app.command("leads")
 @export_app.command("lead-snapshot")
 def export_lead_snapshot_cli(
     snapshot_id: int = typer.Option(..., "--snapshot-id", help="Lead snapshot ID to export"),
+    lead_family: Optional[str] = typer.Option(None, "--lead-family", help="Optional lead family filter."),
     out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
     export_path = Path(out).expanduser() if out else None
-    results = export_lead_snapshot(snapshot_id=int(snapshot_id), database_url=database_url, output=export_path)
+    results = export_lead_snapshot(
+        snapshot_id=int(snapshot_id),
+        database_url=database_url,
+        output=export_path,
+        lead_family=lead_family,
+    )
     typer.echo(f"Lead snapshot CSV: {results['csv'].resolve()}")
     typer.echo(f"Lead snapshot JSON: {results['json'].resolve()}")
+    typer.echo(f"Rows exported: {results['count']}")
+
+@export_app.command("adjudication-template")
+def export_adjudication_template_cli(
+    snapshot_id: int = typer.Option(..., "--snapshot-id", help="Lead snapshot ID to turn into a reviewer adjudication template"),
+    out: Optional[str] = typer.Option(None, "--out", help="Output directory or CSV file path"),
+    bundle: Optional[str] = typer.Option(None, "--bundle", help="Optional SAM bundle directory to receive the canonical adjudication CSV"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    export_path = Path(out).expanduser() if out else None
+    bundle_path = Path(bundle).expanduser() if bundle else None
+    results = export_lead_adjudication_template(
+        snapshot_id=int(snapshot_id),
+        database_url=database_url,
+        output=export_path,
+        bundle_dir=bundle_path,
+    )
+    typer.echo(f"Adjudication template CSV: {results['csv'].resolve()}")
+    bundle_csv = results.get("bundle_csv")
+    if bundle_csv is not None and Path(bundle_csv).resolve() != Path(results["csv"]).resolve():
+        typer.echo(f"Bundle adjudications CSV: {Path(bundle_csv).resolve()}")
     typer.echo(f"Rows exported: {results['count']}")
 
 @export_app.command("lead-deltas")
@@ -294,6 +505,30 @@ def export_lead_deltas_cli(
     typer.echo(f"Lead deltas JSON: {results['json'].resolve()}")
     typer.echo(f"Rows exported: {results['count']}")
 
+@export_app.command("evidence-package")
+def export_evidence_package_cli(
+    snapshot_id: Optional[int] = typer.Option(None, "--snapshot-id", help="Lead snapshot ID when exporting a lead package"),
+    lead_event_id: Optional[int] = typer.Option(None, "--lead-event-id", help="Lead event_id within the snapshot"),
+    lead_rank: Optional[int] = typer.Option(None, "--lead-rank", help="Lead rank within the snapshot (alternative to --lead-event-id)"),
+    correlation_id: Optional[int] = typer.Option(None, "--correlation-id", help="Correlation ID to export instead of a lead"),
+    out: Optional[str] = typer.Option(None, "--out", help="Output directory or JSON file path"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    from backend.services.evidence_package import export_evidence_package
+
+    export_path = Path(out).expanduser() if out else None
+    results = export_evidence_package(
+        snapshot_id=snapshot_id,
+        lead_event_id=lead_event_id,
+        lead_rank=lead_rank,
+        correlation_id=correlation_id,
+        database_url=database_url,
+        output=export_path,
+    )
+    typer.echo(f"Evidence package JSON: {results['json'].resolve()}")
+    typer.echo(f"Package type: {results['package_type']}")
+    typer.echo(f"Source records packaged: {results['source_record_count']}")
+@export_app.command("kw-pair-clusters")
 @export_app.command("kw-pairs")
 def export_kw_pairs_cli(
     out: Optional[str] = typer.Option(None, "--out", help="Output directory or base file path"),
@@ -402,19 +637,36 @@ def leads_snapshot(
     analysis_run_id: Optional[int] = typer.Option(None, "--analysis-run-id", help="Optional link to an analysis_runs.id"),
     source: Optional[str] = typer.Option(None, "--source", help="Filter by event source (e.g. USAspending)"),
     exclude_source: Optional[str] = typer.Option(None, "--exclude-source", help="Exclude an event source"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Event-time lookback window helper"),
     min_score: int = typer.Option(1, "--min-score", help="Minimum score to include"),
     limit: int = typer.Option(200, "--limit", help="Max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="How many recent events to scan before ranking"),
-    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Scoring version label"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Scoring version (v1, v2, or v3)"),
     notes: Optional[str] = typer.Option(None, "--notes", help="Optional snapshot notes"),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
 ):
     from backend.services.leads import create_lead_snapshot
 
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     result = create_lead_snapshot(
         analysis_run_id=analysis_run_id,
         source=source,
         exclude_source=exclude_source,
+        **lead_window_kwargs,
         min_score=min_score,
         limit=limit,
         scan_limit=scan_limit,
@@ -454,6 +706,158 @@ def leads_delta(
     if json_out:
         typer.echo(json.dumps(res, indent=2))
 
+@leads_app.command("adjudication-metrics")
+def leads_adjudication_metrics(
+    adjudications: List[str] = typer.Option(..., "--adjudications", help="CSV/JSONL adjudication file or a directory of adjudication files. Repeat as needed."),
+    k: Optional[List[int]] = typer.Option(None, "--k", help="Precision@k cutoff to compute. Repeat for multiple cutoffs."),
+    out: Optional[str] = typer.Option(None, "--out", help="Optional output directory or metrics JSON file path"),
+    bundle: Optional[str] = typer.Option(None, "--bundle", help="Optional SAM bundle directory to update with adjudication artifacts and refreshed reports"),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload"),
+):
+    adjudication_paths = [Path(value).expanduser() for value in adjudications]
+    output_path = Path(out).expanduser() if out else None
+    bundle_path = Path(bundle).expanduser() if bundle else None
+    res = evaluate_lead_adjudications(
+        adjudications=adjudication_paths,
+        precision_at_k=k,
+        output=output_path,
+        bundle_dir=bundle_path,
+    )
+
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+
+    summary = res.get("summary") or {}
+    typer.echo(
+        "Adjudication metrics: "
+        f"reviewed={summary.get('reviewed_count')} decisive={summary.get('decisive_count')} "
+        f"keep={summary.get('keep_count')} reject={summary.get('reject_count')} "
+        f"acceptance_rate_pct={summary.get('acceptance_rate_pct')}"
+    )
+
+    precision = summary.get("precision_at_k") or {}
+    for key in sorted(precision.keys(), key=lambda item: int(item)):
+        entry = precision.get(key) or {}
+        typer.echo(
+            f"Precision@{key}: pct={entry.get('precision_pct')} reviewed={entry.get('reviewed_count')} "
+            f"decisive={entry.get('decisive_count')} keep={entry.get('keep_count')} reject={entry.get('reject_count')}"
+        )
+
+    artifacts = res.get("artifacts") or {}
+    if artifacts.get("metrics_json"):
+        typer.echo(f"Metrics JSON: {Path(artifacts['metrics_json']).resolve()}")
+    if artifacts.get("normalized_adjudications_csv"):
+        typer.echo(f"Normalized adjudications CSV: {Path(artifacts['normalized_adjudications_csv']).resolve()}")
+    if artifacts.get("bundle_adjudications_csv"):
+        typer.echo(f"Bundle adjudications CSV: {Path(artifacts['bundle_adjudications_csv']).resolve()}")
+    if artifacts.get("bundle_metrics_json"):
+        typer.echo(f"Bundle metrics JSON: {Path(artifacts['bundle_metrics_json']).resolve()}")
+    if artifacts.get("bundle_report_html"):
+        typer.echo(f"Bundle report: {Path(artifacts['bundle_report_html']).resolve()}")
+    if artifacts.get("report_html"):
+        typer.echo(f"Report HTML: {Path(artifacts['report_html']).resolve()}")
+    for message in artifacts.get("refresh_errors") or []:
+        typer.echo(f"Report refresh warning: {message}")
+
+@leads_app.command("query")
+def leads_query(
+    limit: int = typer.Option(50, "--limit", help="Max leads to return"),
+    offset: int = typer.Option(0, "--offset", help="Skip this many matching leads"),
+    min_score: int = typer.Option(1, "--min-score", help="Minimum lead score"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="How many filtered events to score before paging"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Scoring version (v1, v2, or v3)"),
+    source: Optional[str] = typer.Option(None, "--source", help="Filter by event source"),
+    exclude_source: Optional[str] = typer.Option(None, "--exclude-source", help="Exclude an event source"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Inclusive ISO-8601 start datetime"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Inclusive ISO-8601 end datetime"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Event-time lookback window helper"),
+    entity_id: Optional[int] = typer.Option(None, "--entity-id", help="Filter by entity_id"),
+    keyword: Optional[str] = typer.Option(None, "--keyword", help="Filter by keyword tag"),
+    agency: Optional[str] = typer.Option(None, "--agency", help="Filter by agency code or name"),
+    psc: Optional[str] = typer.Option(None, "--psc", help="Filter by PSC code or description"),
+    naics: Optional[str] = typer.Option(None, "--naics", help="Filter by NAICS code or description"),
+    award_id: Optional[str] = typer.Option(None, "--award-id", help="Filter by award id"),
+    recipient_uei: Optional[str] = typer.Option(None, "--recipient-uei", help="Filter by recipient UEI"),
+    place_region: Optional[str] = typer.Option(None, "--place-region", help="Filter by state/country region"),
+    lane: Optional[str] = typer.Option(None, "--lane", help="Require a contributing lane"),
+    min_event_count: Optional[int] = typer.Option(None, "--min-event-count", help="Minimum contributing correlation event_count"),
+    min_score_signal: Optional[float] = typer.Option(None, "--min-score-signal", help="Minimum contributing correlation score_signal"),
+    sort_by: str = typer.Option("score", "--sort-by", help="Sort by score, occurred_at, created_at, id, pair_strength, pair_count, or source"),
+    sort_dir: str = typer.Option("desc", "--sort-dir", help="Sort direction asc or desc"),
+    include_details: bool = typer.Option(True, "--include-details/--no-include-details", help="Include score_details in JSON output"),
+    json_out: bool = typer.Option(False, "--json", help="Print the full JSON payload"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+):
+    from backend.db.models import get_session_factory
+    from backend.services.leads import normalize_scoring_version
+    from backend.services.query_surfaces import query_leads
+
+    limit_i = int(limit)
+    offset_i = int(offset)
+    scan_i = int(scan_limit)
+    if limit_i < 1 or limit_i > 200:
+        raise typer.BadParameter("limit must be between 1 and 200")
+    if offset_i < 0:
+        raise typer.BadParameter("offset must be >= 0")
+    if scan_i < 1 or scan_i > 5000:
+        raise typer.BadParameter("scan_limit must be between 1 and 5000")
+    if scan_i < (limit_i + offset_i):
+        scan_i = limit_i + offset_i
+    scoring_version = normalize_scoring_version(scoring_version)
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
+
+    SessionFactory = get_session_factory(database_url)
+    with SessionFactory() as db:
+        payload = query_leads(
+            db,
+            limit=limit_i,
+            offset=offset_i,
+            min_score=int(min_score),
+            scan_limit=scan_i,
+            scoring_version=scoring_version,
+            source=source,
+            exclude_source=exclude_source,
+            **lead_window_kwargs,
+            entity_id=entity_id,
+            keyword=keyword,
+            agency=agency,
+            psc=psc,
+            naics=naics,
+            award_id=award_id,
+            recipient_uei=recipient_uei,
+            place_region=place_region,
+            lane=lane,
+            min_event_count=min_event_count,
+            min_score_signal=min_score_signal,
+            include_details=include_details,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+
+    if json_out:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+        return
+
+    typer.echo(f"Lead query: total={payload.get('total')} scanned={payload.get('scanned')} returned={len(payload.get('items') or [])}")
+    for item in payload.get("items") or []:
+        typer.echo(
+            f"- score={item.get('score')} id={item.get('id')} source={item.get('source')} "
+            f"doc_id={item.get('doc_id')} occurred_at={item.get('occurred_at')} "
+            f"lanes={','.join([str(v) for v in item.get('contributing_lanes') or []])}"
+        )
 @entities_app.command("link")
 def entities_link(
     source: str = typer.Option("USAspending", "--source", help="Event source to link (default USAspending)"),
@@ -666,8 +1070,21 @@ def diagnose_samgov_cli(
     if bundle.get("latest_bundle_dir"):
         typer.echo(f"Latest bundle: {Path(bundle.get('latest_bundle_dir')).resolve()}")
         typer.echo(
-            f"Bundle status: {bundle.get('bundle_status')} quality={bundle.get('bundle_quality')}"
+            "Bundle: "
+            f"integrity={bundle.get('bundle_integrity_status')} "
+            f"workflow_status={bundle.get('workflow_status')} "
+            f"quality={bundle.get('bundle_quality')}"
         )
+        required_failure_categories = bundle.get("required_failure_categories") or []
+        advisory_failure_categories = bundle.get("advisory_failure_categories") or []
+        if required_failure_categories:
+            typer.echo(
+                "Required failure categories: " + ", ".join([str(item) for item in required_failure_categories])
+            )
+        if advisory_failure_categories:
+            typer.echo(
+                "Advisory failure categories: " + ", ".join([str(item) for item in advisory_failure_categories])
+            )
 
     retries = int(res.get("rate_limit_retries") or 0)
     if retries > 0:
@@ -693,7 +1110,18 @@ def inspect_bundle_cli(
         return
 
     typer.echo(f"Bundle dir: {Path(result.get('bundle_dir')).resolve()}")
-    typer.echo(f"Status: {result.get('status')}")
+    typer.echo(f"Bundle integrity: {result.get('bundle_integrity_status') or result.get('status')}")
+    if result.get("workflow_status") is not None:
+        typer.echo(
+            f"Workflow status: {result.get('workflow_status')} quality={result.get('workflow_quality')}"
+        )
+    check_summary = result.get("check_summary") or {}
+    if check_summary:
+        typer.echo(
+            "Check summary: "
+            f"required_failed={check_summary.get('failed_required')} "
+            f"advisory_failed={check_summary.get('failed_advisory', check_summary.get('warnings'))}"
+        )
 
     manifest_path = result.get("bundle_manifest_json")
     if manifest_path:
@@ -704,8 +1132,72 @@ def inspect_bundle_cli(
         typer.echo("Missing files:")
         for item in missing:
             typer.echo(f"- {item.get('id')}: {item.get('path')}")
+
+
+def _echo_validation_gate_summary(label: str, res: dict) -> None:
+    status = str(res.get("status") or "unknown").upper()
+    failed_required = res.get("failed_required_checks") or []
+    failed_advisory = res.get("failed_advisory_checks") or res.get("warning_checks") or []
+    quality = res.get("quality") or {}
+    typer.echo(f"{label}: {status}")
+    typer.echo(
+        "Gate summary: "
+        f"required_checks_passed={res.get('required_checks_passed', res.get('smoke_passed'))} "
+        f"required_failed={len(failed_required)} "
+        f"advisory_failed={len(failed_advisory)} "
+        f"quality={quality.get('quality')}"
+    )
+
+    required_failure_categories = quality.get("required_failure_categories") or []
+    advisory_failure_categories = quality.get("advisory_failure_categories") or []
+    if required_failure_categories:
+        typer.echo(
+            "Required failure categories: " + ", ".join([str(item) for item in required_failure_categories])
+        )
+    if advisory_failure_categories:
+        typer.echo(
+            "Advisory failure categories: " + ", ".join([str(item) for item in advisory_failure_categories])
+        )
+
+    for group in (res.get("check_groups") or {}).values():
+        if not isinstance(group, dict):
+            continue
+        label_text = group.get("category_label")
+        if label_text is None:
+            continue
+        typer.echo(
+            f"- {label_text}: "
+            f"required_total={group.get('required_total')} "
+            f"advisory_total={group.get('advisory_total')} "
+            f"failed_required={group.get('failed_required')} "
+            f"failed_advisory={group.get('failed_advisory')}"
+        )
+
+
+def _echo_validation_checks(res: dict, *, include_passes: bool = False) -> None:
+    checks = list(res.get("checks") or [])
+    if not include_passes:
+        checks = [item for item in checks if not bool(item.get("passed"))]
+    for chk in checks:
+        typer.echo(
+            f"- [{str(chk.get('result') or '').upper()}]"
+            f"[{str(chk.get('severity') or '').upper()}]"
+            f"[{str(chk.get('policy_level') or '').upper()}]"
+            f"[{chk.get('category_label')}] "
+            f"{chk.get('name')} observed={chk.get('observed')} threshold={chk.get('expected')}"
+        )
+        if not chk.get("passed"):
+            if chk.get("why"):
+                typer.echo(f"  why: {chk.get('why')}")
+            if chk.get("hint"):
+                typer.echo(f"  next: {chk.get('hint')}")
+
+
 def _echo_workflow_summary(label: str, res: dict) -> None:
     typer.echo(f"Workflow complete: {label}")
+    sam_posted_window = _extract_sam_posted_window(res)
+    if sam_posted_window is not None:
+        typer.echo(f"Posted window: {describe_sam_posted_window(sam_posted_window)}")
     if res.get("ingest"):
         ing = res["ingest"]
         typer.echo(
@@ -764,11 +1256,9 @@ def _echo_workflow_summary(label: str, res: dict) -> None:
                 f"Export lead snapshot: csv={Path(ls['csv']).resolve()} json={Path(ls['json']).resolve()} rows={ls.get('count')}"
             )
         if ex.get("scoring_comparison"):
-            comp = ex["scoring_comparison"]
+            cmp = ex["scoring_comparison"]
             typer.echo(
-                "Export scoring comparison: "
-                f"csv={Path(comp['csv']).resolve()} json={Path(comp['json']).resolve()} "
-                f"versions={','.join(comp.get('versions') or [])} rows={comp.get('count')}"
+                f"Export scoring comparison: csv={Path(cmp['csv']).resolve()} json={Path(cmp['json']).resolve()} rows={cmp.get('count')}"
             )
         if ex.get("kw_pairs"):
             kw = ex["kw_pairs"]
@@ -816,11 +1306,23 @@ def workflow_usaspending(
     max_keywords_per_event: int = typer.Option(
         10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"
     ),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Snapshot: inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Snapshot: inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Snapshot: inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Snapshot: inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Snapshot: inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Snapshot: inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Snapshot: event-time lookback window helper"),
     entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot: how many recent events to scan"),
-    scoring_version: str = typer.Option("v2", "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version (v1, v2, or v3)"),
+    compare_scoring_versions_raw: Optional[str] = typer.Option(
+        None,
+        "--compare-scoring-versions",
+        help="Exports: optional two-version comparison artifact (for example: v2,v3)",
+    ),
     notes: Optional[str] = typer.Option(None, "--notes", help="Snapshot: optional snapshot notes"),
     out: Optional[str] = typer.Option(None, "--out", help="Exports: output directory or base file path"),
     export_events_flag: bool = typer.Option(False, "--export-events", help="Exports: also export events CSV/JSONL"),
@@ -836,6 +1338,15 @@ def workflow_usaspending(
     from backend.services.workflow import run_usaspending_workflow
 
     export_path = Path(out).expanduser() if out else None
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     res = run_usaspending_workflow(
         ingest_days=ingest_days,
         pages=pages,
@@ -851,6 +1362,7 @@ def workflow_usaspending(
         min_events_keywords=min_events_keywords,
         max_events_keywords=max_events_keywords,
         max_keywords_per_event=max_keywords_per_event,
+        **lead_window_kwargs,
         entity_days=entity_days,
         min_score=min_score,
         snapshot_limit=snapshot_limit,
@@ -878,7 +1390,22 @@ def workflow_usaspending(
 @workflow_app.command("samgov")
 @workflow_app.command("sam")
 def workflow_samgov(
-    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
+    ingest_days: Optional[int] = typer.Option(
+        None,
+        "--ingest-days",
+        "--days",
+        help="Ingest: days of history to request when --posted-from/--posted-to are not supplied (defaults to 30).",
+    ),
+    posted_from: Optional[str] = typer.Option(
+        None,
+        "--posted-from",
+        help="Ingest: explicit SAM postedDate start in YYYY-MM-DD format. Must be used with --posted-to.",
+    ),
+    posted_to: Optional[str] = typer.Option(
+        None,
+        "--posted-to",
+        help="Ingest: explicit SAM postedDate end in YYYY-MM-DD format. Must be used with --posted-from.",
+    ),
     pages: int = typer.Option(2, "--pages", help="Ingest: maximum API pages to request"),
     page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
     max_records: Optional[int] = typer.Option(
@@ -886,13 +1413,14 @@ def workflow_samgov(
     ),
     start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
     keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    keywords_file: Optional[Path] = typer.Option(None, "--keywords-file", help="Ingest: newline-delimited title search terms file"),
     api_key: Optional[str] = typer.Option(
         None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."
     ),
     ontology_profile: SamOntologyProfile = typer.Option(
         SamOntologyProfile.starter,
         "--ontology-profile",
-        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia | hidden_program_proxy | hidden_program_proxy_exploratory | starter_plus_dod_foia_hidden_program_proxy | starter_plus_dod_foia_hidden_program_proxy_exploratory",
     ),
     ontology_path: Optional[Path] = typer.Option(
         None,
@@ -912,15 +1440,22 @@ def workflow_samgov(
     max_keywords_per_event: int = typer.Option(
         10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"
     ),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Snapshot: inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Snapshot: inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Snapshot: inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Snapshot: inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Snapshot: inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Snapshot: inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Snapshot: event-time lookback window helper"),
     entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot: how many recent events to scan"),
-    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version (v1, v2, or v3)"),
     compare_scoring_versions_raw: Optional[str] = typer.Option(
         None,
         "--compare-scoring-versions",
-        help="Exports: optional two-version comparison artifact (for example: v2,v3)",
+        help="Artifacts: optional two-version comparison artifact inside the validation bundle (for example: v2,v3)",
     ),
     notes: Optional[str] = typer.Option(None, "--notes", help="Snapshot: optional snapshot notes"),
     out: Optional[str] = typer.Option(None, "--out", help="Exports: output directory or base file path"),
@@ -937,15 +1472,33 @@ def workflow_samgov(
     from backend.services.workflow import run_samgov_workflow
 
     export_path = Path(out).expanduser() if out else None
+    resolved_window = _resolve_sam_ingest_window_or_raise(
+        days=ingest_days,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        default_days=30,
+    )
     compare_scoring_versions = _parse_compare_scoring_versions(compare_scoring_versions_raw)
+    resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     res = run_samgov_workflow(
-        ingest_days=ingest_days,
+        ingest_days=resolved_window.get("requested_days"),
+        posted_from=resolved_window.get("posted_from"),
+        posted_to=resolved_window.get("posted_to"),
         pages=pages,
         page_size=page_size,
         max_records=max_records,
         start_page=start_page,
-        keywords=keyword,
+        keywords=resolved_keywords,
         api_key=api_key,
         ontology_path=resolved_ontology_path,
         ontology_days=ontology_days,
@@ -954,6 +1507,7 @@ def workflow_samgov(
         min_events_keywords=min_events_keywords,
         max_events_keywords=max_events_keywords,
         max_keywords_per_event=max_keywords_per_event,
+        **lead_window_kwargs,
         entity_days=entity_days,
         min_score=min_score,
         snapshot_limit=snapshot_limit,
@@ -991,17 +1545,33 @@ def workflow_samgov(
 
 @workflow_app.command("samgov-validate")
 def workflow_samgov_validate(
-    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
+    ingest_days: Optional[int] = typer.Option(
+        None,
+        "--ingest-days",
+        "--days",
+        help="Ingest: days of history to request when --posted-from/--posted-to are not supplied (defaults to 30).",
+    ),
+    posted_from: Optional[str] = typer.Option(
+        None,
+        "--posted-from",
+        help="Ingest: explicit SAM postedDate start in YYYY-MM-DD format. Must be used with --posted-to.",
+    ),
+    posted_to: Optional[str] = typer.Option(
+        None,
+        "--posted-to",
+        help="Ingest: explicit SAM postedDate end in YYYY-MM-DD format. Must be used with --posted-from.",
+    ),
     pages: int = typer.Option(5, "--pages", help="Ingest: maximum API pages to request"),
     page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
     max_records: Optional[int] = typer.Option(250, "--max-records", "--limit", help="Ingest: total cap across pages"),
     start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
     keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    keywords_file: Optional[Path] = typer.Option(None, "--keywords-file", help="Ingest: newline-delimited title search terms file"),
     api_key: Optional[str] = typer.Option(None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."),
     ontology_profile: SamOntologyProfile = typer.Option(
         SamOntologyProfile.starter,
         "--ontology-profile",
-        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia | hidden_program_proxy | hidden_program_proxy_exploratory | starter_plus_dod_foia_hidden_program_proxy | starter_plus_dod_foia_hidden_program_proxy_exploratory",
     ),
     ontology_path: Optional[Path] = typer.Option(
         None,
@@ -1015,11 +1585,18 @@ def workflow_samgov_validate(
     min_events_keywords: int = typer.Option(2, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"),
     max_events_keywords: int = typer.Option(200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"),
     max_keywords_per_event: int = typer.Option(10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Snapshot: inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Snapshot: inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Snapshot: inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Snapshot: inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Snapshot: inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Snapshot: inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Snapshot: event-time lookback window helper"),
     entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot/doctor scan window"),
-    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version (v1, v2, or v3)"),
     compare_scoring_versions_raw: Optional[str] = typer.Option(
         None,
         "--compare-scoring-versions",
@@ -1036,16 +1613,34 @@ def workflow_samgov_validate(
     from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_validation_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    resolved_window = _resolve_sam_ingest_window_or_raise(
+        days=ingest_days,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        default_days=30,
+    )
+    resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     compare_scoring_versions = _parse_compare_scoring_versions(compare_scoring_versions_raw)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     res = run_samgov_validation_workflow(
-        ingest_days=ingest_days,
+        ingest_days=resolved_window.get("requested_days"),
+        posted_from=resolved_window.get("posted_from"),
+        posted_to=resolved_window.get("posted_to"),
         pages=pages,
         page_size=page_size,
         max_records=max_records,
         start_page=start_page,
-        keywords=keyword,
+        keywords=resolved_keywords,
         api_key=api_key,
         ontology_path=resolved_ontology_path,
         ontology_days=ontology_days,
@@ -1055,6 +1650,7 @@ def workflow_samgov_validate(
         min_events_keywords=min_events_keywords,
         max_events_keywords=max_events_keywords,
         max_keywords_per_event=max_keywords_per_event,
+        **lead_window_kwargs,
         min_score=min_score,
         snapshot_limit=snapshot_limit,
         scan_limit=scan_limit,
@@ -1071,8 +1667,11 @@ def workflow_samgov_validate(
     if json_out:
         typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
     else:
-        typer.echo(f"SAM.gov larger-run validation: {str(res.get('status')).upper()}")
+        _echo_validation_gate_summary("SAM.gov larger-run validation", res)
         typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+        sam_posted_window = _extract_sam_posted_window(res)
+        if sam_posted_window is not None:
+            typer.echo(f"Posted window: {describe_sam_posted_window(sam_posted_window)}")
         typer.echo(f"Scoring version: {res.get('scoring_version')}")
         if res.get("compare_scoring_versions"):
             typer.echo(f"Compare scoring versions: {','.join(res.get('compare_scoring_versions') or [])}")
@@ -1081,12 +1680,28 @@ def workflow_samgov_validate(
             typer.echo(f"Bundle manifest: {Path(artifacts.get('bundle_manifest_json')).resolve()}")
         if artifacts.get("report_html"):
             typer.echo(f"Bundle report: {Path(artifacts.get('report_html')).resolve()}")
+        _echo_validation_checks(res, include_passes=False)
 
     if require_nonzero and res.get("status") == "failed":
         raise typer.Exit(code=2)
 @workflow_app.command("samgov-smoke")
 def workflow_samgov_smoke(
-    ingest_days: int = typer.Option(30, "--ingest-days", "--days", help="Ingest: days of history to request (--days alias supported)"),
+    ingest_days: Optional[int] = typer.Option(
+        None,
+        "--ingest-days",
+        "--days",
+        help="Ingest: days of history to request when --posted-from/--posted-to are not supplied (defaults to 30).",
+    ),
+    posted_from: Optional[str] = typer.Option(
+        None,
+        "--posted-from",
+        help="Ingest: explicit SAM postedDate start in YYYY-MM-DD format. Must be used with --posted-to.",
+    ),
+    posted_to: Optional[str] = typer.Option(
+        None,
+        "--posted-to",
+        help="Ingest: explicit SAM postedDate end in YYYY-MM-DD format. Must be used with --posted-from.",
+    ),
     pages: int = typer.Option(2, "--pages", help="Ingest: maximum API pages to request"),
     page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
     max_records: Optional[int] = typer.Option(
@@ -1094,13 +1709,14 @@ def workflow_samgov_smoke(
     ),
     start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
     keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    keywords_file: Optional[Path] = typer.Option(None, "--keywords-file", help="Ingest: newline-delimited title search terms file"),
     api_key: Optional[str] = typer.Option(
         None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."
     ),
     ontology_profile: SamOntologyProfile = typer.Option(
         SamOntologyProfile.starter,
         "--ontology-profile",
-        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia | hidden_program_proxy | hidden_program_proxy_exploratory | starter_plus_dod_foia_hidden_program_proxy | starter_plus_dod_foia_hidden_program_proxy_exploratory",
     ),
     ontology_path: Optional[Path] = typer.Option(
         None,
@@ -1120,11 +1736,18 @@ def workflow_samgov_smoke(
     max_keywords_per_event: int = typer.Option(
         10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"
     ),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Snapshot: inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Snapshot: inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Snapshot: inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Snapshot: inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Snapshot: inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Snapshot: inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Snapshot: event-time lookback window helper"),
     entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
     min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
     snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
     scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot/doctor scan window"),
-    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version label"),
+    scoring_version: str = typer.Option(_DEFAULT_OPERATOR_SCORING_VERSION, "--scoring-version", help="Snapshot: scoring version (v1, v2, or v3)"),
     compare_scoring_versions_raw: Optional[str] = typer.Option(
         None,
         "--compare-scoring-versions",
@@ -1135,7 +1758,7 @@ def workflow_samgov_smoke(
         None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/smoke/samgov)"
     ),
     require_nonzero: bool = typer.Option(
-        True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required non-zero checks fail"
+        True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required checks fail"
     ),
     threshold: Optional[List[str]] = typer.Option(None, "--threshold", help="Threshold override key=value (repeat)."),
     skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (offline fixture replay)"),
@@ -1145,16 +1768,34 @@ def workflow_samgov_smoke(
     from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_smoke_workflow
 
     bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    resolved_window = _resolve_sam_ingest_window_or_raise(
+        days=ingest_days,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        default_days=30,
+    )
+    resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
     compare_scoring_versions = _parse_compare_scoring_versions(compare_scoring_versions_raw)
     threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
     resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
     res = run_samgov_smoke_workflow(
-        ingest_days=ingest_days,
+        ingest_days=resolved_window.get("requested_days"),
+        posted_from=resolved_window.get("posted_from"),
+        posted_to=resolved_window.get("posted_to"),
         pages=pages,
         page_size=page_size,
         max_records=max_records,
         start_page=start_page,
-        keywords=keyword,
+        keywords=resolved_keywords,
         api_key=api_key,
         ontology_path=resolved_ontology_path,
         ontology_days=ontology_days,
@@ -1164,6 +1805,7 @@ def workflow_samgov_smoke(
         min_events_keywords=min_events_keywords,
         max_events_keywords=max_events_keywords,
         max_keywords_per_event=max_keywords_per_event,
+        **lead_window_kwargs,
         min_score=min_score,
         snapshot_limit=snapshot_limit,
         scan_limit=scan_limit,
@@ -1180,8 +1822,11 @@ def workflow_samgov_smoke(
     if json_out:
         typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
     else:
-        typer.echo(f"SAM.gov smoke workflow: {str(res.get('status')).upper()}")
+        _echo_validation_gate_summary("SAM.gov smoke workflow", res)
         typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+        sam_posted_window = _extract_sam_posted_window(res)
+        if sam_posted_window is not None:
+            typer.echo(f"Posted window: {describe_sam_posted_window(sam_posted_window)}")
         typer.echo(f"Scoring version: {res.get('scoring_version')}")
         if res.get("compare_scoring_versions"):
             typer.echo(f"Compare scoring versions: {','.join(res.get('compare_scoring_versions') or [])}")
@@ -1197,18 +1842,7 @@ def workflow_samgov_smoke(
         thresholds_used = res.get("thresholds") or {}
         if thresholds_used:
             typer.echo(f"Threshold contract: {thresholds_used}")
-        for chk in res.get("checks", []):
-            status = str(chk.get("status") or ("pass" if chk.get("ok") else "fail")).upper()
-            req = "" if chk.get("required", True) else " (info)"
-            observed = chk.get("observed", chk.get("actual"))
-            typer.echo(
-                f"- [{status}] {chk.get('name')}{req} observed={observed} expected={chk.get('expected')}"
-            )
-            if not chk.get("ok"):
-                if chk.get("why"):
-                    typer.echo(f"  why: {chk.get('why')}")
-                if chk.get("hint"):
-                    typer.echo(f"  next: {chk.get('hint')}")
+        _echo_validation_checks(res, include_passes=True)
         entities_diag = (res.get("baseline") or {}).get("entity_coverage") or {}
         typer.echo(
             "Entity coverage baseline: "
@@ -1625,27 +2259,51 @@ def export_candidate_joins_cmd(
 def export_correlations_cmd(
     out: str = typer.Option("data/exports/correlations.json", "--out", help="Output JSON path"),
     source: str = typer.Option("USAspending", "--source", help="Event source filter (blank for all)"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Inclusive ISO-8601 start datetime"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Inclusive ISO-8601 end datetime"),
+    entity_id: Optional[int] = typer.Option(None, "--entity-id", help="Filter linked events by entity_id"),
+    keyword: Optional[str] = typer.Option(None, "--keyword", help="Filter linked events by keyword tag"),
+    min_score: int = typer.Option(None, "--min-score", help="Minimum numeric score"),
+    agency: Optional[str] = typer.Option(None, "--agency", help="Filter linked events by agency code or name"),
+    psc: Optional[str] = typer.Option(None, "--psc", help="Filter linked events by PSC code or description"),
+    naics: Optional[str] = typer.Option(None, "--naics", help="Filter linked events by NAICS code or description"),
+    award_id: Optional[str] = typer.Option(None, "--award-id", help="Filter linked events by award id"),
+    recipient_uei: Optional[str] = typer.Option(None, "--recipient-uei", help="Filter linked events by recipient UEI"),
+    place_region: Optional[str] = typer.Option(None, "--place-region", help="Filter linked events by state/country region"),
     lane: str = typer.Option("", "--lane", help="Correlation lane filter (blank for all; e.g., same_entity, same_uei)"),
     window_days: int = typer.Option(None, "--window-days", help="Filter correlations by window_days"),
-    min_score: int = typer.Option(None, "--min-score", help="Minimum numeric score"),
+    min_event_count: Optional[int] = typer.Option(None, "--min-event-count", help="Minimum linked events within the active filters"),
+    min_score_signal: Optional[float] = typer.Option(None, "--min-score-signal", help="Minimum score_signal / lane score"),
+    sort_by: str = typer.Option("score_signal", "--sort-by", help="Sort by score_signal, event_count, created_at, or id"),
+    sort_dir: str = typer.Option("desc", "--sort-dir", help="Sort direction asc or desc"),
+    offset: int = typer.Option(0, "--offset", help="Skip this many matching correlations"),
     limit: int = typer.Option(500, "--limit", help="Max correlations to export"),
     database_url: str = typer.Option(None, "--database-url", help="Override DB URL"),
 ):
     from backend.services.export_correlations import export_correlations
+
     res = export_correlations(
         out_path=out,
         source=source if source else None,
+        date_from=_parse_datetime_option(date_from, option_name="date_from"),
+        date_to=_parse_datetime_option(date_to, option_name="date_to"),
+        entity_id=entity_id,
+        keyword=keyword,
+        min_score=min_score,
+        agency=agency,
+        psc=psc,
+        naics=naics,
+        award_id=award_id,
+        recipient_uei=recipient_uei,
+        place_region=place_region,
         lane=lane if lane else None,
         window_days=window_days,
-        min_score=min_score,
+        min_event_count=min_event_count,
+        min_score_signal=min_score_signal,
+        offset=offset,
         limit=limit,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
         database_url=database_url,
     )
     typer.echo("Exported correlations: count=%s out=%s" % (res.get("count"), res.get("out_path")))
-
-
-
-
-
-
-

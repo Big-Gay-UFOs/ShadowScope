@@ -1,4 +1,4 @@
-# ShadowScope Windows Quick Start
+﻿# ShadowScope Windows Quick Start
 
 ## Prerequisites
 - Windows PowerShell 5+ or PowerShell 7
@@ -23,13 +23,20 @@ SAM workflow commands support `--ontology-profile`:
 - `starter` (default)
 - `dod_foia`
 - `starter_plus_dod_foia`
-- `dod_foia` uses precision-first contextual rules plus explicit lore suppressors
+- `hidden_program_proxy`
+- `hidden_program_proxy_exploratory`
+- `starter_plus_dod_foia_hidden_program_proxy`
+- `starter_plus_dod_foia_hidden_program_proxy_exploratory`
+- `dod_foia` and the new proxy profiles keep explicit lore suppressors intact; the exploratory layer is opt-in and lower-weight.
 
 Examples:
 - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter`
 - `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
-- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia --json`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory`
+- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy --json`
+
+Keyword seed files live under `examples/terms/` and can be passed with `--keywords-file`; repeated `--keyword` values are merged and deduped.
 
 Use `--ontology <path>` to explicitly override any profile mapping.
 
@@ -40,8 +47,6 @@ Use `--ontology <path>` to explicitly override any profile mapping.
 
 ### 2) Bounded SAM smoke
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
-- Default review surface: `scoring_version=v3`
-- Comparison mode: `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json`
 
 ### 3) Review diagnostics
 - `ss doctor status --source "SAM.gov" --days 30 --json`
@@ -67,8 +72,20 @@ Each check prints expected threshold, observed value, pass/fail, and next comman
 
 ### 5) Threshold tuning loop
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
-- `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+- Default precision hidden-program proxy loop:
+  `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json`
+  `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+  `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+  `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
+  `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000`
+  `ss doctor status --source "SAM.gov" --days 30 --json`
+- Optional exploratory add-on:
+  `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json`
+  `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
+  `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
+  `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000`
+- On a fixed window, expect directional improvement in useful keyword density and `kw_pair` signal without degrading pipeline health or suppressor behavior.
 
 ### 6) Fixture verification (offline)
 - `.\.venv\Scripts\python.exe -m pytest -q tests/test_workflow_wrapper.py tests/test_doctor_status_source_hints.py`
@@ -81,7 +98,7 @@ DoD ontology keyword tags (`pack_id:rule_id`) feed existing lanes directly:
 - Rationale: `same_keyword` tracks repeated precise handles, while `kw_pair` strengthens leads when anchors and pair-terms co-occur in the same event context.
 - `same_entity`, `same_uei`, `same_sam_naics` remain unchanged
 
-Lead score details now default to **v3** and include FOIA matrix metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) plus structural-context subscores for transparent triage.
+Lead score details now include FOIA matrix metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) for transparent triage.
 
 ## USAspending maintenance check
 - `ss doctor status --source USAspending --days 30`
@@ -95,9 +112,6 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
 # 2) Larger bounded validation
 ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
 
-# 2b) Optional scoring comparison artifact
-ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json
-
 # 3) Diagnose and inspect without psql
 ss diagnose samgov --days 30 --json
 ss inspect bundle --path <bundle_dir> --json
@@ -110,8 +124,6 @@ Key SAM bundle files:
 - `results/workflow_result.json`
 - `results/doctor_status.json`
 - `report/bundle_report.html`
-- `exports/lead_snapshot.csv|json` with visible `scoring_version`
-- optional `exports/lead_scoring_comparison.csv|json` when `--compare-scoring-versions` is used
 - stable `exports/*.csv|json|jsonl`
 
 If larger runs are slow/rate-limited, tune:
@@ -119,3 +131,5 @@ If larger runs are slow/rate-limited, tune:
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
+
+SAM operator review defaults now use scoring `v3`. Keep `--scoring-version v2` only for explicit comparison runs.

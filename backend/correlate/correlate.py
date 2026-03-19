@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -7,6 +7,18 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.connectors.samgov_context import extract_sam_context_fields
+from backend.correlate.scorer import (
+    DEFAULT_KW_PAIR_MAX_DF_FLOOR,
+    DEFAULT_KW_PAIR_MAX_DF_RATIO,
+    DEFAULT_KW_PAIR_SCORE_KIND,
+    DEFAULT_KW_PAIR_SECONDARY_SCORE_KIND,
+    DEFAULT_KW_PAIR_SMOOTHING,
+    compute_kw_pair_df_threshold,
+    compute_kw_pair_signal,
+    format_signal_score,
+    is_excluded_kw_pair_keyword,
+    normalize_keyword,
+)
 from backend.db.models import Correlation, CorrelationLink, Entity, Event, get_session_factory
 
 
@@ -484,6 +496,10 @@ def rebuild_keyword_pair_correlations(
     min_events: int = 3,
     max_events: int = 200,
     max_keywords_per_event: int = 10,
+    min_pair_count: Optional[int] = None,
+    max_keyword_df_ratio: float = DEFAULT_KW_PAIR_MAX_DF_RATIO,
+    max_keyword_df_floor: int = DEFAULT_KW_PAIR_MAX_DF_FLOOR,
+    pair_score_smoothing: float = DEFAULT_KW_PAIR_SMOOTHING,
     dry_run: bool = False,
     database_url: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -492,23 +508,36 @@ def rebuild_keyword_pair_correlations(
 
     key format: kw_pair|<source>|<window_days>|pair:<hash16>
     - Stores kw1/kw2 in lanes_hit + summary for readability.
+    - Stores score as a signal value while preserving raw counts for explainability.
     - Links correlation -> all events that contain BOTH keywords.
     """
     import hashlib
 
     window_days = int(window_days)
     min_events = int(min_events)
+    min_pair_count = int(min_pair_count if min_pair_count is not None else min_events)
     max_events = int(max_events)
     max_keywords_per_event = int(max_keywords_per_event)
+    max_keyword_df_ratio = float(max_keyword_df_ratio)
+    max_keyword_df_floor = int(max_keyword_df_floor)
+    pair_score_smoothing = float(pair_score_smoothing)
 
     if window_days <= 0:
         raise ValueError("window_days must be > 0")
     if min_events < 2:
         raise ValueError("min_events must be >= 2")
-    if max_events < min_events:
-        raise ValueError("max_events must be >= min_events")
+    if min_pair_count < 2:
+        raise ValueError("min_pair_count must be >= 2")
+    if max_events < min_pair_count:
+        raise ValueError("max_events must be >= min_pair_count")
     if max_keywords_per_event < 2:
         raise ValueError("max_keywords_per_event must be >= 2")
+    if max_keyword_df_ratio < 0:
+        raise ValueError("max_keyword_df_ratio must be >= 0")
+    if max_keyword_df_floor < 0:
+        raise ValueError("max_keyword_df_floor must be >= 0")
+    if pair_score_smoothing < 0:
+        raise ValueError("pair_score_smoothing must be >= 0")
 
     lane = "kw_pair"
     src_key = source if source else "*"
@@ -527,40 +556,89 @@ def rebuild_keyword_pair_correlations(
             q = q.filter(Event.source == source)
         rows = q.order_by(Event.id.asc()).all()
 
-        # Build pair -> event_ids index
-        pair_to_ids: dict[str, list[int]] = {}
-
-        def norm_kw(s: str) -> str:
-            return s.strip().replace("|", "/").lower()
+        total_events = len(rows)
+        keywords_by_event: dict[int, list[str]] = {}
+        keyword_df: dict[str, int] = {}
+        keywords_excluded_noise = 0
 
         for ev in rows:
+            filtered: list[str] = []
             kws = ev.keywords if isinstance(ev.keywords, list) else []
-            normed = []
             for kw in kws:
-                if isinstance(kw, str):
-                    k = norm_kw(kw)
-                    if k:
-                        normed.append(k)
-            kw_list = sorted(set(normed))
+                if not isinstance(kw, str):
+                    continue
+                k = normalize_keyword(kw)
+                if not k:
+                    continue
+                if is_excluded_kw_pair_keyword(k):
+                    keywords_excluded_noise += 1
+                    continue
+                filtered.append(k)
+
+            uniq_keywords = sorted(set(filtered))
+            keywords_by_event[int(ev.id)] = uniq_keywords
+            for kw in uniq_keywords:
+                keyword_df[kw] = keyword_df.get(kw, 0) + 1
+
+        keyword_df_threshold = compute_kw_pair_df_threshold(
+            total_events,
+            max_keyword_df_ratio=max_keyword_df_ratio,
+            max_keyword_df_floor=max_keyword_df_floor,
+        )
+        allowed_keywords = {
+            kw
+            for kw, count in keyword_df.items()
+            if keyword_df_threshold <= 0 or int(count) <= int(keyword_df_threshold)
+        }
+        keywords_excluded_df = sum(1 for count in keyword_df.values() if keyword_df_threshold > 0 and int(count) > int(keyword_df_threshold))
+
+        pair_to_ids: dict[str, list[int]] = {}
+        events_pair_eligible = 0
+        events_skipped_max_keywords = 0
+
+        for ev in rows:
+            ev_id = int(ev.id)
+            kw_list = [kw for kw in keywords_by_event.get(ev_id, []) if kw in allowed_keywords]
             if len(kw_list) < 2:
                 continue
             if len(kw_list) > max_keywords_per_event:
+                events_skipped_max_keywords += 1
                 continue
 
-            ev_id = int(ev.id)
+            events_pair_eligible += 1
             for i in range(len(kw_list)):
                 for j in range(i + 1, len(kw_list)):
                     pair = f"{kw_list[i]}+{kw_list[j]}"
                     pair_to_ids.setdefault(pair, []).append(ev_id)
 
-        # Eligible pairs (within min/max event counts)
         eligible: dict[str, list[int]] = {}
         pair_hash: dict[str, str] = {}
+        pair_metrics: dict[str, dict[str, float]] = {}
+        pairs_below_min_pair_count = 0
+        pairs_capped_max_events = 0
+
         for pair, ids in pair_to_ids.items():
             uniq = sorted(set(ids))
-            if len(uniq) >= min_events and len(uniq) <= max_events:
-                eligible[pair] = uniq
-                pair_hash[pair] = hashlib.sha1(pair.encode("utf-8")).hexdigest()[:16]
+            c12 = len(uniq)
+            if c12 < min_pair_count:
+                pairs_below_min_pair_count += 1
+                continue
+            if c12 > max_events:
+                pairs_capped_max_events += 1
+                continue
+
+            kw1, kw2 = pair.split("+", 1)
+            c1 = int(keyword_df.get(kw1, 0))
+            c2 = int(keyword_df.get(kw2, 0))
+            eligible[pair] = uniq
+            pair_hash[pair] = hashlib.sha1(pair.encode("utf-8")).hexdigest()[:16]
+            pair_metrics[pair] = compute_kw_pair_signal(
+                total_events=total_events,
+                c1=c1,
+                c2=c2,
+                c12=c12,
+                smoothing=pair_score_smoothing,
+            )
 
         eligible_keys = set(f"{key_prefix}{pair_hash[p]}" for p in eligible.keys())
 
@@ -581,10 +659,12 @@ def rebuild_keyword_pair_correlations(
             h = pair_hash[pair]
             key = f"{key_prefix}{h}"
             cnt = len(event_ids)
-
-            parts = pair.split("+", 1)
-            kw1 = parts[0]
-            kw2 = parts[1] if len(parts) > 1 else ""
+            kw1, kw2 = pair.split("+", 1)
+            c1 = int(keyword_df.get(kw1, 0))
+            c2 = int(keyword_df.get(kw2, 0))
+            metrics = pair_metrics[pair]
+            score_signal = float(metrics.get("score_signal", 0.0))
+            score_secondary = float(metrics.get("score_secondary", 0.0))
 
             lanes_hit = {
                 "lane": lane,
@@ -593,9 +673,35 @@ def rebuild_keyword_pair_correlations(
                 "pair_hash": h,
                 "event_count": cnt,
                 "key_count": cnt,
+                "c12": cnt,
+                "c1": c1,
+                "c2": c2,
+                "keyword_1_df": c1,
+                "keyword_2_df": c2,
+                "total_events": total_events,
+                "score_signal": round(score_signal, 6),
+                "score_kind": DEFAULT_KW_PAIR_SCORE_KIND,
+                "score_secondary": round(score_secondary, 6),
+                "score_secondary_kind": DEFAULT_KW_PAIR_SECONDARY_SCORE_KIND,
+                "expected_count": round(float(metrics.get("expected_count", 0.0)), 6),
+                "lift_raw": round(float(metrics.get("lift_raw", 0.0)), 6),
+                "lift_smoothed": round(float(metrics.get("lift_smoothed", 0.0)), 6),
+                "pmi": round(float(metrics.get("pmi", 0.0)), 6),
+                "npmi": round(float(metrics.get("npmi", 0.0)), 6),
+                "log_odds": round(float(metrics.get("log_odds", score_secondary)), 6),
+                "max_keyword_df": keyword_df_threshold,
+                "pair_score_smoothing": float(pair_score_smoothing),
+                "min_pair_count": min_pair_count,
                 "since": since.isoformat(),
                 "until": now.isoformat(),
             }
+
+            summary = f"{cnt} events share keyword-pair {kw1} + {kw2} ({DEFAULT_KW_PAIR_SCORE_KIND}={score_signal:.3f})"
+            rationale = (
+                f"Grouped events sharing keyword-pair within last {window_days} days "
+                f"(min_pair_count={min_pair_count}, max_events={max_events}, max_keywords_per_event={max_keywords_per_event}, "
+                f"max_keyword_df={keyword_df_threshold}, smoothing={pair_score_smoothing})."
+            )
 
             if dry_run:
                 continue
@@ -604,28 +710,27 @@ def rebuild_keyword_pair_correlations(
             if c is None:
                 c = Correlation(
                     correlation_key=key,
-                    score=str(cnt),
+                    score=format_signal_score(score_signal),
                     window_days=window_days,
                     radius_km=0.0,
                     lanes_hit=lanes_hit,
-                    summary=f"{cnt} events share keyword-pair {kw1} + {kw2}",
-                    rationale=f"Grouped events sharing keyword-pair within last {window_days} days (min_events={min_events}, max_events={max_events}, max_keywords_per_event={max_keywords_per_event}).",
+                    summary=summary,
+                    rationale=rationale,
                     created_at=now,
                 )
                 db.add(c)
                 db.flush()
                 correlations_created += 1
             else:
-                c.score = str(cnt)
+                c.score = format_signal_score(score_signal)
                 c.window_days = window_days
                 c.radius_km = 0.0
                 c.lanes_hit = lanes_hit
-                c.summary = f"{cnt} events share keyword-pair {kw1} + {kw2}"
-                c.rationale = f"Grouped events sharing keyword-pair within last {window_days} days (min_events={min_events}, max_events={max_events}, max_keywords_per_event={max_keywords_per_event})."
+                c.summary = summary
+                c.rationale = rationale
                 c.created_at = now
                 correlations_updated += 1
 
-            # rebuild links
             links_deleted += (
                 db.query(CorrelationLink)
                 .filter(CorrelationLink.correlation_id == int(c.id))
@@ -635,7 +740,6 @@ def rebuild_keyword_pair_correlations(
                 db.add(CorrelationLink(correlation_id=int(c.id), event_id=int(ev_id)))
             links_created += len(event_ids)
 
-        # delete stale correlations
         if not dry_run:
             stale_keys = [k for k in existing_by_key.keys() if k not in eligible_keys]
             if stale_keys:
@@ -654,10 +758,26 @@ def rebuild_keyword_pair_correlations(
             "source": source,
             "window_days": window_days,
             "min_events": min_events,
+            "min_pair_count": min_pair_count,
             "max_events": max_events,
             "max_keywords_per_event": max_keywords_per_event,
+            "max_keyword_df_ratio": max_keyword_df_ratio,
+            "max_keyword_df_floor": max_keyword_df_floor,
+            "keyword_df_threshold": keyword_df_threshold,
+            "pair_score_smoothing": pair_score_smoothing,
+            "score_kind": DEFAULT_KW_PAIR_SCORE_KIND,
+            "score_secondary_kind": DEFAULT_KW_PAIR_SECONDARY_SCORE_KIND,
             "since": since.isoformat(),
+            "events_seen": total_events,
+            "events_with_filtered_keywords": sum(1 for kws in keywords_by_event.values() if kws),
+            "events_pair_eligible": events_pair_eligible,
+            "events_skipped_max_keywords": events_skipped_max_keywords,
+            "keywords_seen": len(keyword_df),
+            "keywords_excluded_noise": keywords_excluded_noise,
+            "keywords_excluded_df": keywords_excluded_df,
             "pairs_seen": len(pair_to_ids),
+            "pairs_below_min_pair_count": pairs_below_min_pair_count,
+            "pairs_capped_max_events": pairs_capped_max_events,
             "eligible_pairs": len(eligible),
             "correlations_created": correlations_created,
             "correlations_updated": correlations_updated,
@@ -667,7 +787,6 @@ def rebuild_keyword_pair_correlations(
         }
     finally:
         db.close()
-
 
 def rebuild_sam_naics_correlations(
     *,
@@ -1464,6 +1583,7 @@ def rebuild_place_region_correlations(
         dry_run=dry_run,
         database_url=database_url,
     )
+
 
 
 

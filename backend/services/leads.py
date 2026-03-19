@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import select
@@ -11,7 +12,13 @@ from backend.analysis.scoring import (
     score_from_keywords_clauses_v2,
     score_from_keywords_clauses_v3,
 )
-from backend.connectors.samgov_context import extract_sam_context_fields
+from backend.correlate.scorer import (
+    DEFAULT_KW_PAIR_BONUS_MIN_EVENT_COUNT,
+    DEFAULT_KW_PAIR_BONUS_MIN_SIGNAL,
+    kw_pair_bonus_contribution,
+    kw_pair_event_count,
+    kw_pair_score_signal,
+)
 from backend.db.models import (
     AnalysisRun,
     Correlation,
@@ -21,22 +28,32 @@ from backend.db.models import (
     LeadSnapshotItem,
     get_session_factory,
 )
+from backend.services.explainability import (
+    enrich_lead_score_details,
+    load_event_linked_source_summary,
+    load_event_correlation_evidence,
+)
+from backend.services.lead_families import classify_lead_families
+from backend.services.investigator_filters import event_time_expr, investigator_event_conditions
 
 
 SUPPORTED_SCORING_VERSIONS: tuple[str, ...] = ("v1", "v2", "v3")
 DEFAULT_SCORING_VERSION = "v3"
 
 _DOD_PACK_PREFIX = "sam_dod_"
+_NOISE_PACK_PREFIXES = ("operational_noise_terms:", "sam_proxy_noise_expansion:")
 _FOIA_MATRIX_BONUS_CAP = 3
+_VALID_SCORING_VERSIONS = set(SUPPORTED_SCORING_VERSIONS)
 _MAX_COMPARISON_VERSIONS = 2
+_MIN_SORT_DT = datetime.min.replace(tzinfo=timezone.utc)
 
 
-def normalize_scoring_version(scoring_version: str | None) -> str:
-    value = str(scoring_version or DEFAULT_SCORING_VERSION).strip().lower()
-    if value not in SUPPORTED_SCORING_VERSIONS:
+def normalize_scoring_version(value: Any, *, default: str = DEFAULT_SCORING_VERSION) -> str:
+    raw = str(value or default).strip().lower() or default
+    if raw not in _VALID_SCORING_VERSIONS:
         allowed = ", ".join(SUPPORTED_SCORING_VERSIONS)
-        raise ValueError(f"Unsupported scoring_version '{scoring_version}'. Expected one of: {allowed}")
-    return value
+        raise ValueError(f"Unsupported scoring_version '{value}'. Expected one of: {allowed}")
+    return raw
 
 
 def normalize_comparison_versions(versions: Optional[list[str]]) -> list[str]:
@@ -53,6 +70,7 @@ def normalize_comparison_versions(versions: Optional[list[str]]) -> list[str]:
     if len(normalized) != _MAX_COMPARISON_VERSIONS:
         raise ValueError("compare_scoring_versions must contain exactly two distinct scoring versions")
     return normalized
+
 
 
 def _norm_list(value: Any) -> list:
@@ -80,11 +98,12 @@ def _first_present(*values: Any) -> Optional[str]:
     return None
 
 
-def _score_number(details: dict[str, Any], key: str) -> int:
+def _score_number(details: Optional[dict[str, Any]], key: str) -> int:
     try:
-        return int(details.get(key) or 0)
+        return int((details or {}).get(key) or 0)
     except Exception:
         return 0
+
 
 
 def _dod_keyword_metrics(keywords: list[Any]) -> tuple[int, int]:
@@ -101,12 +120,14 @@ def _dod_keyword_metrics(keywords: list[Any]) -> tuple[int, int]:
     return len(lane_ids), keyword_hits
 
 
+
 def _foia_matrix_bonus(*, dod_lane_count: int, pair_count: int) -> int:
     if dod_lane_count <= 0:
         return 0
     lane_component = min(int(dod_lane_count), 2)
     pair_component = 1 if int(pair_count) > 0 else 0
     return min(_FOIA_MATRIX_BONUS_CAP, lane_component + pair_component)
+
 
 
 def _foia_potential_tier(*, dod_lane_count: int, dod_keyword_hit_count: int, pair_count: int) -> str:
@@ -119,115 +140,86 @@ def _foia_potential_tier(*, dod_lane_count: int, dod_keyword_hit_count: int, pai
     return "low"
 
 
-def _structural_context_details(event: Event) -> dict[str, Any]:
-    raw = event.raw_json if isinstance(event.raw_json, dict) else {}
-    ctx = extract_sam_context_fields(raw)
 
-    core_fields = {
-        "notice_type": _first_present(event.notice_award_type, ctx.get("sam_notice_type")),
-        "solicitation_number": _first_present(event.solicitation_number, ctx.get("sam_solicitation_number")),
-        "naics_code": _first_present(event.naics_code, ctx.get("sam_naics_code")),
-        "set_aside_code": _first_present(ctx.get("sam_set_aside_code"), raw.get("typeOfSetAside")),
-    }
-    research_fields = {
-        "agency_path_code": _first_present(ctx.get("sam_agency_path_code"), raw.get("fullParentPathCode")),
-        "response_deadline": _first_present(ctx.get("sam_response_deadline"), raw.get("responseDeadLine")),
-        "place_state": _first_present(event.place_of_performance_state, ctx.get("sam_place_state_code")),
-        "place_country": _first_present(event.place_of_performance_country, ctx.get("sam_place_country_code")),
-        "office_code": _first_present(ctx.get("sam_office_code"), raw.get("officeCode")),
-    }
-    identity_fields = {
-        "recipient_name": _first_present(event.recipient_name, raw.get("recipient_name"), raw.get("Recipient Name")),
-        "recipient_uei": _first_present(event.recipient_uei, raw.get("recipient_uei"), raw.get("recipientUEI"), raw.get("uei")),
-        "recipient_cage_code": _first_present(
-            event.recipient_cage_code,
-            raw.get("recipient_cage_code"),
-            raw.get("recipientCageCode"),
-            raw.get("cage"),
-            raw.get("cageCode"),
-        ),
-        "recipient_id": _first_present(raw.get("recipient_id"), raw.get("recipientId")),
-    }
-
-    core_present = [name for name, value in core_fields.items() if value]
-    research_present = [name for name, value in research_fields.items() if value]
-    identity_present = [name for name, value in identity_fields.items() if value]
-
-    core_score = min(
-        sum(
-            {
-                "notice_type": 2,
-                "solicitation_number": 2,
-                "naics_code": 2,
-                "set_aside_code": 1,
-            }[name]
-            for name in core_present
-        ),
-        6,
-    )
-    research_score = min(
-        sum(
-            {
-                "agency_path_code": 2,
-                "response_deadline": 1,
-                "place_state": 1,
-                "place_country": 1,
-                "office_code": 1,
-            }[name]
-            for name in research_present
-        ),
-        4,
-    )
-
-    identity_score = 0
-    if identity_fields["recipient_name"]:
-        identity_score += 1
-    if identity_fields["recipient_uei"] or identity_fields["recipient_cage_code"] or identity_fields["recipient_id"]:
-        identity_score += 2
-    identity_score = min(identity_score, 3)
-
-    structural_context_score = core_score + research_score + identity_score
-    if structural_context_score >= 8:
-        context_label = "high"
-    elif structural_context_score >= 4:
-        context_label = "medium"
-    else:
-        context_label = "low"
-
-    return {
-        "structural_core_score": int(core_score),
-        "structural_research_score": int(research_score),
-        "structural_identity_score": int(identity_score),
-        "structural_context_score": int(structural_context_score),
-        "structural_core_fields": core_present,
-        "structural_research_fields": research_present,
-        "structural_identity_fields": identity_present,
-        "structural_context_label": context_label,
-    }
+def _legacy_pair_bonus_contribution(event_count: int) -> float:
+    if int(event_count) <= 0:
+        return 0.0
+    return 1.0 / math.sqrt(float(event_count))
 
 
-def _lead_family(
+def _lead_candidate_conditions(
     *,
-    clause_score: int,
-    keyword_score: int,
-    pair_count: int,
-    dod_lane_count: int,
-    structural_context_score: int,
-    structural_core_score: int,
-) -> str:
-    if dod_lane_count >= 2 and (pair_count > 0 or structural_core_score >= 4):
-        return "foia_contextual"
-    if structural_context_score >= 7 and pair_count > 0:
-        return "high_context_pair_supported"
-    if structural_context_score >= 7:
-        return "high_context_structural"
-    if pair_count > 0:
-        return "pair_supported"
-    if clause_score > 0:
-        return "clause_driven"
-    if keyword_score > 0:
-        return "keyword_only"
-    return "low_signal"
+    source: Optional[str] = None,
+    exclude_source: Optional[str] = None,
+    date_from: Optional[Any] = None,
+    date_to: Optional[Any] = None,
+    occurred_after: Optional[Any] = None,
+    occurred_before: Optional[Any] = None,
+    created_after: Optional[Any] = None,
+    created_before: Optional[Any] = None,
+    since_days: Optional[int] = None,
+    entity_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+    agency: Optional[str] = None,
+    psc: Optional[str] = None,
+    naics: Optional[str] = None,
+    award_id: Optional[str] = None,
+    recipient_uei: Optional[str] = None,
+    place_region: Optional[str] = None,
+) -> list[Any]:
+    conditions = investigator_event_conditions(
+        source=source,
+        date_from=date_from,
+        date_to=date_to,
+        entity_id=entity_id,
+        keyword=keyword,
+        agency=agency,
+        psc=psc,
+        naics=naics,
+        award_id=award_id,
+        recipient_uei=recipient_uei,
+        place_region=place_region,
+    )
+
+    if exclude_source:
+        conditions.append(Event.source != exclude_source)
+
+    if occurred_after is not None:
+        conditions.append(Event.occurred_at >= occurred_after)
+    if occurred_before is not None:
+        conditions.append(Event.occurred_at <= occurred_before)
+    if created_after is not None:
+        conditions.append(Event.created_at >= created_after)
+    if created_before is not None:
+        conditions.append(Event.created_at <= created_before)
+    if since_days is not None:
+        since = datetime.now(timezone.utc) - timedelta(days=max(int(since_days), 0))
+        conditions.append(event_time_expr(Event) >= since)
+
+    return conditions
+
+
+def _lead_candidate_order_by() -> tuple[Any, ...]:
+    relevant_at = event_time_expr(Event)
+    return (
+        relevant_at.desc().nullslast(),
+        Event.occurred_at.desc().nullslast(),
+        Event.created_at.desc().nullslast(),
+        Event.id.desc(),
+    )
+
+
+def _sortable_dt(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return _MIN_SORT_DT
+
+
+def _lead_sort_values(event: Event) -> tuple[Any, ...]:
+    relevant_at = _sortable_dt(event.occurred_at or event.created_at)
+    occurred_at = _sortable_dt(event.occurred_at)
+    created_at = _sortable_dt(event.created_at)
+    return relevant_at, occurred_at, created_at, int(event.id)
 
 
 def _comparison_state(baseline_rank: Optional[int], target_rank: Optional[int]) -> str:
@@ -265,14 +257,50 @@ def build_scoring_delta_explanation(
         sign = "+" if delta > 0 else ""
         parts.append(f"{label} {sign}{delta}")
 
-    baseline_family = baseline.get("lead_family")
-    target_family = target.get("lead_family")
+    baseline_family = _first_present(baseline.get("lead_family"))
+    target_family = _first_present(target.get("lead_family"))
     if baseline_family != target_family and (baseline_family or target_family):
         parts.append(f"lead_family {baseline_family or 'n/a'} -> {target_family or 'n/a'}")
 
     if not parts:
         return "No material score-component change."
     return "; ".join(parts[:4])
+
+
+def _event_scoring_context(event: Event) -> dict[str, Any]:
+    return {
+        "category": event.category,
+        "source": event.source,
+        "source_url": event.source_url,
+        "doc_id": event.doc_id,
+        "award_id": event.award_id,
+        "generated_unique_award_id": event.generated_unique_award_id,
+        "piid": event.piid,
+        "fain": event.fain,
+        "uri": event.uri,
+        "source_record_id": event.source_record_id,
+        "recipient_name": event.recipient_name,
+        "recipient_uei": event.recipient_uei,
+        "recipient_cage_code": event.recipient_cage_code,
+        "awarding_agency_code": event.awarding_agency_code,
+        "awarding_agency_name": event.awarding_agency_name,
+        "funding_agency_code": event.funding_agency_code,
+        "funding_agency_name": event.funding_agency_name,
+        "contracting_office_code": event.contracting_office_code,
+        "contracting_office_name": event.contracting_office_name,
+        "psc_code": event.psc_code,
+        "naics_code": event.naics_code,
+        "notice_award_type": event.notice_award_type,
+        "place_of_performance_state": event.place_of_performance_state,
+        "place_of_performance_country": event.place_of_performance_country,
+        "place_text": event.place_text,
+        "solicitation_number": event.solicitation_number,
+        "notice_id": event.notice_id,
+        "document_id": event.document_id,
+        "occurred_at": event.occurred_at,
+        "created_at": event.created_at,
+    }
+
 
 
 def compute_leads(
@@ -283,122 +311,180 @@ def compute_leads(
     min_score: int = 1,
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
+    date_from: Optional[Any] = None,
+    date_to: Optional[Any] = None,
+    occurred_after: Optional[Any] = None,
+    occurred_before: Optional[Any] = None,
+    created_after: Optional[Any] = None,
+    created_before: Optional[Any] = None,
+    since_days: Optional[int] = None,
+    entity_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+    agency: Optional[str] = None,
+    psc: Optional[str] = None,
+    naics: Optional[str] = None,
+    award_id: Optional[str] = None,
+    recipient_uei: Optional[str] = None,
+    place_region: Optional[str] = None,
     scoring_version: str = DEFAULT_SCORING_VERSION,
     pair_bonus_multiplier: int = 6,
     pair_bonus_cap: int = 12,
     noise_pair_bonus_cap: int = 2,
     noise_penalty: int = 8,
+    pair_signal_threshold: float = DEFAULT_KW_PAIR_BONUS_MIN_SIGNAL,
+    pair_event_count_threshold: int = DEFAULT_KW_PAIR_BONUS_MIN_EVENT_COUNT,
 ) -> Tuple[List[Tuple[int, Event, Dict[str, Any]]], int]:
     scoring_version = normalize_scoring_version(scoring_version)
-    rows = db.execute(select(Event).order_by(Event.id.desc()).limit(int(scan_limit))).scalars().all()
-    scanned = len(rows)
+    conditions = _lead_candidate_conditions(
+        source=source,
+        exclude_source=exclude_source,
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+        entity_id=entity_id,
+        keyword=keyword,
+        agency=agency,
+        psc=psc,
+        naics=naics,
+        award_id=award_id,
+        recipient_uei=recipient_uei,
+        place_region=place_region,
+    )
 
+    rows = (
+        db.execute(
+            select(Event)
+            .where(*conditions)
+            .order_by(*_lead_candidate_order_by())
+            .limit(max(int(scan_limit), 0))
+        )
+        .scalars()
+        .all()
+    )
+    scanned = len(rows)
+    event_ids = [int(e.id) for e in rows]
+    correlations_by_event = load_event_correlation_evidence(db, event_ids=event_ids) if event_ids else {}
     pair_counts: Dict[int, int] = {}
+    pair_counts_total: Dict[int, int] = {}
     pair_strength: Dict[int, float] = {}
 
-    pair_aware = scoring_version in {"v2", "v3"}
-    if pair_aware:
-        ids = [int(e.id) for e in rows]
-        if ids:
-            like_pat = f"kw_pair|{source}|%|pair:%" if source else "kw_pair|%|%|pair:%"
-            q = (
-                db.query(CorrelationLink.event_id, Correlation.score)
-                .join(Correlation, Correlation.id == CorrelationLink.correlation_id)
-                .filter(Correlation.correlation_key.like(like_pat))
-                .filter(CorrelationLink.event_id.in_(ids))
+    is_v2 = scoring_version == "v2"
+    is_v3 = scoring_version == "v3"
+    needs_pair_metrics = is_v2 or is_v3
+
+    if needs_pair_metrics and event_ids:
+        like_pat = f"kw_pair|{source}|%|pair:%" if source else "kw_pair|%|%|pair:%"
+        q = (
+            db.query(CorrelationLink.event_id, Correlation.score, Correlation.lanes_hit)
+            .join(Correlation, Correlation.id == CorrelationLink.correlation_id)
+            .filter(Correlation.correlation_key.like(like_pat))
+            .filter(CorrelationLink.event_id.in_(event_ids))
+        )
+        for event_id, cscore, lanes_hit in q.all():
+            eid = int(event_id)
+            event_count = kw_pair_event_count(lanes_hit, fallback_score=cscore)
+            if event_count <= 0:
+                continue
+
+            pair_counts_total[eid] = pair_counts_total.get(eid, 0) + 1
+
+            score_signal = kw_pair_score_signal(lanes_hit)
+            contribution = kw_pair_bonus_contribution(
+                score_signal=score_signal,
+                event_count=event_count,
+                min_signal=float(pair_signal_threshold),
+                min_event_count=int(pair_event_count_threshold),
             )
-            for event_id, cscore in q.all():
-                eid = int(event_id)
-                try:
-                    n = int(cscore or 0)
-                except Exception:
-                    n = 0
-                if n <= 0:
-                    continue
-                pair_counts[eid] = pair_counts.get(eid, 0) + 1
-                pair_strength[eid] = pair_strength.get(eid, 0.0) + (1.0 / math.sqrt(float(n)))
+            if contribution <= 0 and score_signal is None:
+                contribution = _legacy_pair_bonus_contribution(event_count)
+
+            if contribution <= 0:
+                continue
+
+            pair_counts[eid] = pair_counts.get(eid, 0) + 1
+            pair_strength[eid] = pair_strength.get(eid, 0.0) + float(contribution)
 
     scored: List[Tuple[int, Event, Dict[str, Any]]] = []
-    for event in rows:
-        if source and event.source != source:
-            continue
-        if exclude_source and event.source == exclude_source:
-            continue
+    for e in rows:
 
-        kw_list = _norm_list(event.keywords)
+        kw_list = _norm_list(e.keywords)
         has_noise = any(
-            (
-                isinstance(keyword, str)
-                and keyword.startswith("operational_noise_terms:")
-            )
-            or keyword == "operational_noise_terms:nasa_sponsoring_agreement_noise"
-            for keyword in kw_list
+            (isinstance(k, str) and k.startswith(_NOISE_PACK_PREFIXES))
+            or k == "operational_noise_terms:nasa_sponsoring_agreement_noise"
+            for k in kw_list
         )
         dod_lane_count, dod_keyword_hit_count = _dod_keyword_metrics(kw_list)
-        pair_n = pair_counts.get(int(event.id), 0)
-        strength = pair_strength.get(int(event.id), 0.0)
-        pair_bonus = 0
-        if pair_aware:
-            pair_bonus = int(round(float(pair_bonus_multiplier) * float(strength)))
-            if pair_bonus > int(pair_bonus_cap):
-                pair_bonus = int(pair_bonus_cap)
+
+        correlations = correlations_by_event.get(int(e.id), [])
+        pair_n = pair_counts.get(int(e.id), 0)
+        pair_n_total = pair_counts_total.get(int(e.id), 0)
+        strength = pair_strength.get(int(e.id), 0.0)
+
+        raw_pair_bonus = int(round(float(pair_bonus_multiplier) * float(strength)))
+        if raw_pair_bonus > int(pair_bonus_cap):
+            raw_pair_bonus = int(pair_bonus_cap)
+
+        if is_v2:
+            pair_bonus = int(raw_pair_bonus)
+
             if has_noise:
                 pair_bonus = min(int(pair_bonus), int(noise_pair_bonus_cap))
 
+            score, details = score_from_keywords_clauses_v2(
+                e.keywords,
+                e.clauses,
+                has_entity=bool(e.entity_id),
+                pair_bonus=int(pair_bonus),
+            )
+            details["pair_count"] = int(pair_n)
+            details["pair_count_total"] = int(pair_n_total)
+            details["pair_strength"] = round(float(strength), 4)
+            details["pair_signal_total"] = round(float(strength), 4)
+            details["pair_signal_threshold"] = float(pair_signal_threshold)
+            details["pair_event_count_threshold"] = int(pair_event_count_threshold)
+            details["has_noise"] = bool(has_noise)
+            if has_noise:
+                score = int(score) - int(noise_penalty)
+                details["noise_penalty"] = int(noise_penalty)
+                details["pair_bonus_cap_due_to_noise"] = int(noise_pair_bonus_cap)
+        elif is_v3:
+            score, details = score_from_keywords_clauses_v3(
+                e.keywords,
+                e.clauses,
+                has_entity=bool(e.entity_id),
+                pair_bonus=int(raw_pair_bonus),
+                pair_count=int(pair_n),
+                pair_count_total=int(pair_n_total),
+                pair_strength=float(strength),
+                correlations=correlations,
+                event_context=_event_scoring_context(e),
+            )
+        else:
+            score, details = score_from_keywords_clauses(
+                e.keywords,
+                e.clauses,
+                has_entity=bool(e.entity_id),
+            )
+
         foia_matrix_bonus = 0
-        if scoring_version in {"v2", "v3"}:
+        if is_v2:
             foia_matrix_bonus = _foia_matrix_bonus(dod_lane_count=dod_lane_count, pair_count=pair_n)
             if has_noise:
                 foia_matrix_bonus = min(int(foia_matrix_bonus), 1)
-
-        if scoring_version == "v2":
-            score, details = score_from_keywords_clauses_v2(
-                event.keywords,
-                event.clauses,
-                has_entity=bool(event.entity_id),
-                pair_bonus=int(pair_bonus),
-            )
             score = int(score) + int(foia_matrix_bonus)
-        elif scoring_version == "v3":
-            structural = _structural_context_details(event)
-            score, details = score_from_keywords_clauses_v3(
-                event.keywords,
-                event.clauses,
-                has_entity=bool(event.entity_id),
-                pair_bonus=int(pair_bonus),
-                structural_core_score=int(structural["structural_core_score"]),
-                structural_research_score=int(structural["structural_research_score"]),
-                structural_identity_score=int(structural["structural_identity_score"]),
-                foia_matrix_bonus=int(foia_matrix_bonus),
-            )
-            details.update(structural)
-        else:
-            score, details = score_from_keywords_clauses(
-                event.keywords,
-                event.clauses,
-                has_entity=bool(event.entity_id),
-            )
 
-        if has_noise and scoring_version in {"v2", "v3"}:
-            score = int(score) - int(noise_penalty)
-            details["noise_penalty"] = int(noise_penalty)
-            details["pair_bonus_cap_due_to_noise"] = int(noise_pair_bonus_cap)
-
-        details.setdefault("scoring_version", scoring_version)
-        details.setdefault("pair_bonus", int(pair_bonus))
         details.setdefault("pair_count", int(pair_n))
+        details.setdefault("pair_count_total", int(pair_n_total))
         details.setdefault("pair_strength", round(float(strength), 4))
+        details.setdefault("pair_signal_total", round(float(strength), 4))
+        details.setdefault("pair_signal_threshold", float(pair_signal_threshold))
+        details.setdefault("pair_event_count_threshold", int(pair_event_count_threshold))
         details.setdefault("has_noise", bool(has_noise))
-        details.setdefault("noise_penalty", 0)
-        details.setdefault("foia_matrix_bonus", int(foia_matrix_bonus))
-        details.setdefault("structural_core_score", 0)
-        details.setdefault("structural_research_score", 0)
-        details.setdefault("structural_identity_score", 0)
-        details.setdefault("structural_context_score", 0)
-        details.setdefault("structural_core_fields", [])
-        details.setdefault("structural_research_fields", [])
-        details.setdefault("structural_identity_fields", [])
-        details.setdefault("structural_context_label", "low")
+        details.setdefault("pair_bonus_raw", int(raw_pair_bonus))
         details["dod_lane_count"] = int(dod_lane_count)
         details["dod_keyword_hit_count"] = int(dod_keyword_hit_count)
         details["foia_matrix_bonus"] = int(foia_matrix_bonus)
@@ -407,20 +493,35 @@ def compute_leads(
             dod_keyword_hit_count=int(dod_keyword_hit_count),
             pair_count=int(pair_n),
         )
-        details["lead_family"] = _lead_family(
-            clause_score=_score_number(details, "clause_score"),
-            keyword_score=_score_number(details, "keyword_score"),
-            pair_count=int(pair_n),
-            dod_lane_count=int(dod_lane_count),
-            structural_context_score=_score_number(details, "structural_context_score"),
-            structural_core_score=_score_number(details, "structural_core_score"),
+        details = enrich_lead_score_details(
+            clauses=e.clauses,
+            base_details=details,
+            correlations=correlations,
         )
 
         if int(score) >= int(min_score):
-            scored.append((int(score), event, details))
+            scored.append((int(score), e, details))
 
-    scored.sort(key=lambda item: (item[0], item[1].id), reverse=True)
-    return scored[: int(limit)], scanned
+    scored.sort(key=lambda t: (t[0],) + _lead_sort_values(t[1]), reverse=True)
+    selected = scored[: int(limit)]
+    selected_event_ids = [int(event.id) for _score, event, _details in selected]
+    linked_source_context = (
+        load_event_linked_source_summary(db, event_ids=selected_event_ids)
+        if selected_event_ids
+        else {}
+    )
+
+    enriched_selected: list[tuple[int, Event, dict[str, Any]]] = []
+    for score, event, details in selected:
+        context = linked_source_context.get(int(event.id), {})
+        details = classify_lead_families(
+            details=details,
+            linked_source_summary=context.get("linked_source_summary"),
+            linked_records_by_correlation=context.get("linked_records_by_correlation"),
+        )
+        enriched_selected.append((score, event, details))
+
+    return enriched_selected, scanned
 
 
 def compare_lead_scoring_versions(
@@ -432,6 +533,13 @@ def compare_lead_scoring_versions(
     min_score: int = 1,
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
+    date_from: Optional[Any] = None,
+    date_to: Optional[Any] = None,
+    occurred_after: Optional[Any] = None,
+    occurred_before: Optional[Any] = None,
+    created_after: Optional[Any] = None,
+    created_before: Optional[Any] = None,
+    since_days: Optional[int] = None,
 ) -> dict[str, Any]:
     baseline_version, target_version = normalize_comparison_versions(versions)
 
@@ -445,20 +553,25 @@ def compare_lead_scoring_versions(
             min_score=min_score,
             source=source,
             exclude_source=exclude_source,
+            date_from=date_from,
+            date_to=date_to,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            created_after=created_after,
+            created_before=created_before,
+            since_days=since_days,
             scoring_version=version,
         )
         scanned_by_version[version] = int(scanned)
-        rows: list[dict[str, Any]] = []
-        for rank, (score, event, details) in enumerate(ranked, start=1):
-            rows.append(
-                {
-                    "rank": int(rank),
-                    "score": int(score),
-                    "event": event,
-                    "details": details,
-                }
-            )
-        ranked_by_version[version] = rows
+        ranked_by_version[version] = [
+            {
+                "rank": int(rank),
+                "score": int(score),
+                "event": event,
+                "details": details,
+            }
+            for rank, (score, event, details) in enumerate(ranked, start=1)
+        ]
 
     baseline_rows = ranked_by_version[baseline_version]
     target_rows = ranked_by_version[target_version]
@@ -476,7 +589,10 @@ def compare_lead_scoring_versions(
         target_score = int(target["score"]) if target else None
         baseline_details = baseline.get("details") if baseline else {}
         target_details = target.get("details") if target else {}
-        lead_family = (target_details or {}).get("lead_family") or (baseline_details or {}).get("lead_family")
+        lead_family = _first_present(
+            (target_details or {}).get("lead_family"),
+            (baseline_details or {}).get("lead_family"),
+        )
 
         items.append(
             {
@@ -551,6 +667,13 @@ def create_lead_snapshot(
     analysis_run_id: Optional[int] = None,
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
+    date_from: Optional[Any] = None,
+    date_to: Optional[Any] = None,
+    occurred_after: Optional[Any] = None,
+    occurred_before: Optional[Any] = None,
+    created_after: Optional[Any] = None,
+    created_before: Optional[Any] = None,
+    since_days: Optional[int] = None,
     min_score: int = 1,
     limit: int = 200,
     scan_limit: int = 5000,
@@ -563,7 +686,10 @@ def create_lead_snapshot(
     db: Session = SessionFactory()
     try:
         if analysis_run_id is not None:
-            ok = db.execute(select(AnalysisRun.id).where(AnalysisRun.id == analysis_run_id)).scalar_one_or_none()
+            ok = (
+                db.execute(select(AnalysisRun.id).where(AnalysisRun.id == analysis_run_id))
+                .scalar_one_or_none()
+            )
             if ok is None:
                 raise ValueError(
                     f"analysis_run_id {analysis_run_id} not found in analysis_runs. "
@@ -577,6 +703,13 @@ def create_lead_snapshot(
             min_score=min_score,
             source=source,
             exclude_source=exclude_source,
+            date_from=date_from,
+            date_to=date_to,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            created_after=created_after,
+            created_before=created_before,
+            since_days=since_days,
             scoring_version=scoring_version,
         )
 
@@ -593,11 +726,11 @@ def create_lead_snapshot(
         db.refresh(snap)
 
         inserted = 0
-        for idx, (score, event, details) in enumerate(ranked, start=1):
+        for idx, (score, e, details) in enumerate(ranked, start=1):
             item = LeadSnapshotItem(
                 snapshot_id=snap.id,
-                event_id=event.id,
-                event_hash=event.hash,
+                event_id=e.id,
+                event_hash=e.hash,
                 rank=idx,
                 score=int(score),
                 score_details=details,
@@ -612,6 +745,13 @@ def create_lead_snapshot(
             "analysis_run_id": analysis_run_id,
             "source": source,
             "exclude_source": exclude_source,
+            "date_from": date_from.isoformat() if hasattr(date_from, "isoformat") else date_from,
+            "date_to": date_to.isoformat() if hasattr(date_to, "isoformat") else date_to,
+            "occurred_after": occurred_after.isoformat() if hasattr(occurred_after, "isoformat") else occurred_after,
+            "occurred_before": occurred_before.isoformat() if hasattr(occurred_before, "isoformat") else occurred_before,
+            "created_after": created_after.isoformat() if hasattr(created_after, "isoformat") else created_after,
+            "created_before": created_before.isoformat() if hasattr(created_before, "isoformat") else created_before,
+            "since_days": int(since_days) if since_days is not None else None,
             "min_score": int(min_score),
             "limit": int(limit),
             "scan_limit": int(scan_limit),
@@ -621,15 +761,3 @@ def create_lead_snapshot(
         }
     finally:
         db.close()
-
-
-__all__ = [
-    "DEFAULT_SCORING_VERSION",
-    "SUPPORTED_SCORING_VERSIONS",
-    "build_scoring_delta_explanation",
-    "compare_lead_scoring_versions",
-    "compute_leads",
-    "create_lead_snapshot",
-    "normalize_comparison_versions",
-    "normalize_scoring_version",
-]

@@ -119,6 +119,9 @@ def _sample_payloads(bundle_dir: Path) -> tuple[dict, dict, dict, dict]:
             "compare_scoring_versions": ["v2", "v3"],
             "run_timestamp": "2026-03-09T12:00:00+00:00",
             "ingest_days": 30,
+            "posted_window_mode": "explicit_dates",
+            "effective_posted_from": "2024-01-01",
+            "effective_posted_to": "2024-03-31",
             "pages": 2,
             "page_size": 100,
             "max_records": 50,
@@ -128,6 +131,99 @@ def _sample_payloads(bundle_dir: Path) -> tuple[dict, dict, dict, dict]:
     }
 
     return workflow, doctor, smoke, artifacts
+
+
+def _write_hardened_bundle(bundle_dir: Path, *, status: str, required_checks_passed: bool, quality_name: str) -> None:
+    workflow, doctor, smoke, _artifacts = _sample_payloads(bundle_dir)
+    results_dir = bundle_dir / "results"
+    workflow_json = results_dir / "workflow_result.json"
+    doctor_json = results_dir / "doctor_status.json"
+    summary_json = results_dir / "workflow_summary.json"
+
+    smoke.update(
+        {
+            "workflow_type": "samgov-validation",
+            "validation_mode": "larger",
+            "status": status,
+            "smoke_passed": required_checks_passed,
+            "required_checks_passed": required_checks_passed,
+            "failed_required_checks": [],
+            "failed_advisory_checks": [
+                {
+                    "name": "events_with_keywords_coverage_threshold",
+                    "category": "lead_signal_quality",
+                    "category_label": "Lead-signal quality",
+                    "policy_level": "advisory",
+                    "passed": False,
+                }
+            ]
+            if status == "warning"
+            else [],
+            "quality": {
+                "quality": quality_name,
+                "required_failure_categories": [],
+                "advisory_failure_categories": ["lead_signal_quality"] if status == "warning" else [],
+            },
+            "check_groups": {
+                "pipeline_health": {
+                    "category_label": "Pipeline health",
+                    "required_total": 3,
+                    "advisory_total": 1,
+                    "failed_required": 0,
+                    "failed_advisory": 0,
+                },
+                "lead_signal_quality": {
+                    "category_label": "Lead-signal quality",
+                    "required_total": 2,
+                    "advisory_total": 1,
+                    "failed_required": 0,
+                    "failed_advisory": 1 if status == "warning" else 0,
+                },
+            },
+            "artifacts": {
+                "workflow_result_json": str(workflow_json),
+                "doctor_status_json": str(doctor_json),
+                "smoke_summary_json": str(summary_json),
+                "workflow_summary_json": str(summary_json),
+                "bundle_manifest_json": str(bundle_dir / "bundle_manifest.json"),
+                "exports": workflow["exports"],
+            },
+            "run_metadata": {
+                "source": "SAM.gov",
+                "workflow_type": "samgov-validation",
+                "run_timestamp": "2026-03-09T12:00:00+00:00",
+                "ingest_days": 30,
+                "pages": 5,
+                "page_size": 100,
+                "max_records": 250,
+                "start_page": 1,
+                "window_days": 30,
+                "validation_mode": "larger",
+            },
+        }
+    )
+
+    _write_json(workflow_json, {"generated_at": "2026-03-09T12:00:00+00:00", "result": workflow})
+    _write_json(doctor_json, {"generated_at": "2026-03-09T12:00:00+00:00", "result": doctor})
+    _write_json(summary_json, smoke)
+    _write_json(
+        bundle_dir / "bundle_manifest.json",
+        {
+            "bundle_version": "samgov.bundle.v1",
+            "source": "SAM.gov",
+            "workflow_type": "samgov-validation",
+            "validation_mode": "larger",
+            "generated_at": "2026-03-09T12:00:00+00:00",
+            "status": status,
+            "quality": smoke["quality"],
+            "run_parameters": smoke["run_metadata"],
+            "generated_files": {
+                "workflow_result_json": "results/workflow_result.json",
+                "doctor_status_json": "results/doctor_status.json",
+                "workflow_summary_json": "results/workflow_summary.json",
+            },
+        },
+    )
 
 
 def test_generate_sam_report_contains_expected_sections(tmp_path: Path):
@@ -162,6 +258,85 @@ def test_generate_sam_report_contains_expected_sections(tmp_path: Path):
     assert "v3" in html
     assert "DOC-001" in html
     assert "Acme Federal" in html
+    assert "2024-01-01" in html
+    assert "2024-03-31" in html
+
+
+def test_generate_sam_report_includes_adjudication_evaluation_when_present(tmp_path: Path):
+    bundle = tmp_path / "bundle_eval"
+    workflow, doctor, smoke, artifacts = _sample_payloads(bundle)
+    adjudications_csv = bundle / "exports" / "lead_adjudications.csv"
+    adjudications_csv.parent.mkdir(parents=True, exist_ok=True)
+    adjudications_csv.write_text(
+        "snapshot_id,snapshot_item_id,rank,decision,foia_ready\n7,1,1,keep,yes\n7,2,2,reject,no\n",
+        encoding="utf-8",
+    )
+    metrics_json = bundle / "exports" / "lead_adjudication_metrics.json"
+    _write_json(
+        metrics_json,
+        {
+            "summary": {
+                "reviewed_count": 2,
+                "decisive_count": 2,
+                "keep_count": 1,
+                "reject_count": 1,
+                "acceptance_rate_pct": 50.0,
+                "foia_ready_yes_count": 1,
+                "precision_at_k": {
+                    "1": {
+                        "k": 1,
+                        "precision_pct": 100.0,
+                        "reviewed_count": 1,
+                        "decisive_count": 1,
+                        "keep_count": 1,
+                        "reject_count": 0,
+                    }
+                },
+            },
+            "by_scoring_version": [
+                {
+                    "scoring_version": "v2",
+                    "row_count": 2,
+                    "keep_count": 1,
+                    "reject_count": 1,
+                    "acceptance_rate_pct": 50.0,
+                }
+            ],
+            "by_lead_family": [
+                {
+                    "lead_family": "alpha_family",
+                    "row_count": 2,
+                    "keep_count": 1,
+                    "reject_count": 1,
+                    "acceptance_rate_pct": 50.0,
+                }
+            ],
+            "rejection_reasons": [
+                {"reason_code": "low_signal", "count": 1, "share_of_rejects_pct": 100.0}
+            ],
+        },
+    )
+    artifacts["export_lead_adjudications_csv"] = str(adjudications_csv)
+    artifacts["export_lead_adjudication_metrics_json"] = str(metrics_json)
+
+    report_path = generate_sam_report(
+        bundle_dir=bundle,
+        workflow_type="samgov-smoke",
+        source="SAM.gov",
+        generated_at="2026-03-09T12:00:00+00:00",
+        run_metadata=smoke["run_metadata"],
+        workflow_result=workflow,
+        doctor_status_result=doctor,
+        smoke_summary=smoke,
+        artifacts=artifacts,
+    )
+
+    html = report_path.read_text(encoding="utf-8")
+    assert "Evaluation" in html
+    assert "Precision @ k" in html
+    assert "alpha_family" in html
+    assert "low_signal" in html
+    assert "v2" in html
 
 
 def test_generate_sam_report_handles_missing_optional_sections(tmp_path: Path):
@@ -203,6 +378,40 @@ def test_generate_sam_report_from_bundle_path(tmp_path: Path):
     html = report_path.read_text(encoding="utf-8")
     assert "DOC-001" in html
     assert "procurement" in html
+
+
+def test_generate_sam_report_from_results_bundle_layout(tmp_path: Path):
+    bundle = tmp_path / "bundle_results_layout"
+    workflow, doctor, smoke, artifacts = _sample_payloads(bundle)
+
+    _write_json(bundle / "results" / "workflow_result.json", {"generated_at": "2026-03-09T12:00:00+00:00", "result": workflow})
+    _write_json(bundle / "results" / "doctor_status.json", {"generated_at": "2026-03-09T12:00:00+00:00", "result": doctor})
+    _write_json(bundle / "results" / "workflow_summary.json", smoke)
+
+    res = generate_sam_report_from_bundle(bundle)
+
+    report_path = Path(res["report_html"])
+    assert res["status"] == "PASS"
+    assert report_path.exists()
+    html = report_path.read_text(encoding="utf-8")
+    assert "2024-01-01" in html
+    assert "2024-03-31" in html
+
+
+def test_generate_sam_report_from_hardened_bundle_manifest_paths(tmp_path: Path):
+    bundle = tmp_path / "bundle_hardened"
+    _write_hardened_bundle(bundle, status="warning", required_checks_passed=True, quality_name="partially_useful")
+
+    res = generate_sam_report_from_bundle(bundle)
+
+    report_path = Path(res["report_html"])
+    assert res["status"] == "WARNING"
+    assert report_path.exists()
+    html = report_path.read_text(encoding="utf-8")
+    assert "Validation Categories" in html
+    assert "Workflow Gate Status" in html
+    assert "Lead-signal quality" in html
+    assert "partially_useful" in html
 
 
 def test_find_latest_sam_smoke_bundle_uses_latest_stamp(tmp_path: Path):

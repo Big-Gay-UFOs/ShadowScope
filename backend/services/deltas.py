@@ -13,26 +13,39 @@ def _event_meta(db: Session, event_ids: List[int]) -> Dict[int, Dict[str, Any]]:
         return {}
     rows = db.execute(select(Event).where(Event.id.in_(event_ids))).scalars().all()
     out: Dict[int, Dict[str, Any]] = {}
-    for e in rows:
-        out[int(e.id)] = {
-            "id": int(e.id),
-            "hash": e.hash,
-            "source": e.source,
-            "doc_id": e.doc_id,
-            "source_url": e.source_url,
-            "snippet": e.snippet,
-            "place_text": e.place_text,
-            "occurred_at": e.occurred_at.isoformat() if e.occurred_at else None,
-            "created_at": e.created_at.isoformat() if e.created_at else None,
+    for event in rows:
+        out[int(event.id)] = {
+            "id": int(event.id),
+            "hash": event.hash,
+            "source": event.source,
+            "doc_id": event.doc_id,
+            "source_url": event.source_url,
+            "snippet": event.snippet,
+            "place_text": event.place_text,
+            "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
+            "created_at": event.created_at.isoformat() if event.created_at else None,
         }
     return out
 
 
+def _snapshot_meta(snapshot: LeadSnapshot) -> Dict[str, Any]:
+    return {
+        "id": int(snapshot.id),
+        "analysis_run_id": getattr(snapshot, "analysis_run_id", None),
+        "source": getattr(snapshot, "source", None),
+        "min_score": int(getattr(snapshot, "min_score", 0) or 0),
+        "limit": int(getattr(snapshot, "limit", 0) or 0),
+        "scoring_version": getattr(snapshot, "scoring_version", None),
+        "notes": getattr(snapshot, "notes", None),
+        "created_at": snapshot.created_at.isoformat() if getattr(snapshot, "created_at", None) else None,
+    }
+
+
 def _load_snapshot(db: Session, snapshot_id: int) -> LeadSnapshot:
-    snap = db.execute(select(LeadSnapshot).where(LeadSnapshot.id == snapshot_id)).scalar_one_or_none()
-    if snap is None:
+    snapshot = db.execute(select(LeadSnapshot).where(LeadSnapshot.id == snapshot_id)).scalar_one_or_none()
+    if snapshot is None:
         raise ValueError(f"lead_snapshot {snapshot_id} not found")
-    return snap
+    return snapshot
 
 
 def _load_items(db: Session, snapshot_id: int) -> List[LeadSnapshotItem]:
@@ -48,70 +61,71 @@ def _load_items(db: Session, snapshot_id: int) -> List[LeadSnapshotItem]:
 
 
 def lead_deltas(db: Session, *, from_snapshot_id: int, to_snapshot_id: int) -> Dict[str, Any]:
-    _load_snapshot(db, from_snapshot_id)
-    _load_snapshot(db, to_snapshot_id)
+    from_snapshot = _load_snapshot(db, from_snapshot_id)
+    to_snapshot = _load_snapshot(db, to_snapshot_id)
 
-    a_items = _load_items(db, from_snapshot_id)
-    b_items = _load_items(db, to_snapshot_id)
+    from_items = _load_items(db, from_snapshot_id)
+    to_items = _load_items(db, to_snapshot_id)
 
-    a = {i.event_hash: i for i in a_items}
-    b = {i.event_hash: i for i in b_items}
+    before = {item.event_hash: item for item in from_items}
+    after = {item.event_hash: item for item in to_items}
 
-    a_keys = set(a.keys())
-    b_keys = set(b.keys())
+    before_keys = set(before.keys())
+    after_keys = set(after.keys())
 
-    new_keys = sorted(b_keys - a_keys)
-    removed_keys = sorted(a_keys - b_keys)
-    common_keys = sorted(a_keys & b_keys)
+    new_keys = sorted(after_keys - before_keys)
+    removed_keys = sorted(before_keys - after_keys)
+    common_keys = sorted(before_keys & after_keys)
 
     changed: List[Dict[str, Any]] = []
-    for k in common_keys:
-        ai = a[k]
-        bi = b[k]
-        if int(ai.score) != int(bi.score) or int(ai.rank) != int(bi.rank):
+    for key in common_keys:
+        before_item = before[key]
+        after_item = after[key]
+        if int(before_item.score) != int(after_item.score) or int(before_item.rank) != int(after_item.rank):
             changed.append(
                 {
-                    "event_hash": k,
-                    "event_id": int(bi.event_id),
-                    "from": {"rank": int(ai.rank), "score": int(ai.score), "score_details": ai.score_details},
-                    "to": {"rank": int(bi.rank), "score": int(bi.score), "score_details": bi.score_details},
-                    "delta": {"rank": int(bi.rank) - int(ai.rank), "score": int(bi.score) - int(ai.score)},
+                    "event_hash": key,
+                    "event_id": int(after_item.event_id),
+                    "from": {"rank": int(before_item.rank), "score": int(before_item.score), "score_details": before_item.score_details},
+                    "to": {"rank": int(after_item.rank), "score": int(after_item.score), "score_details": after_item.score_details},
+                    "delta": {"rank": int(after_item.rank) - int(before_item.rank), "score": int(after_item.score) - int(before_item.score)},
                 }
             )
 
-    # event metadata for anything referenced
-    event_ids = []
-    for k in (new_keys + removed_keys):
-        event_ids.append(int((b.get(k) or a.get(k)).event_id))  # type: ignore[union-attr]
-    for c in changed:
-        event_ids.append(int(c["event_id"]))
+    event_ids: list[int] = []
+    for key in (new_keys + removed_keys):
+        event_ids.append(int((after.get(key) or before.get(key)).event_id))  # type: ignore[union-attr]
+    for item in changed:
+        event_ids.append(int(item["event_id"]))
     event_ids = sorted(set(event_ids))
 
     meta = _event_meta(db, event_ids)
 
-    def _item_out(i: LeadSnapshotItem) -> Dict[str, Any]:
+    def _item_out(item: LeadSnapshotItem) -> Dict[str, Any]:
         return {
-            "event_hash": i.event_hash,
-            "event_id": int(i.event_id),
-            "rank": int(i.rank),
-            "score": int(i.score),
-            "score_details": i.score_details,
-            "event": meta.get(int(i.event_id)),
+            "event_hash": item.event_hash,
+            "event_id": int(item.event_id),
+            "rank": int(item.rank),
+            "score": int(item.score),
+            "score_details": item.score_details,
+            "event": meta.get(int(item.event_id)),
         }
 
-    new_items = [_item_out(b[k]) for k in new_keys]
-    removed_items = [_item_out(a[k]) for k in removed_keys]
+    new_items = [_item_out(after[key]) for key in new_keys]
+    removed_items = [_item_out(before[key]) for key in removed_keys]
 
-    # attach meta to changed
-    for c in changed:
-        c["event"] = meta.get(int(c["event_id"]))
+    for item in changed:
+        item["event"] = meta.get(int(item["event_id"]))
 
     return {
         "from_snapshot_id": int(from_snapshot_id),
         "to_snapshot_id": int(to_snapshot_id),
+        "from_snapshot": _snapshot_meta(from_snapshot),
+        "to_snapshot": _snapshot_meta(to_snapshot),
+        "scoring_versions_match": getattr(from_snapshot, "scoring_version", None) == getattr(to_snapshot, "scoring_version", None),
         "counts": {
-            "from": len(a_items),
-            "to": len(b_items),
+            "from": len(from_items),
+            "to": len(to_items),
             "new": len(new_items),
             "removed": len(removed_items),
             "changed": len(changed),

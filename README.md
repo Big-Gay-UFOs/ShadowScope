@@ -29,27 +29,70 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontol
 - `starter` -> `examples/ontology_sam_procurement_starter.json`
 - `dod_foia` -> `examples/ontology_sam_dod_foia_companion.json`
 - `starter_plus_dod_foia` -> `examples/ontology_sam_procurement_plus_dod_foia.json`
+- `hidden_program_proxy` -> `examples/ontology_sam_hidden_program_proxy_companion.json`
+- `hidden_program_proxy_exploratory` -> `examples/ontology_sam_hidden_program_proxy_exploratory.json`
+- `starter_plus_dod_foia_hidden_program_proxy` -> `examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json`
+- `starter_plus_dod_foia_hidden_program_proxy_exploratory` -> `examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json`
 - `--ontology <path>` always overrides `--ontology-profile`
-- `dod_foia` now uses precision-first contextual rules (site/range anchors, operator+site pairs, hardened/subsurface pairs, DOE/NNSA secure-handling cues, undersea capability pairs) plus explicit UAP-lore suppressors in `operational_noise_terms`.
+- `dod_foia` keeps the existing precision-first DoD FOIA companion with explicit UAP-lore suppressors in `operational_noise_terms`.
+- `hidden_program_proxy` is the new conservative public-records proxy companion for SAM.gov support-footprint triage.
+- `hidden_program_proxy_exploratory` is lower-weight and opt-in only; it is not mixed into the default precision companion.
 
-### 5) Offline rebuild loop (after ontology edits)
+### 5) Seeded SAM keyword files
+
+- `examples/terms/sam_hidden_program_proxy_core_seeds.txt`
+- `examples/terms/sam_hidden_program_proxy_expansion_seeds.txt`
+- `examples/terms/sam_hidden_program_proxy_exploratory_seeds.txt`
+- Use `--keywords-file <path>` with `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, or `ss workflow samgov-validate` for newline-delimited seed terms.
+- Repeated `--keyword` values are merged with file terms, comments beginning with `#` are ignored, and duplicates are removed while preserving order.
+
+### 6) Fixed historical SAM windows
+
+- Use `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` on `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, or `ss workflow samgov-validate` when you need a reproducible historical replay.
+- Use either `--days` or `--posted-from/--posted-to`; do not mix them.
+- Example: `ss workflow samgov-smoke --posted-from 2024-01-01 --posted-to 2024-03-31 --pages 2 --limit 50 --window-days 90 --json`
+
+### 7) Offline rebuild loops (after ontology edits)
+
+Default precision hidden-program proxy loop:
 
 ```powershell
-ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia
-ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json
 ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
 ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
 ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45
 ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000
+ss doctor status --source "SAM.gov" --days 30 --json
 ```
 
-### 6) Verification commands
+Optional exploratory hidden-program proxy loop:
 
 ```powershell
-.\.venv\Scripts\pytest.exe -q tests/test_example_ontologies.py tests/test_samgov_ontology_tuning.py
-.\.venv\Scripts\pytest.exe -q tests/test_workflow_cli_flags.py tests/test_workflow_wrapper.py
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology .\examples\ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json
+ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200
+ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10
+ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000
 ```
+
+On a fixed window, treat improvement as directional: we want denser useful keyword and `kw_pair` signal without degrading pipeline health or weakening the existing suppressors.
+
+### 8) Verification commands
+
+```powershell
+.\.venv\Scripts\pytest.exe -q tests/test_example_ontologies.py tests/test_workflow_cli_flags.py tests/test_samgov_ontology_tuning.py tests/test_leads_foia_matrix.py backend/tests/test_tagger.py
+.\.venv\Scripts\pytest.exe -q tests/test_workflow_wrapper.py
+```
+
+### 9) Reviewer adjudication loop
+
+- Export a reviewer-editable CSV from a lead snapshot:
+  `ss export adjudication-template --snapshot-id 123 --out .\reviews\sam_snapshot_123_adjudications.csv`
+- Reviewer fills `decision`, `reason_code`, `reviewer_notes`, `foia_ready`, and optional `lead_family_override`.
+- Evaluate ranking quality and refresh a bundle-backed report:
+  `ss leads adjudication-metrics --adjudications .\reviews\sam_snapshot_123_adjudications.csv --k 5 --k 10 --k 25 --bundle .\data\exports\smoke\samgov\20260309_112458 --json`
+- Bundle artifacts are kept local under `exports/lead_adjudications.csv` and `exports/lead_adjudication_metrics.json`.
+- Precision@k uses decisive reviewer labels (`keep` / `reject`) only; `unclear` remains visible without being upgraded into a forced verdict.
 
 ## Quickstart
 
@@ -128,6 +171,7 @@ ShadowScope currently focuses on public U.S. government datasets such as:
 3. Run a small ingest:
    - `ss ingest usaspending --pages 1 --limit 25`
    - `ss ingest samgov --days 7 --pages 1 --limit 25` (requires `SAM_API_KEY`)
+   - Fixed historical replay: `ss ingest samgov --posted-from 2024-01-01 --posted-to 2024-03-31 --pages 1 --limit 25`
 
 4. If you're using ontology/correlation features, follow the hints from:
    - `ss doctor status --source "SAM.gov" --days 7`
@@ -215,8 +259,8 @@ Diagnostics review:
 
 Threshold tuning loop (example override):
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --threshold sam_naics_code_coverage_pct_min=65 --threshold same_sam_naics_lane_min=2 --json`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia`
-- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile dod_foia`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy`
+- `ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 
 Fixture test verification:
@@ -228,11 +272,15 @@ Fixture test verification:
 
 ## PowerShell demo walkthrough
 
-This repo includes four SAM.gov ontology options:
+This repo includes the following SAM.gov ontology options:
 
 - **Starter (default):** `examples/ontology_sam_procurement_starter.json` (structural baseline)
-- **DoD FOIA companion:** `examples/ontology_sam_dod_foia_companion.json` (DoD mission-intent packs + operational noise suppressors)
-- **Starter + DoD FOIA (recommended):** `examples/ontology_sam_procurement_plus_dod_foia.json` (combined practical profile)
+- **DoD FOIA companion:** `examples/ontology_sam_dod_foia_companion.json` (existing DoD mission-intent packs + operational noise suppressors)
+- **Starter + DoD FOIA:** `examples/ontology_sam_procurement_plus_dod_foia.json` (combined practical profile)
+- **Hidden-program proxy companion:** `examples/ontology_sam_hidden_program_proxy_companion.json` (new default precision proxy-language companion)
+- **Hidden-program proxy exploratory companion:** `examples/ontology_sam_hidden_program_proxy_exploratory.json` (new lower-weight opt-in expansion)
+- **Starter + DoD FOIA + hidden-program proxy:** `examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy.json` (recommended precision proxy workflow)
+- **Starter + DoD FOIA + hidden-program proxy exploratory:** `examples/ontology_sam_procurement_plus_dod_foia_hidden_program_proxy_exploratory.json` (opt-in exploratory workflow)
 - **Demo (non-production):** `examples/ontology_sam_kwpair_demo.json` (broad smoke signal only)
 
 For PowerShell session setup, use:
@@ -270,8 +318,17 @@ If you want a single operator command instead of manual sequencing:
 # Full SAM workflow (ingest -> ontology -> entities -> correlations -> snapshot -> exports)
 ss workflow samgov --days 30 --pages 2 --limit 50 --ontology-profile starter --window-days 30
 
+# Recommended precision hidden-program proxy workflow
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy
+
+# Optional exploratory add-on workflow
+ss workflow samgov --skip-ingest --days 30 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory
+
+# Seeded search terms from a newline-delimited file
+ss workflow samgov --days 30 --pages 2 --limit 50 --keywords-file .\examples\terms\sam_hidden_program_proxy_core_seeds.txt --ontology-profile hidden_program_proxy --window-days 30
+
 # Smoke workflow (same chain + doctor checks + artifact bundle)
-ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30
+ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy --json
 ```
 ### Optional smoke-test mode
 
@@ -305,7 +362,10 @@ Do not use `lead_snapshots_total > 0` as a SAM.gov-specific success check. That 
 
 ### Notes
 
-- Starter ontology is the default recommendation for realistic signal.
+- Starter ontology remains the default recommendation for general SAM workflow health checks.
+- `starter_plus_dod_foia_hidden_program_proxy` is the recommended precision-first profile when you want the existing DoD FOIA companion plus the new public-records proxy-language packs.
+- `starter_plus_dod_foia_hidden_program_proxy_exploratory` is opt-in and lower-weight; use it only when you explicitly want broader exploratory context.
+- Seed term files live under `examples/terms/` and can be supplied via `--keywords-file`.
 - Demo ontology is intentionally broad for quick smoke tests.
 - `SAM_API_KEY` is session-scoped in PowerShell unless you also persist it in local `.env`.
 
@@ -325,13 +385,14 @@ Typical workflow (SAM.gov tuning loop):
 - Target checks: `events_window > 0`, `events_with_keywords > 0`, `same_keyword > 0 OR kw_pair > 0`, `events_with_research_context > 0`
 
 4) Repeatable SAM tuning loop after ontology/context edits
-- `ss workflow samgov --skip-ingest --ontology-profile starter_plus_dod_foia --window-days 30 --days 30`
+- `ss workflow samgov --skip-ingest --ontology-profile starter_plus_dod_foia_hidden_program_proxy --window-days 30 --days 30`
 - `ss correlate rebuild-sam-naics --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
 - `ss correlate rebuild-keywords --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200`
-- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10 --max-events 200 --max-keywords-per-event 10`
+- `ss correlate rebuild-keyword-pairs --window-days 30 --source "SAM.gov" --min-events 2 --max-events 200 --max-keywords-per-event 10`
 - `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45`
 - `ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000 --notes "sam context tuning pass"`
-- `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json`
+- Optional scoring-surface comparison: `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json`
+- Optional exploratory add-on: `ss workflow samgov --skip-ingest --ontology-profile starter_plus_dod_foia_hidden_program_proxy_exploratory --window-days 30 --days 30`
 
 5) Optional maintenance-mode USAspending check
 - `ss doctor status --source USAspending --days 30`
@@ -351,6 +412,7 @@ More detail: see `docs/RUNBOOK.md`.
 - PowerShell: do not paste placeholders like `<ID>`; use numeric values directly.
 - Correlations: use `--window-days` for rebuild commands (not `--days`).
 - SAM workflows accept both `--ingest-days` and `--days` (alias).
+- SAM ingest/workflow commands also accept `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` for fixed posted-date windows; do not combine them with `--days`.
 - Raw ingest snapshots:
   - USAspending: `data/raw/usaspending/YYYYMMDD/page_*.json`
   - SAM.gov: `data/raw/sam/YYYYMMDD/page_*.json`
@@ -362,7 +424,7 @@ It is designed for repeatable investigator runs:
 1) ingest a time window (seeded searches)
 2) normalize + persist to Postgres (idempotent)
 3) tag with ontology signals (keywords + clause hits)
-4) score/rank leads (v3 scoring by default)
+4) score/rank leads (v3 scoring by default for SAM/operator review)
 5) snapshot leads (repeatability + deltas)
 6) cluster related records (entity / UEI / keyword / keyword-pair)
 ## Runbook
@@ -372,12 +434,32 @@ One command:
 Windows execution policy (one-time):
 - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\runbook.ps1`
 
+## Investigator query surfaces
+
+API:
+- `/api/events` now supports investigator filters like `source`, `date_from`, `date_to`, `entity_id`, `keyword`, `agency`, `psc`, `naics`, `award_id`, `recipient_uei`, `place_region`, plus `sort_by` / `sort_dir`.
+- `/api/leads` adds the same event-side filters plus `lane`, `min_event_count`, `min_score_signal`, `lead_family`, optional `group_by_family=true`, paging via `offset`, and lead sorting.
+- `/api/correlations/` now accepts the same linked-event filters plus `lane`, `min_event_count`, `min_score_signal`, and investigator-friendly sorting.
+
+CLI:
+- `ss export events --source "SAM.gov" --date-from 2026-03-01T00:00:00 --agency DOE --limit 100 --sort-by occurred_at`
+- `ss leads query --source "SAM.gov" --agency DOE --lane kw_pair --min-score-signal 4 --json`
+- `ss export leads --snapshot-id 123 --lead-family vendor_network_contract_lineage --out .\out\lead_snapshot`
+- `ss export correlations --source "SAM.gov" --lane kw_pair --recipient-uei UEI123 --place-region "VA,USA" --sort-by event_count`
+- `ss export evidence-package --snapshot-id <id> --lead-event-id <event_id>` packages a lead from a snapshot.
+- `ss export evidence-package --correlation-id <id>` packages a correlation.
+
+Evidence package guardrail:
+- The evidence package is packaging only. It includes source-backed records, identifiers, agencies/vendors, ontology matches, score details, lanes, and a mini timeline.
+- It does not draft FOIA letters or infer claims beyond the captured data.
+- Lead snapshot exports and API lead views now expose `lead_family`, secondary families, correlation types hit, candidate-join evidence, and linked-source summaries as separate corroboration fields.
 ## Key FOIA sprint additions
 - Seeded ingest: `--keyword`, `--recipient`
 - FOIA ontology companion: `examples/ontology_sam_dod_foia_companion.json` (precision-first anchor+pair+exact-probe rules + suppressors)
 - Correlation lanes include `kw_pair` (co-term clustering) and `sam_usaspending_candidate_join` (pairwise cross-source incumbent candidates)
 - Relationship matrix rationale: `same_keyword` captures repeated precision tags while `kw_pair` promotes anchor+pair co-occurrence evidence for triage confidence.
 - Default lead snapshots are **v3**
+- Use `--scoring-version v2` only when you intentionally want an older comparison surface.
 - Operational noise handling (HRP/DACTS, NASA sponsoring agreement)
 - DOE/NNSA weapons complex pivots (SRS, Y-12, Pantex, KCNSC, CNS, SRNS)
 
@@ -398,7 +480,7 @@ This repo now has an audit-derived implementation plan + checklist so we do not 
 **Top priorities (P0/P1)**
 - **Event schema enrichment**: promote high-value USAspending fields (agency/PSC/NAICS/award-id/UEI/etc.) to first-class columns so we can build richer correlation lanes and better investigator filters.
 - **Ontology: enable `raw_json` tagging** by safely stringifying `raw_json` and passing it into the tagger (so ontology rules targeting `raw_json` actually fire).
-- **Scoring alignment**: make **v3** scoring the default on operator-facing review surfaces (SAM workflows, API, snapshots, bundles) while keeping v1/v2 available explicitly.
+- **Scoring alignment**: make **v2** scoring the default everywhere (API + snapshots) while keeping v1 available explicitly.
 - **kw_pair signal upgrade**: promote kw_pair from "count" to "signal" (PMI/log-odds/Fisher/Bayesian shrinkage path) + add explainability exports.
 - **API filtering improvements**: add investigator-friendly query params to events/leads/correlations.
 
@@ -417,7 +499,7 @@ Full details + checklists live here:
 ShadowScope now distinguishes two SAM.gov validation intents:
 
 - Small bounded smoke: quick pass/fail confidence on core workflow wiring.
-- Larger-run validation: bigger bounded windows/pages with warning-oriented quality classification.
+- Larger-run validation: bigger bounded windows/pages with explicit required and advisory quality gates.
 
 Recommended operator sequence:
 
@@ -428,15 +510,14 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
 # 2) Larger bounded validation pass (operator-focused diagnostics + warnings)
 ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
 
-# 2b) Side-by-side scoring comparison artifact
-ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --compare-scoring-versions v2,v3 --json
-
 # 3) Diagnose SAM status and gaps (no psql required)
 ss diagnose samgov --days 30 --json
 
 # 4) Inspect a specific bundle contract/manifest
 ss inspect bundle --path <bundle_dir> --json
 ```
+
+`ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now honor the manifest-driven workflow gate status, required/advisory split, and category failures instead of relying on smoke-only pass heuristics.
 
 Normalized SAM bundle contract (`samgov.bundle.v1`):
 
@@ -449,7 +530,6 @@ Normalized SAM bundle contract (`samgov.bundle.v1`):
     doctor_status.json
   exports/
     lead_snapshot.csv/json
-    lead_scoring_comparison.csv/json  # optional when --compare-scoring-versions is used
     keyword_pairs.csv/json
     entities.csv/json
     event_entities.csv/json
@@ -460,24 +540,24 @@ Normalized SAM bundle contract (`samgov.bundle.v1`):
 
 Bundle interpretation:
 
-- `workflow_summary.json`: machine-readable run quality/check outcomes (`ok`, `warning`, `failed`), active `scoring_version`, optional comparison versions, and partial-usefulness classification.
+- `workflow_summary.json`: machine-readable run quality/check outcomes (`ok`, `warning`, `failed`) and partial-usefulness classification.
 - `bundle_manifest.json`: single source of truth for bundle discovery (`generated_files`, status, summary counts, run parameters).
-- `bundle_report.html`: human-oriented run review surface aligned to manifest paths and visibly labeled with the active scoring version.
+- `bundle_report.html`: human-oriented run review surface aligned to manifest paths.
 
 Warnings vs failures:
 
-- `failed`: required checks failed (hard failure).
-- `warning`: run produced artifacts but quality gates indicate sparse/degraded/partially-useful outcomes.
+- `failed`: one or more required checks failed. The bundle/report now labels whether the failure came from pipeline health, source coverage/context health, or lead-signal quality.
+- `warning`: required checks passed, but one or more advisory checks missed threshold and the run is degraded/partially useful.
 - `ok`: required checks passed and no warning-level misses.
+
+Validation policy:
+
+- Smoke mode keeps the calibrated threshold contract as a strict gate.
+- Larger mode now mixes required and advisory checks instead of downgrading all threshold misses to warnings.
+- Each serialized check includes `name`, `observed`, `threshold`, `severity`, `required` vs `advisory`, and pass/fail outcome.
 
 Retry tuning knobs for larger SAM windows:
 
 - `SAM_API_TIMEOUT_SECONDS`
 - `SAM_API_MAX_RETRIES`
 - `SAM_API_BACKOFF_BASE`
-
-
-
-
-
-
