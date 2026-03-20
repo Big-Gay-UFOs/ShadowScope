@@ -74,7 +74,6 @@ _CLASSIFICATION_HINT_SPECS: dict[str, dict[str, Any]] = {
         "penalty": 4,
         "rule_keys": {
             "sam_proxy_noise_expansion:security_training_noise",
-            "sam_proxy_classified_contract_security_admin:visit_authorization_courier_access_context",
         },
         "patterns": (
             r"\b(?:access control|badge(?:ing)?|turnstile|gate system|security camera|cctv|video surveillance|perimeter fence|guard booth)\b",

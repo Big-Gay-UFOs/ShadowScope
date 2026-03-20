@@ -56,6 +56,23 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
+def _effective_window_bounds(window: dict[str, Any]) -> tuple[Optional[datetime], Optional[datetime]]:
+    payload = window if isinstance(window, dict) else {}
+    posted_from = str(payload.get("posted_from") or "").strip()
+    posted_to = str(payload.get("posted_to") or "").strip()
+    if not posted_from or not posted_to:
+        return None, None
+    try:
+        start_day = date.fromisoformat(posted_from)
+        end_day = date.fromisoformat(posted_to)
+    except ValueError:
+        return None, None
+    return (
+        datetime.combine(start_day, datetime.min.time(), tzinfo=timezone.utc),
+        datetime.combine(end_day, datetime.max.time(), tzinfo=timezone.utc),
+    )
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -131,6 +148,46 @@ def _event_payload(event: Optional[Event], row: Optional[dict[str, Any]] = None)
         "psc_code": event.psc_code,
         "place_text": event.place_text,
     }
+
+
+def _event_timestamp(*, event: Optional[Event] = None, payload: Optional[dict[str, Any]] = None) -> Optional[datetime]:
+    candidates: list[Any] = []
+    if event is not None:
+        candidates.extend([event.occurred_at, event.created_at])
+    if isinstance(payload, dict):
+        candidates.extend([payload.get("occurred_at"), payload.get("created_at")])
+    for candidate in candidates:
+        if isinstance(candidate, datetime):
+            if candidate.tzinfo is None:
+                return candidate.replace(tzinfo=timezone.utc)
+            return candidate.astimezone(timezone.utc)
+        parsed = _parse_datetime(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _event_within_effective_window(
+    *,
+    event: Optional[Event] = None,
+    payload: Optional[dict[str, Any]] = None,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+) -> bool:
+    if start_dt is None or end_dt is None:
+        return True
+    event_dt = _event_timestamp(event=event, payload=payload)
+    if event_dt is None:
+        return False
+    return start_dt <= event_dt <= end_dt
+
+
+def _append_unique_sample(values: list[Any], value: Any, *, limit: int = 5) -> None:
+    if value in (None, ""):
+        return
+    if value in values or len(values) >= limit:
+        return
+    values.append(value)
 
 
 def _row_details(row: dict[str, Any]) -> dict[str, Any]:
@@ -340,6 +397,8 @@ def _support_records_for_dossier(
     focal_event_id: int,
     linked_context: dict[str, Any],
     events_by_id: dict[int, Event],
+    window_start: Optional[datetime],
+    window_end: Optional[datetime],
 ) -> list[dict[str, Any]]:
     flattened: list[dict[str, Any]] = []
     seen: set[int] = set()
@@ -350,6 +409,13 @@ def _support_records_for_dossier(
                 continue
             seen.add(event_id)
             event = events_by_id.get(event_id)
+            if not _event_within_effective_window(
+                event=event,
+                payload=record,
+                start_dt=window_start,
+                end_dt=window_end,
+            ):
+                continue
             flattened.append(
                 {
                     "event_id": event_id,
@@ -380,11 +446,142 @@ def _support_records_for_dossier(
     return flattened[:_SUPPORT_RECORD_LIMIT]
 
 
+def _filtered_linked_context(
+    *,
+    linked_context: dict[str, Any],
+    events_by_id: dict[int, Event],
+    window_start: Optional[datetime],
+    window_end: Optional[datetime],
+) -> dict[str, Any]:
+    records_by_correlation = linked_context.get("linked_records_by_correlation")
+    if not isinstance(records_by_correlation, dict):
+        return {
+            "linked_source_summary": [],
+            "linked_records_by_correlation": {},
+        }
+
+    filtered_records_by_correlation: dict[int, list[dict[str, Any]]] = {}
+    source_buckets: dict[str, dict[str, Any]] = {}
+
+    for correlation_id, records in records_by_correlation.items():
+        correlation_rows: list[dict[str, Any]] = []
+        for record in records or []:
+            if not isinstance(record, dict):
+                continue
+            event_id = _safe_int(record.get("event_id"), default=0)
+            event = events_by_id.get(event_id)
+            if not _event_within_effective_window(
+                event=event,
+                payload=record,
+                start_dt=window_start,
+                end_dt=window_end,
+            ):
+                continue
+            normalized = dict(record)
+            correlation_rows.append(normalized)
+
+            source = str(normalized.get("source") or "").strip() or "unknown"
+            bucket = source_buckets.setdefault(
+                source,
+                {
+                    "source": source,
+                    "linked_event_ids": set(),
+                    "lanes": set(),
+                    "sample_event_ids": [],
+                    "sample_doc_ids": [],
+                    "sample_award_ids": [],
+                    "sample_recipients": [],
+                    "sample_agencies": [],
+                },
+            )
+            if event_id > 0:
+                bucket["linked_event_ids"].add(event_id)
+                _append_unique_sample(bucket["sample_event_ids"], event_id)
+            bucket["lanes"].add(str(normalized.get("lane") or "").strip())
+            _append_unique_sample(bucket["sample_doc_ids"], normalized.get("doc_id"))
+            _append_unique_sample(
+                bucket["sample_award_ids"],
+                normalized.get("award_id") or normalized.get("solicitation_number"),
+            )
+            _append_unique_sample(
+                bucket["sample_recipients"],
+                normalized.get("recipient_name") or normalized.get("recipient_uei"),
+            )
+            _append_unique_sample(bucket["sample_agencies"], normalized.get("agency"))
+
+        if correlation_rows:
+            filtered_records_by_correlation[_safe_int(correlation_id, default=0)] = correlation_rows
+
+    linked_source_summary = [
+        {
+            "source": bucket["source"],
+            "linked_event_count": len(bucket["linked_event_ids"]),
+            "lanes": sorted([lane for lane in bucket["lanes"] if lane], key=lambda lane: (_lane_rank(lane), lane)),
+            "sample_event_ids": bucket["sample_event_ids"],
+            "sample_doc_ids": bucket["sample_doc_ids"],
+            "sample_award_ids": bucket["sample_award_ids"],
+            "sample_recipients": bucket["sample_recipients"],
+            "sample_agencies": bucket["sample_agencies"],
+        }
+        for bucket in source_buckets.values()
+    ]
+    linked_source_summary.sort(
+        key=lambda item: (
+            -_safe_int(item.get("linked_event_count"), default=0),
+            str(item.get("source") or ""),
+        )
+    )
+
+    return {
+        "linked_source_summary": linked_source_summary,
+        "linked_records_by_correlation": filtered_records_by_correlation,
+    }
+
+
+def _filter_candidate_join_evidence(
+    *,
+    candidate_join_evidence: list[dict[str, Any]],
+    events_by_id: dict[int, Event],
+    window_start: Optional[datetime],
+    window_end: Optional[datetime],
+) -> list[dict[str, Any]]:
+    filtered_items: list[dict[str, Any]] = []
+    for item in candidate_join_evidence:
+        if not isinstance(item, dict):
+            continue
+        filtered_records: list[dict[str, Any]] = []
+        for record in item.get("linked_records") or []:
+            if not isinstance(record, dict):
+                continue
+            event_id = _safe_int(record.get("event_id"), default=0)
+            event = events_by_id.get(event_id)
+            if not _event_within_effective_window(
+                event=event,
+                payload=record,
+                start_dt=window_start,
+                end_dt=window_end,
+            ):
+                continue
+            filtered_records.append(dict(record))
+        payload = dict(item)
+        payload["linked_records"] = filtered_records[:3]
+        payload["linked_sources"] = sorted(
+            {
+                str(record.get("source") or "").strip()
+                for record in filtered_records
+                if str(record.get("source") or "").strip()
+            }
+        )
+        filtered_items.append(payload)
+    return filtered_items
+
+
 def _build_dossiers(
     *,
     bundle_dir: Path,
     rows: list[dict[str, Any]],
     database_url: Optional[str],
+    effective_window: dict[str, Any],
 ) -> dict[str, Any]:
     dossiers_dir = bundle_dir / "exports" / "dossiers"
     dossiers_dir.mkdir(parents=True, exist_ok=True)
@@ -411,13 +608,19 @@ def _build_dossiers(
             else []
         )
     events_by_id = {int(event.id): event for event in events}
+    window_start, window_end = _effective_window_bounds(effective_window)
 
     index_rows: list[dict[str, Any]] = []
     for row in top_rows:
         event_id = _safe_int(row.get("event_id"), default=0)
         details = _row_details(row)
         focal_event = events_by_id.get(event_id)
-        context = linked_context.get(event_id, {})
+        context = _filtered_linked_context(
+            linked_context=linked_context.get(event_id, {}),
+            events_by_id=events_by_id,
+            window_start=window_start,
+            window_end=window_end,
+        )
         dossier = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "snapshot_id": _safe_int(row.get("snapshot_id"), default=0) or None,
@@ -432,8 +635,13 @@ def _build_dossiers(
             "lead": _event_payload(focal_event, row=row),
             "matched_ontology_rules": _json_field(row.get("matched_ontology_rules_json"), default=[]),
             "contributing_correlations": _json_field(row.get("contributing_correlations_json"), default=[])[:5],
-            "candidate_join_evidence": _json_field(row.get("candidate_join_evidence_json"), default=[])[:5],
-            "linked_source_summary": _json_field(row.get("linked_source_summary_json"), default=[])[:5],
+            "candidate_join_evidence": _filter_candidate_join_evidence(
+                candidate_join_evidence=_json_field(row.get("candidate_join_evidence_json"), default=[])[:5],
+                events_by_id=events_by_id,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            "linked_source_summary": list(context.get("linked_source_summary") or [])[:5],
             "supporting_records": [
                 {
                     "role": "focal_lead",
@@ -444,6 +652,8 @@ def _build_dossiers(
                 focal_event_id=event_id,
                 linked_context=context,
                 events_by_id=events_by_id,
+                window_start=window_start,
+                window_end=window_end,
             ),
         }
         dossier_path = dossiers_dir / f"{_safe_int(row.get('rank'), default=0):03d}_{event_id}.json"
@@ -738,7 +948,12 @@ def _build_evaluation_artifacts(
         **_comparison_rows(v3_rows=rows, v2_ranked=v2_ranked),
     }
 
-    dossiers = _build_dossiers(bundle_dir=bundle_dir, rows=rows, database_url=database_url)
+    dossiers = _build_dossiers(
+        bundle_dir=bundle_dir,
+        rows=rows,
+        database_url=database_url,
+        effective_window=effective_window,
+    )
     review_board_path = _write_text(
         bundle_dir / "report" / "FOIA_LEAD_REVIEW_BOARD.md",
         _build_review_board(rows=rows, effective_window=effective_window),

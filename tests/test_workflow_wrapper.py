@@ -5,7 +5,8 @@ from pathlib import Path
 
 from backend.services.adjudication import evaluate_lead_adjudications, export_lead_adjudication_template
 from backend.services.bundle import SAM_BUNDLE_VERSION
-from backend.db.models import Event, LeadSnapshotItem, ensure_schema, get_session_factory
+from backend.db.models import Correlation, CorrelationLink, Event, LeadSnapshotItem, ensure_schema, get_session_factory
+import backend.services.samgov_evaluation as samgov_evaluation_module
 from backend.services.foia_review_board import (
     FOIA_LEAD_DOSSIER_EVIDENCE_DIR,
     FOIA_LEAD_DOSSIER_INDEX_CSV_PATH,
@@ -222,6 +223,35 @@ def _seed_usaspending_events(db, now: datetime) -> None:
             )
         ]
     )
+
+
+def _attach_workflow_correlation(
+    db,
+    *,
+    event_ids: list[int],
+    correlation_key: str,
+    lane: str,
+    score: str = "5",
+    lanes_hit: dict[str, object] | None = None,
+    summary: str | None = None,
+    rationale: str | None = None,
+) -> int:
+    correlation = Correlation(
+        correlation_key=correlation_key,
+        score=score,
+        window_days=30,
+        radius_km=0.0,
+        lanes_hit={"lane": lane, "event_count": len(event_ids), **(lanes_hit or {})},
+        summary=summary,
+        rationale=rationale,
+    )
+    db.add(correlation)
+    db.commit()
+    db.refresh(correlation)
+    for event_id in event_ids:
+        db.add(CorrelationLink(correlation_id=int(correlation.id), event_id=int(event_id)))
+    db.commit()
+    return int(correlation.id)
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -2331,6 +2361,180 @@ def test_samgov_evaluation_sparse_historical_window_stays_empty_and_honest(tmp_p
     assert evaluation_summary.get("snapshot_event_max") is None
     assert dossiers_index.get("count") == 0
     assert "No ranked leads" in review_board
+
+
+def test_samgov_evaluation_dossiers_exclude_out_of_window_support_records(tmp_path: Path):
+    db_path = tmp_path / "sam_evaluation_dossier_window.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    inside_window = datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc)
+    outside_window = datetime(2026, 3, 15, 12, 0, tzinfo=timezone.utc)
+
+    with SessionFactory() as db:
+        focal_event = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="eval-window-focal",
+            occurred_at=inside_window,
+            created_at=inside_window,
+            snippet="ICD-705 secure facility upgrade with DD254 handling and follow-on support.",
+            doc_id="EVAL-WINDOW-001",
+            solicitation_number="EVAL-WINDOW-001",
+            source_url="https://example.com/sam/eval-window-focal",
+            recipient_name="Mission Support LLC",
+            recipient_uei="UEI-EVAL-WINDOW-1",
+            awarding_agency_name="Department of Energy",
+            awarding_agency_code="DOE",
+            naics_code="541330",
+            psc_code="R499",
+            place_of_performance_state="NV",
+            place_of_performance_country="USA",
+            raw_json={},
+            keywords=[],
+            clauses=[],
+        )
+        future_linked = Event(
+            category="award",
+            source="USAspending",
+            hash="eval-window-future-linked",
+            occurred_at=outside_window,
+            created_at=outside_window,
+            snippet="Future linked award outside the requested historical window.",
+            doc_id="EVAL-WINDOW-LINK-001",
+            award_id="AWD-EVAL-WINDOW-1",
+            source_url="https://example.com/usa/eval-window-future-linked",
+            recipient_name="Mission Support LLC",
+            recipient_uei="UEI-EVAL-WINDOW-1",
+            awarding_agency_name="Department of Energy",
+            awarding_agency_code="DOE",
+            naics_code="541330",
+            psc_code="R499",
+            place_of_performance_state="NV",
+            place_of_performance_country="USA",
+            raw_json={},
+            keywords=[],
+            clauses=[],
+        )
+        db.add_all([focal_event, future_linked])
+        db.commit()
+        db.refresh(focal_event)
+        db.refresh(future_linked)
+
+        correlation_id = _attach_workflow_correlation(
+            db,
+            event_ids=[int(focal_event.id), int(future_linked.id)],
+            correlation_key="sam_usaspending_candidate_join|SAM.gov|30|eval-window-future-link",
+            lane="sam_usaspending_candidate_join",
+            score="45",
+            lanes_hit={
+                "confidence_score": 45,
+                "likely_incumbent": False,
+                "time_delta_days": 790,
+                "evidence_types": ["awarding_agency", "naics", "place_region"],
+                "matched_values": {},
+                "evidence": [
+                    {"type": "awarding_agency", "weight": 12, "description": "Awarding agency aligns."},
+                    {"type": "naics", "weight": 10, "description": "NAICS aligns."},
+                    {"type": "place_region", "weight": 8, "description": "Place aligns."},
+                ],
+            },
+            summary="future linked award",
+            rationale="linked record outside historical posted window",
+        )
+        focal_event_id = int(focal_event.id)
+        future_linked_id = int(future_linked.id)
+
+    bundle_dir = tmp_path / "evaluation_dossier_window_bundle"
+    dossier_row = {
+        "snapshot_id": 1,
+        "snapshot_item_id": 1,
+        "rank": 1,
+        "score": 21,
+        "lead_family": "facility_security_hardening",
+        "lead_family_label": "Facility Security Hardening",
+        "event_id": focal_event_id,
+        "doc_id": "EVAL-WINDOW-001",
+        "source_url": "https://example.com/sam/eval-window-focal",
+        "occurred_at": inside_window.isoformat(),
+        "created_at": inside_window.isoformat(),
+        "snippet": "ICD-705 secure facility upgrade with DD254 handling and follow-on support.",
+        "proxy_relevance_score": 8,
+        "corroboration_score": 3,
+        "structural_context_score": 1,
+        "pair_or_candidate_corroboration": True,
+        "matched_ontology_rules_json": json.dumps(
+            [
+                "sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context",
+                "sam_proxy_classified_contract_security_admin:dd254_classification_guide_contract_context",
+            ]
+        ),
+        "contributing_correlations_json": json.dumps(
+            [
+                {
+                    "correlation_id": correlation_id,
+                    "lane": "sam_usaspending_candidate_join",
+                    "score_signal": 45,
+                }
+            ]
+        ),
+        "candidate_join_evidence_json": json.dumps(
+            [
+                {
+                    "correlation_id": correlation_id,
+                    "status": "candidate",
+                    "linked_sources": ["USAspending"],
+                    "linked_records": [
+                        {
+                            "event_id": future_linked_id,
+                            "source": "USAspending",
+                            "doc_id": "EVAL-WINDOW-LINK-001",
+                            "award_id": "AWD-EVAL-WINDOW-1",
+                            "source_url": "https://example.com/usa/eval-window-future-linked",
+                        }
+                    ],
+                }
+            ]
+        ),
+        "linked_source_summary_json": json.dumps(
+            [
+                {
+                    "source": "USAspending",
+                    "linked_event_count": 1,
+                    "lanes": ["sam_usaspending_candidate_join"],
+                    "sample_event_ids": [future_linked_id],
+                    "sample_doc_ids": ["EVAL-WINDOW-LINK-001"],
+                }
+            ]
+        ),
+        "score_details_json": json.dumps(
+            {
+                "proxy_relevance_score": 8,
+                "corroboration_score": 3,
+                "structural_context_score": 1,
+                "lead_family": "facility_security_hardening",
+                "ranking_tier": "review",
+                "routine_noise_tags": [],
+            }
+        ),
+    }
+
+    dossier_artifacts = samgov_evaluation_module._build_dossiers(
+        bundle_dir=bundle_dir,
+        rows=[dossier_row],
+        database_url=db_url,
+        effective_window={"posted_from": "2024-01-01", "posted_to": "2024-01-31"},
+    )
+
+    dossiers_index = json.loads(Path(dossier_artifacts["dossiers_index_json"]).read_text(encoding="utf-8"))
+    dossier_path = bundle_dir / dossiers_index["items"][0]["file"]
+    dossier_payload = json.loads(dossier_path.read_text(encoding="utf-8"))
+
+    assert [record["role"] for record in dossier_payload["supporting_records"]] == ["focal_lead"]
+    assert dossier_payload["linked_source_summary"] == []
+    assert dossier_payload["candidate_join_evidence"][0]["linked_records"] == []
+    assert dossier_payload["candidate_join_evidence"][0]["linked_sources"] == []
 
 
 def test_samgov_smoke_threshold_contract_fails_with_context_and_naics_misses(tmp_path: Path):
