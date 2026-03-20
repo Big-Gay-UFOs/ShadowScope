@@ -1077,7 +1077,6 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
                 primary_group.get("top_score"),
             ]
         )
-    diagnostics_rows = derived_rows[: _TOP_LEAD_TABLE_LIMIT]
     routine_noise_pct = _format_pct(mission_quality.get("routine_noise_share_pct"))
     starter_only_pct = _format_pct(mission_quality.get("starter_only_pair_share_pct"))
     top_non_starter_rules = diagnostics["top_non_starter_rules"]
