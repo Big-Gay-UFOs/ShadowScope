@@ -726,13 +726,7 @@ def _score_from_keywords_clauses_v3_tuned(
             if str(meta.get("bucket") or "") in {"proxy", "dod"}
         }
         shared_families = set(meta_items[0].get("families") or []) & set(meta_items[1].get("families") or [])
-        if shared_families:
-            for family in shared_families:
-                family_pair_hits[family] += 1
-        elif contains_proxy or contains_dod:
-            union_families = set(meta_items[0].get("families") or []) | set(meta_items[1].get("families") or [])
-            if len(union_families) == 1:
-                family_pair_hits[next(iter(union_families))] += 1
+        union_families = set(meta_items[0].get("families") or []) | set(meta_items[1].get("families") or [])
 
         quality_labels: list[str] = []
         quality_cap = 0
@@ -765,6 +759,14 @@ def _score_from_keywords_clauses_v3_tuned(
 
         if quality_cap <= 0:
             continue
+
+        # Only corroborative pair classes should reinforce family relevance.
+        if "starter_only" not in quality_labels and "context_only" not in quality_labels:
+            if shared_families:
+                for family in shared_families:
+                    family_pair_hits[family] += 1
+            elif (contains_proxy or contains_dod) and len(union_families) == 1:
+                family_pair_hits[next(iter(union_families))] += 1
 
         pair_candidates.append(
             {

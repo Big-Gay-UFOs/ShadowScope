@@ -1196,6 +1196,91 @@ def test_compute_leads_v3_caps_starter_only_pair_bonus_and_exposes_pair_quality(
     assert starter_score < software_score
 
 
+def test_compute_leads_v3_ignores_starter_only_pairs_for_family_relevance_bonus(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_family_pair_guard.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        event = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="v3_family_pair_guard",
+            created_at=now,
+            snippet="IDIQ follow-on task order continuity support with secure admin handling.",
+            source_url="https://example.com/reg/family-pair-guard",
+            doc_id="REG-FAM-1",
+            solicitation_number="REG-SOL-FAM-1",
+            awarding_agency_name="Department of the Air Force",
+            recipient_name="Continuity Ops LLC",
+            recipient_uei="UEI-REG-FAM-1",
+            naics_code="541611",
+            psc_code="R499",
+            place_of_performance_state="VA",
+            place_of_performance_country="USA",
+            notice_award_type="Sources Sought",
+            raw_json={},
+            keywords=[
+                "sam_proxy_procurement_continuity_classified_followon:sole_source_follow_on_classified_context",
+                "sam_procurement_starter:idiq_vehicle",
+                "sam_procurement_starter:task_or_delivery_order",
+            ],
+            clauses=[
+                _clause(
+                    "sam_proxy_procurement_continuity_classified_followon",
+                    "sole_source_follow_on_classified_context",
+                ),
+                _clause("sam_procurement_starter", "idiq_vehicle", weight=1),
+                _clause("sam_procurement_starter", "task_or_delivery_order", weight=1),
+            ],
+            place_text="Arlington, VA",
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(event)
+
+        _seed_correlation(
+            db,
+            event_id=int(event.id),
+            correlation_key="kw_pair|SAM.gov|30|pair:v3familypairguard",
+            lane="kw_pair",
+            score=0.66,
+            event_count=4,
+            lanes_hit={
+                "keyword_1": "sam_procurement_starter:idiq_vehicle",
+                "keyword_2": "sam_procurement_starter:task_or_delivery_order",
+                "score_signal": 0.66,
+            },
+            summary="starter lineage pair",
+        )
+
+        ranked, _scanned = compute_leads(
+            db,
+            source="SAM.gov",
+            min_score=-50,
+            limit=10,
+            scan_limit=20,
+            scoring_version="v3",
+            pair_signal_threshold=0.15,
+            pair_event_count_threshold=2,
+        )
+
+    by_hash = {event.hash: (score, details) for score, event, details in ranked}
+    score, details = by_hash["v3_family_pair_guard"]
+    family_rows = {
+        row["family"]: row
+        for row in details["family_relevant_families"]
+    }
+
+    assert score > 0
+    assert details["pair_quality_counts"]["starter_only"] == 1
+    assert details["pair_bonus_applied"] == 1
+    assert details["family_relevance_bonus"] == 0
+    assert family_rows["vendor_network_contract_lineage"]["pair_count"] == 0
+    assert family_rows["vendor_network_contract_lineage"]["bonus"] == 0
+
+
 def test_compute_leads_v3_regression_fixture_improves_score_spread_without_forcing_ambiguous_extremes(tmp_path):
     db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_spread.db').as_posix()}"
     ensure_schema(db_url)
