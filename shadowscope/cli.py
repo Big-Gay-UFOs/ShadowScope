@@ -1739,6 +1739,159 @@ def workflow_samgov_validate(
 
     if require_nonzero and res.get("status") == "failed":
         raise typer.Exit(code=2)
+
+
+@workflow_app.command("samgov-evaluate")
+def workflow_samgov_evaluate(
+    ingest_days: Optional[int] = typer.Option(
+        None,
+        "--ingest-days",
+        "--days",
+        help="Ingest: days of history to request when --posted-from/--posted-to are not supplied (defaults to 30).",
+    ),
+    posted_from: Optional[str] = typer.Option(
+        None,
+        "--posted-from",
+        help="Ingest: explicit SAM postedDate start in YYYY-MM-DD format. Must be used with --posted-to.",
+    ),
+    posted_to: Optional[str] = typer.Option(
+        None,
+        "--posted-to",
+        help="Ingest: explicit SAM postedDate end in YYYY-MM-DD format. Must be used with --posted-from.",
+    ),
+    pages: int = typer.Option(5, "--pages", help="Ingest: maximum API pages to request"),
+    page_size: int = typer.Option(100, "--page-size", help="Ingest: records per API page (max 1000)"),
+    max_records: Optional[int] = typer.Option(250, "--max-records", "--limit", help="Ingest: total cap across pages"),
+    start_page: int = typer.Option(1, "--start-page", help="Ingest: start page (resume/chunking)"),
+    keyword: Optional[List[str]] = typer.Option(None, "--keyword", help="Ingest: title search terms (repeat --keyword)"),
+    keywords_file: Optional[Path] = typer.Option(None, "--keywords-file", help="Ingest: newline-delimited title search terms file"),
+    api_key: Optional[str] = typer.Option(None, "--api-key", help="Override SAM_API_KEY from environment for this command (not printed)."),
+    ontology_profile: SamOntologyProfile = typer.Option(
+        SamOntologyProfile.starter,
+        "--ontology-profile",
+        help="Ontology profile: starter | dod_foia | starter_plus_dod_foia | hidden_program_proxy | hidden_program_proxy_exploratory | starter_plus_dod_foia_hidden_program_proxy | starter_plus_dod_foia_hidden_program_proxy_exploratory",
+    ),
+    ontology_path: Optional[Path] = typer.Option(
+        None,
+        "--ontology",
+        "-o",
+        help="Ontology: explicit path override for SAM ontology JSON",
+    ),
+    ontology_days: int = typer.Option(30, "--ontology-days", help="Ontology: tag events in last N days"),
+    window_days: int = typer.Option(30, "--window-days", help="Correlation/doctor lookback window (days)"),
+    min_events_entity: int = typer.Option(2, "--min-events-entity", help="Correlations: min events for entity/UEI lanes"),
+    min_events_keywords: int = typer.Option(2, "--min-events-keywords", help="Correlations: min events for keyword/kw-pair lanes"),
+    max_events_keywords: int = typer.Option(200, "--max-events-keywords", help="Correlations: skip keywords/pairs matching more than this many events"),
+    max_keywords_per_event: int = typer.Option(10, "--max-keywords-per-event", help="Correlations: skip events with too many keywords (pair explosion guard)"),
+    date_from: Optional[str] = typer.Option(None, "--date-from", help="Snapshot: inclusive ISO-8601 event-time start"),
+    date_to: Optional[str] = typer.Option(None, "--date-to", help="Snapshot: inclusive ISO-8601 event-time end"),
+    occurred_after: Optional[str] = typer.Option(None, "--occurred-after", help="Snapshot: inclusive ISO-8601 occurred_at start"),
+    occurred_before: Optional[str] = typer.Option(None, "--occurred-before", help="Snapshot: inclusive ISO-8601 occurred_at end"),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Snapshot: inclusive ISO-8601 created_at start"),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Snapshot: inclusive ISO-8601 created_at end"),
+    since_days: Optional[int] = typer.Option(None, "--since-days", help="Snapshot: event-time lookback window helper"),
+    entity_days: int = typer.Option(30, "--entity-days", help="Entities: link events created in last N days"),
+    min_score: int = typer.Option(1, "--min-score", help="Snapshot: minimum score to include"),
+    snapshot_limit: int = typer.Option(200, "--snapshot-limit", help="Snapshot: max leads to store"),
+    scan_limit: int = typer.Option(5000, "--scan-limit", help="Snapshot/doctor scan window"),
+    scoring_version: str = typer.Option("v3", "--scoring-version", help="Snapshot: scoring version (v1, v2, or v3)"),
+    notes: Optional[str] = typer.Option("samgov FOIA lead evaluation", "--notes", help="Snapshot: optional notes"),
+    bundle_root: Optional[str] = typer.Option(None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/evaluation/samgov)"),
+    require_nonzero: bool = typer.Option(True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required checks fail"),
+    threshold: Optional[List[str]] = typer.Option(None, "--threshold", help="Threshold override key=value (repeat)."),
+    skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (offline fixture replay)"),
+    database_url: Optional[str] = typer.Option(None, "--database-url", help="Override DATABASE_URL for this command."),
+    json_out: bool = typer.Option(False, "--json", help="Print full JSON payload (default=str for paths)"),
+):
+    from backend.services.workflow import DEFAULT_SAM_SMOKE_THRESHOLDS, run_samgov_evaluation_workflow
+
+    bundle_path = Path(bundle_root).expanduser() if bundle_root else None
+    resolved_window = _resolve_sam_ingest_window_or_raise(
+        days=ingest_days,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        default_days=30,
+    )
+    resolved_keywords = _resolve_sam_ingest_keywords(keyword=keyword, keywords_file=keywords_file)
+    threshold_overrides = _parse_threshold_overrides(threshold, allowed=set(DEFAULT_SAM_SMOKE_THRESHOLDS.keys()))
+    resolved_ontology_path = _resolve_sam_ontology_path(ontology_profile=ontology_profile, ontology_path=ontology_path)
+    lead_window_kwargs = _resolve_lead_window_kwargs(
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+    )
+    res = run_samgov_evaluation_workflow(
+        ingest_days=resolved_window.get("requested_days"),
+        posted_from=resolved_window.get("posted_from"),
+        posted_to=resolved_window.get("posted_to"),
+        pages=pages,
+        page_size=page_size,
+        max_records=max_records,
+        start_page=start_page,
+        keywords=resolved_keywords,
+        api_key=api_key,
+        ontology_path=resolved_ontology_path,
+        ontology_days=ontology_days,
+        entity_days=entity_days,
+        window_days=window_days,
+        min_events_entity=min_events_entity,
+        min_events_keywords=min_events_keywords,
+        max_events_keywords=max_events_keywords,
+        max_keywords_per_event=max_keywords_per_event,
+        **lead_window_kwargs,
+        min_score=min_score,
+        snapshot_limit=snapshot_limit,
+        scan_limit=scan_limit,
+        scoring_version=scoring_version,
+        notes=notes,
+        bundle_root=bundle_path,
+        database_url=database_url,
+        require_nonzero=require_nonzero,
+        skip_ingest=skip_ingest,
+        threshold_overrides=threshold_overrides,
+    )
+
+    if json_out:
+        typer.echo(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+    else:
+        _echo_validation_gate_summary("SAM.gov FOIA evaluation", res)
+        typer.echo(f"Bundle dir: {Path(res.get('bundle_dir')).resolve()}")
+        sam_posted_window = _extract_sam_posted_window(res)
+        if sam_posted_window is not None:
+            typer.echo(f"Posted window: {describe_sam_posted_window(sam_posted_window)}")
+        artifacts = res.get("artifacts") or {}
+        evaluation_summary = res.get("evaluation_summary") or {}
+        signal_metrics = evaluation_summary.get("signal_metrics") or {}
+        if artifacts.get("evaluation_summary_json"):
+            typer.echo(f"Evaluation summary: {Path(artifacts.get('evaluation_summary_json')).resolve()}")
+        if artifacts.get("scoring_comparison_json"):
+            typer.echo(f"Scoring comparison: {Path(artifacts.get('scoring_comparison_json')).resolve()}")
+        if artifacts.get("review_board_md"):
+            typer.echo(f"Review board: {Path(artifacts.get('review_board_md')).resolve()}")
+        if artifacts.get("evaluation_report_md"):
+            typer.echo(f"Evaluation report: {Path(artifacts.get('evaluation_report_md')).resolve()}")
+        if artifacts.get("dossiers_dir"):
+            typer.echo(f"Dossiers: {Path(artifacts.get('dossiers_dir')).resolve()}")
+        if artifacts.get("bundle_manifest_json"):
+            typer.echo(f"Bundle manifest: {Path(artifacts.get('bundle_manifest_json')).resolve()}")
+        if artifacts.get("report_html"):
+            typer.echo(f"Bundle report: {Path(artifacts.get('report_html')).resolve()}")
+        typer.echo(
+            "Evaluation signal summary: "
+            f"top10_proxy_or_pairbacked={signal_metrics.get('top10_proxy_or_pairbacked_count')} "
+            f"top10_non_routine={signal_metrics.get('top10_non_routine_count')} "
+            f"top10_context_only={signal_metrics.get('top10_context_only_count')}"
+        )
+        _echo_validation_checks(res, include_passes=False)
+
+    if require_nonzero and res.get("status") == "failed":
+        raise typer.Exit(code=2)
+
+
 @workflow_app.command("samgov-smoke")
 def workflow_samgov_smoke(
     ingest_days: Optional[int] = typer.Option(

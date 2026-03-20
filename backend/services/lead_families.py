@@ -247,9 +247,266 @@ LEAD_FAMILY_TAXONOMY: dict[str, dict[str, Any]] = {
             "USAspending": 1,
         },
     },
+    "commodity_supply_chain": {
+        "label": "Commodity Supply Chain",
+        "min_total_score": 4,
+        "min_ontology_score": 0,
+        "min_corroboration_score": 1,
+        "hint_weights": {
+            "commodity_supply_chain": 4,
+        },
+        "rule_weights": {
+            "operational_noise_terms:nsn_line_item_commodity_noise": 3,
+            "operational_noise_terms:nsn_part_number_quantity_noise": 3,
+        },
+        "lane_weights": {
+            "same_award_id": 2,
+            "same_contract_id": 2,
+            "same_entity": 1,
+            "same_uei": 1,
+            "same_sam_naics": 1,
+            "same_naics": 1,
+        },
+        "candidate_evidence_weights": {
+            "contract_family": 2,
+            "identifier_exact": 2,
+            "recipient_uei": 1,
+            "naics": 1,
+        },
+        "source_weights": {
+            "SAM.gov": 1,
+            "USAspending": 1,
+        },
+    },
+    "facility_maintenance_upgrade": {
+        "label": "Facility Maintenance Upgrade",
+        "min_total_score": 4,
+        "min_ontology_score": 0,
+        "min_corroboration_score": 1,
+        "hint_weights": {
+            "facility_maintenance_upgrade": 4,
+        },
+        "rule_weights": {
+            "operational_noise_terms:admin_facility_ops_noise": 2,
+            "sam_proxy_noise_expansion:generic_facility_maintenance_noise": 3,
+        },
+        "lane_weights": {
+            "same_place_region": 1,
+            "same_agency": 1,
+            "same_psc": 1,
+            "same_naics": 1,
+            "same_sam_naics": 1,
+        },
+        "candidate_evidence_weights": {
+            "place_region": 1,
+            "awarding_agency": 1,
+            "psc": 1,
+            "naics": 1,
+        },
+        "source_weights": {
+            "SAM.gov": 1,
+            "USAspending": 1,
+        },
+    },
+    "site_security_access_control": {
+        "label": "Site Security Access Control",
+        "min_total_score": 4,
+        "min_ontology_score": 0,
+        "min_corroboration_score": 1,
+        "hint_weights": {
+            "site_security_access_control": 4,
+        },
+        "rule_weights": {
+            "sam_proxy_noise_expansion:security_training_noise": 2,
+            "sam_proxy_classified_contract_security_admin:visit_authorization_courier_access_context": 2,
+        },
+        "lane_weights": {
+            "same_agency": 1,
+            "same_place_region": 1,
+            "same_doc_id": 1,
+            "same_contract_id": 1,
+            "same_keyword": 1,
+        },
+        "candidate_evidence_weights": {
+            "awarding_agency": 1,
+            "place_region": 1,
+            "contract_family": 1,
+        },
+        "source_weights": {
+            "SAM.gov": 1,
+        },
+    },
+    "industrial_equipment_support": {
+        "label": "Industrial Equipment Support",
+        "min_total_score": 4,
+        "min_ontology_score": 0,
+        "min_corroboration_score": 1,
+        "hint_weights": {
+            "industrial_equipment_support": 4,
+        },
+        "lane_weights": {
+            "same_contract_id": 2,
+            "same_award_id": 2,
+            "same_entity": 1,
+            "same_uei": 1,
+            "same_naics": 1,
+            "same_sam_naics": 1,
+            "same_psc": 1,
+        },
+        "candidate_evidence_weights": {
+            "contract_family": 2,
+            "identifier_exact": 1,
+            "recipient_uei": 1,
+            "psc": 1,
+            "naics": 1,
+        },
+        "source_weights": {
+            "SAM.gov": 1,
+            "USAspending": 1,
+        },
+    },
+    "aviation_spares_lineage": {
+        "label": "Aviation Spares Lineage",
+        "min_total_score": 4,
+        "min_ontology_score": 0,
+        "min_corroboration_score": 1,
+        "hint_weights": {
+            "aviation_spares_lineage": 4,
+            "commodity_supply_chain": 1,
+        },
+        "lane_weights": {
+            "same_award_id": 2,
+            "same_contract_id": 2,
+            "same_entity": 2,
+            "same_uei": 2,
+            "same_naics": 1,
+            "same_sam_naics": 1,
+            "same_keyword": 1,
+        },
+        "candidate_evidence_weights": {
+            "contract_family": 2,
+            "identifier_exact": 2,
+            "recipient_uei": 1,
+            "recipient_name": 1,
+            "naics": 1,
+        },
+        "source_weights": {
+            "SAM.gov": 1,
+            "USAspending": 1,
+        },
+    },
+    "proxy_infrastructure_materials": {
+        "label": "Proxy Infrastructure Materials",
+        "min_total_score": 4,
+        "min_ontology_score": 1,
+        "min_corroboration_score": 1,
+        "hint_weights": {
+            "proxy_infrastructure_materials": 2,
+        },
+        "pack_weights": {
+            "sam_proxy_secure_compartmented_facility_engineering": 2,
+            "sam_dod_hardened_subsurface_infrastructure": 2,
+        },
+        "rule_weights": {
+            "sam_proxy_secure_compartmented_facility_engineering:secure_power_env_control_hardening_context": 2,
+            "sam_dod_hardened_subsurface_infrastructure:hardened_portal_life_support_context": 2,
+        },
+        "lane_weights": {
+            "same_place_region": 1,
+            "same_agency": 1,
+            "same_psc": 1,
+            "same_sam_naics": 1,
+            "same_keyword": 1,
+            "kw_pair": 1,
+        },
+        "candidate_evidence_weights": {
+            "place_region": 1,
+            "awarding_agency": 1,
+            "psc": 1,
+            "naics": 1,
+        },
+        "source_weights": {
+            "SAM.gov": 1,
+        },
+    },
+    "test_range_support": {
+        "label": "Test Range Support",
+        "min_total_score": 4,
+        "min_ontology_score": 1,
+        "min_corroboration_score": 1,
+        "hint_weights": {
+            "test_range_support": 2,
+        },
+        "pack_weights": {
+            "sam_dod_flight_test_range_instrumentation": 2,
+            "sam_proxy_optical_tracking_transient_collection": 2,
+            "sam_proxy_signature_phenomenology_measurement": 1,
+        },
+        "rule_weights": {
+            "sam_dod_flight_test_range_instrumentation:range_telemetry_support_services": 2,
+            "sam_dod_flight_test_range_instrumentation:site_range_anchor_support_context": 2,
+            "sam_proxy_optical_tracking_transient_collection:optical_ir_tracking_context": 2,
+            "sam_proxy_optical_tracking_transient_collection:trajectory_reconstruction_timing_context": 2,
+        },
+        "lane_weights": {
+            "same_place_region": 1,
+            "same_agency": 1,
+            "same_keyword": 1,
+            "kw_pair": 1,
+            "same_sam_naics": 1,
+        },
+        "candidate_evidence_weights": {
+            "place_region": 1,
+            "awarding_agency": 1,
+            "contract_family": 1,
+            "naics": 1,
+        },
+        "source_weights": {
+            "SAM.gov": 1,
+            "USAspending": 1,
+        },
+    },
+    "advanced_manufacturing_support": {
+        "label": "Advanced Manufacturing Support",
+        "min_total_score": 4,
+        "min_ontology_score": 1,
+        "min_corroboration_score": 1,
+        "hint_weights": {
+            "advanced_manufacturing_support": 2,
+        },
+        "pack_weights": {
+            "sam_proxy_advanced_metrology_trace_analysis": 2,
+            "sam_proxy_materials_exploitation_forensics": 1,
+            "sam_dod_advanced_aerospace_support": 1,
+        },
+        "rule_weights": {
+            "sam_proxy_advanced_metrology_trace_analysis:structural_mechanical_metrology_context": 2,
+            "sam_proxy_advanced_metrology_trace_analysis:electron_microstructure_context": 2,
+            "sam_dod_advanced_aerospace_support:survivability_materials_aerospace_support": 1,
+        },
+        "lane_weights": {
+            "same_psc": 1,
+            "same_naics": 1,
+            "same_sam_naics": 1,
+            "same_keyword": 1,
+            "kw_pair": 1,
+            "same_entity": 1,
+        },
+        "candidate_evidence_weights": {
+            "contract_family": 1,
+            "recipient_uei": 1,
+            "recipient_name": 1,
+            "naics": 1,
+            "psc": 1,
+        },
+        "source_weights": {
+            "SAM.gov": 1,
+            "USAspending": 1,
+        },
+    },
     "vendor_network_contract_lineage": {
         "label": "Vendor Network Contract Lineage",
-        "min_total_score": 4,
+        "min_total_score": 5,
         "min_ontology_score": 2,
         "min_corroboration_score": 2,
         "scope": "fallback",
@@ -257,7 +514,6 @@ LEAD_FAMILY_TAXONOMY: dict[str, dict[str, Any]] = {
             "sam_proxy_procurement_continuity_classified_followon": 3,
             "sam_proxy_operator_site_program_pairs": 2,
             "sam_proxy_classified_contract_security_admin": 1,
-            "sam_procurement_starter": 1,
         },
         "rule_weights": {
             "sam_proxy_procurement_continuity_classified_followon:sole_source_follow_on_classified_context": 3,
@@ -266,8 +522,6 @@ LEAD_FAMILY_TAXONOMY: dict[str, dict[str, Any]] = {
             "sam_proxy_operator_site_program_pairs:operator_site_pair_proxy_context": 2,
             "sam_proxy_operator_site_program_pairs:office_site_pair_proxy_context": 2,
             "sam_proxy_classified_contract_security_admin:dd254_classification_guide_contract_context": 1,
-            "sam_procurement_starter:idiq_vehicle": 1,
-            "sam_procurement_starter:task_or_delivery_order": 1,
         },
         "lane_weights": {
             "same_award_id": 3,
@@ -718,6 +972,40 @@ def _family_corroboration_matches(
     return score, specific_score, context_score, matches, source_matches
 
 
+def _family_hint_matches(
+    *,
+    family_spec: dict[str, Any],
+    details: dict[str, Any],
+) -> tuple[int, list[dict[str, Any]]]:
+    hint_weights = {
+        _norm_key(key): _safe_int(value, default=0)
+        for key, value in dict(family_spec.get("hint_weights") or {}).items()
+        if _safe_int(value, default=0) > 0
+    }
+    if not hint_weights:
+        return 0, []
+
+    available_tags = {
+        _norm_key(item)
+        for item in _norm_list(details.get("classification_tags")) + _norm_list(details.get("routine_noise_tags"))
+        if _norm_text(item)
+    }
+    score = 0
+    matches: list[dict[str, Any]] = []
+    for tag, weight in sorted(hint_weights.items()):
+        if tag not in available_tags:
+            continue
+        score += int(weight)
+        matches.append(
+            {
+                "kind": "hint",
+                "tag": tag,
+                "weight": int(weight),
+            }
+        )
+    return score, matches
+
+
 def _assignment_rationale(
     *,
     label: str,
@@ -734,6 +1022,8 @@ def _assignment_rationale(
         kind = _norm_text(item.get("kind"))
         if kind == "lane":
             corroboration_bits.append(_norm_text(item.get("lane")))
+        elif kind == "hint":
+            corroboration_bits.append("hint:" + _norm_text(item.get("tag")))
         elif kind == "candidate_join":
             corroboration_bits.append("candidate_join:" + ",".join(item.get("evidence_types") or []))
         elif kind == "linked_source":
@@ -822,6 +1112,26 @@ def _lead_family_selection_summary(assignments: list[dict[str, Any]]) -> dict[st
     }
 
 
+def _reviewable_secondary_families(assignments: list[dict[str, Any]]) -> list[str]:
+    if len(assignments) <= 1:
+        return []
+
+    runner_up = assignments[1]
+    runner_up_score = _safe_int(_norm_dict(runner_up.get("selection")).get("selection_score"), default=0)
+    minimum_selection_score = max(runner_up_score - 3, 1)
+
+    families: list[str] = []
+    for assignment in assignments[1:]:
+        family = _norm_text(assignment.get("family"))
+        if not family:
+            continue
+        selection_score = _safe_int(_norm_dict(assignment.get("selection")).get("selection_score"), default=0)
+        if selection_score < minimum_selection_score:
+            continue
+        families.append(family)
+    return families
+
+
 def classify_lead_families(
     *,
     details: dict[str, Any],
@@ -843,6 +1153,10 @@ def classify_lead_families(
             family_spec=spec,
             ontology_index=ontology_index,
         )
+        hint_score, hint_matches = _family_hint_matches(
+            family_spec=spec,
+            details=enriched,
+        )
         (
             corroboration_score,
             specific_corroboration_score,
@@ -854,7 +1168,7 @@ def classify_lead_families(
             details=enriched,
             corroboration_summary=corroboration_summary,
         )
-        total_score = int(ontology_score + corroboration_score)
+        total_score = int(ontology_score + corroboration_score + hint_score)
         if ontology_score < _safe_int(spec.get("min_ontology_score"), default=1):
             continue
         if corroboration_score < _safe_int(spec.get("min_corroboration_score"), default=0):
@@ -877,6 +1191,7 @@ def classify_lead_families(
                 "label": spec.get("label") or family.replace("_", " "),
                 "score": total_score,
                 "ontology_score": ontology_score,
+                "hint_score": hint_score,
                 "corroboration_score": corroboration_score,
                 "score_breakdown": {
                     "total_score": total_score,
@@ -887,13 +1202,14 @@ def classify_lead_families(
                 },
                 "selection": selection,
                 "ontology_matches": ontology_matches[:6],
-                "corroboration_matches": corroboration_matches[:8],
+                "hint_matches": hint_matches[:6],
+                "corroboration_matches": (hint_matches + corroboration_matches)[:8],
                 "linked_source_summary": source_matches[:4],
                 "context_summary": family_context,
                 "rationale": _assignment_rationale(
                     label=str(spec.get("label") or family.replace("_", " ")),
                     ontology_matches=ontology_matches,
-                    corroboration_matches=corroboration_matches,
+                    corroboration_matches=hint_matches + corroboration_matches,
                     selection=selection,
                 ),
             }
@@ -905,13 +1221,14 @@ def classify_lead_families(
             -_safe_int(item.get("score"), default=0),
             -_safe_int(item.get("ontology_score"), default=0),
             -_safe_int(_norm_dict(item.get("selection")).get("specific_corroboration_score"), default=0),
+            -_safe_int(item.get("hint_score"), default=0),
             -_safe_int(item.get("corroboration_score"), default=0),
             _norm_text(item.get("family")),
         )
     )
 
     primary = assignments[0] if assignments else None
-    secondary = [str(item.get("family")) for item in assignments[1:]]
+    secondary = _reviewable_secondary_families(assignments)
     selection_summary = _lead_family_selection_summary(assignments)
 
     enriched["corroboration_summary"] = corroboration_summary

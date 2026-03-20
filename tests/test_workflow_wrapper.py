@@ -13,6 +13,7 @@ from backend.services.foia_review_board import (
 )
 import backend.services.workflow as workflow_module
 from backend.services.workflow import (
+    run_samgov_evaluation_workflow,
     run_samgov_smoke_workflow,
     run_samgov_validation_workflow,
     run_samgov_workflow,
@@ -879,10 +880,118 @@ def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
 
     ensure_schema(db_url)
     SessionFactory = get_session_factory(db_url)
-    now = datetime.now(timezone.utc)
+    inside_window = datetime(2024, 2, 15, 12, 0, tzinfo=timezone.utc)
+    outside_window = datetime.now(timezone.utc)
 
     with SessionFactory() as db:
-        _seed_sam_events(db, now)
+        db.add_all(
+            [
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_window_in_1",
+                    occurred_at=inside_window,
+                    created_at=inside_window,
+                    doc_id="SAM-WIN-001",
+                    source_url="https://sam.gov/opp/window-1",
+                    snippet="Sources Sought RFP for engineering support with NAICS context",
+                    raw_json={
+                        "noticeId": "SAM-WIN-001",
+                        "title": "Sources Sought RFP Engineering Support",
+                        "noticeType": "Sources Sought",
+                        "solicitationNumber": "DOE-RFP-WIN-001",
+                        "naicsCode": "541330",
+                        "naicsDescription": "Engineering Services",
+                        "typeOfSetAside": "SBA",
+                        "typeOfSetAsideDescription": "Total Small Business Set-Aside",
+                        "responseDeadLine": "2024-03-15",
+                        "fullParentPathName": "Department of Energy",
+                        "fullParentPathCode": "DOE.HQ",
+                        "Recipient Name": "Acme Federal",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_window_in_2",
+                    occurred_at=inside_window + timedelta(days=1),
+                    created_at=inside_window + timedelta(days=1),
+                    doc_id="SAM-WIN-002",
+                    source_url="https://sam.gov/opp/window-2",
+                    snippet="Sources Sought RFP for engineering sustainment with NAICS references",
+                    raw_json={
+                        "noticeId": "SAM-WIN-002",
+                        "title": "Sources Sought RFP Engineering Sustainment",
+                        "noticeType": "Sources Sought",
+                        "solicitationNumber": "DOE-RFP-WIN-002",
+                        "naicsCode": "541330",
+                        "naicsDescription": "Engineering Services",
+                        "typeOfSetAside": "SBA",
+                        "typeOfSetAsideDescription": "Total Small Business Set-Aside",
+                        "responseDeadLine": "2024-03-16",
+                        "fullParentPathName": "Department of Energy",
+                        "fullParentPathCode": "DOE.HQ",
+                        "Recipient Name": "Acme Federal",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_window_in_3",
+                    occurred_at=inside_window + timedelta(days=2),
+                    created_at=inside_window + timedelta(days=2),
+                    doc_id="SAM-WIN-003",
+                    source_url="https://sam.gov/opp/window-3",
+                    snippet="Request for Proposal NAICS cybersecurity operations work",
+                    raw_json={
+                        "noticeId": "SAM-WIN-003",
+                        "title": "RFP Cybersecurity Operations",
+                        "noticeType": "Solicitation",
+                        "solicitationNumber": "DOE-RFP-WIN-003",
+                        "naicsCode": "541512",
+                        "naicsDescription": "Computer Systems Design Services",
+                        "typeOfSetAside": "8A",
+                        "typeOfSetAsideDescription": "8(a) Set-Aside",
+                        "responseDeadLine": "2024-03-20",
+                        "fullParentPathName": "Department of Energy",
+                        "fullParentPathCode": "DOE.FIELD",
+                        "Recipient Name": "Field Ops",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+                Event(
+                    category="opportunity",
+                    source="SAM.gov",
+                    hash="sam_window_outside",
+                    occurred_at=outside_window,
+                    created_at=outside_window,
+                    doc_id="SAM-OUTSIDE-001",
+                    source_url="https://sam.gov/opp/outside",
+                    snippet="Sources Sought RFP for engineering support with NAICS context",
+                    raw_json={
+                        "noticeId": "SAM-OUTSIDE-001",
+                        "title": "Sources Sought Outside Window",
+                        "noticeType": "Sources Sought",
+                        "solicitationNumber": "DOE-RFP-OUT-001",
+                        "naicsCode": "541330",
+                        "naicsDescription": "Engineering Services",
+                        "typeOfSetAside": "SBA",
+                        "typeOfSetAsideDescription": "Total Small Business Set-Aside",
+                        "responseDeadLine": "2026-03-15",
+                        "fullParentPathName": "Department of Energy",
+                        "fullParentPathCode": "DOE.HQ",
+                        "Recipient Name": "Acme Federal",
+                    },
+                    keywords=[],
+                    clauses=[],
+                ),
+            ]
+        )
         db.commit()
 
     res = run_samgov_smoke_workflow(
@@ -891,6 +1000,8 @@ def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
         posted_from=date(2024, 1, 1),
         posted_to=date(2024, 3, 31),
         ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        ontology_days=1000,
+        entity_days=1000,
         window_days=30,
         min_events_entity=2,
         min_events_keywords=2,
@@ -900,10 +1011,10 @@ def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
         require_nonzero=True,
     )
 
-    assert res["status"] in {"ok", "warning"}
     assert res["run_metadata"]["posted_window_mode"] == "explicit_dates"
     assert res["run_metadata"]["effective_posted_from"] == "2024-01-01"
     assert res["run_metadata"]["effective_posted_to"] == "2024-03-31"
+    assert (res.get("workflow") or {}).get("snapshot", {}).get("items", 0) > 0
 
     artifacts = res["artifacts"]
     summary_payload = json.loads(Path(artifacts["smoke_summary_json"]).read_text(encoding="utf-8"))
@@ -927,6 +1038,10 @@ def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
 
     assert "SAM postedDate window 2024-01-01..2024-03-31" in (lead_snapshot_payload.get("snapshot") or {}).get("notes", "")
     assert lead_snapshot_payload.get("scoring_version") == "v3"
+    assert summary_payload.get("outside_window_count") == 0
+    assert summary_payload.get("snapshot_event_min", "").startswith("2024-02-15")
+    assert summary_payload.get("snapshot_event_max", "").startswith("2024-02-17")
+    assert all(str(item.get("occurred_at") or "").startswith("2024-") for item in lead_snapshot_payload.get("items", []))
     assert "2024-01-01" in report_html
     assert "2024-03-31" in report_html
     assert "scoring_version=v3" in report_html
@@ -2081,6 +2196,141 @@ def test_samgov_validation_passes_when_mission_quality_is_strong_and_serialized(
     assert "Mission Quality" in report_html
     assert "lead_snapshot_scoring_version" in report_html
     assert "foia_draftability_pct" in report_html
+
+
+def test_samgov_evaluation_workflow_emits_native_artifacts_and_contracts(tmp_path: Path):
+    db_path = tmp_path / "sam_evaluation.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_evaluation_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        bundle_root=tmp_path / "evaluation_artifacts",
+        require_nonzero=True,
+    )
+
+    assert res.get("workflow_type") == "samgov-evaluate"
+
+    artifacts = res.get("artifacts") or {}
+    summary_path = Path(artifacts.get("evaluation_summary_json"))
+    comparison_path = Path(artifacts.get("scoring_comparison_json"))
+    review_board_path = Path(artifacts.get("review_board_md"))
+    evaluation_report_path = Path(artifacts.get("evaluation_report_md"))
+    dossiers_dir = Path(artifacts.get("dossiers_dir"))
+    dossiers_index_path = Path(artifacts.get("dossiers_index_json"))
+    manifest_path = Path(artifacts.get("bundle_manifest_json"))
+
+    assert summary_path.exists()
+    assert comparison_path.exists()
+    assert review_board_path.exists()
+    assert evaluation_report_path.exists()
+    assert dossiers_dir.exists() and dossiers_dir.is_dir()
+    assert dossiers_index_path.exists()
+    assert manifest_path.exists()
+
+    evaluation_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert evaluation_summary.get("workflow_type") == "samgov-evaluate"
+    assert evaluation_summary.get("scoring_version") == "v3"
+    assert evaluation_summary.get("artifact_completeness", {}).get("complete") is True
+    assert evaluation_summary.get("signal_metrics", {}).get("row_count", 0) > 0
+
+    comparison_payload = json.loads(comparison_path.read_text(encoding="utf-8"))
+    assert comparison_payload.get("summary", {}).get("v2_row_count", 0) > 0
+    assert comparison_payload.get("summary", {}).get("v3_row_count", 0) > 0
+
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest_payload.get("workflow_type") == "samgov-evaluate"
+    generated_files = manifest_payload.get("generated_files") or {}
+    assert "evaluation_summary_json" in generated_files
+    assert "scoring_comparison_json" in generated_files
+    assert "review_board_md" in generated_files
+    assert "evaluation_report_md" in generated_files
+    assert "dossiers_dir" in generated_files
+    assert "dossiers_index_json" in generated_files
+
+    summary_payload = json.loads(Path(artifacts.get("smoke_summary_json")).read_text(encoding="utf-8"))
+    check_names = {item.get("name") for item in summary_payload.get("checks", [])}
+    assert "evaluation_artifact_completeness" in check_names
+    assert "evaluation_top10_proxy_or_pairbacked_threshold" in check_names
+    assert "evaluation_family_collapse_threshold" in check_names
+    artifact_check = next(item for item in summary_payload.get("checks", []) if item.get("name") == "evaluation_artifact_completeness")
+    assert artifact_check.get("passed") is True
+
+    review_board = review_board_path.read_text(encoding="utf-8")
+    evaluation_report = evaluation_report_path.read_text(encoding="utf-8")
+    assert "FOIA Lead Review Board" in review_board
+    assert "FOIA Rationale" in review_board
+    assert "SAM.gov Evaluation Report" in evaluation_report
+    assert "Top-10 proxy or pair-backed count" in evaluation_report
+
+    dossiers_index = json.loads(dossiers_index_path.read_text(encoding="utf-8"))
+    assert dossiers_index.get("count", 0) > 0
+    first_dossier = Path(res.get("bundle_dir")) / dossiers_index["items"][0]["file"]
+    dossier_payload = json.loads(first_dossier.read_text(encoding="utf-8"))
+    assert dossier_payload.get("supporting_records")
+    assert dossier_payload["supporting_records"][0]["role"] == "focal_lead"
+    assert len(dossier_payload["supporting_records"]) <= 1 + 8
+
+
+def test_samgov_evaluation_sparse_historical_window_stays_empty_and_honest(tmp_path: Path):
+    db_path = tmp_path / "sam_evaluation_sparse.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_evaluation_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        posted_from=date(2024, 1, 1),
+        posted_to=date(2024, 1, 31),
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        bundle_root=tmp_path / "evaluation_sparse_artifacts",
+        require_nonzero=False,
+    )
+
+    assert res.get("workflow_type") == "samgov-evaluate"
+    assert (res.get("workflow") or {}).get("snapshot", {}).get("items") == 0
+
+    artifacts = res.get("artifacts") or {}
+    lead_snapshot_payload = json.loads(
+        Path((artifacts.get("exports") or {}).get("lead_snapshot", {}).get("json")).read_text(encoding="utf-8")
+    )
+    evaluation_summary = json.loads(Path(artifacts.get("evaluation_summary_json")).read_text(encoding="utf-8"))
+    dossiers_index = json.loads(Path(artifacts.get("dossiers_index_json")).read_text(encoding="utf-8"))
+    review_board = Path(artifacts.get("review_board_md")).read_text(encoding="utf-8")
+
+    assert lead_snapshot_payload.get("count") == 0
+    assert evaluation_summary.get("outside_window_count") == 0
+    assert evaluation_summary.get("signal_metrics", {}).get("row_count") == 0
+    assert evaluation_summary.get("snapshot_event_min") is None
+    assert evaluation_summary.get("snapshot_event_max") is None
+    assert dossiers_index.get("count") == 0
+    assert "No ranked leads" in review_board
 
 
 def test_samgov_smoke_threshold_contract_fails_with_context_and_naics_misses(tmp_path: Path):

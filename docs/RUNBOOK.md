@@ -38,11 +38,12 @@ Keyword seed files live under `examples/terms/` and can be passed with `--keywor
 
 ## Historical replay windows
 
-Use `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` on `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, or `ss workflow samgov-validate` when you need a fixed historical slice instead of a rolling lookback.
+Use `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` on `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, `ss workflow samgov-validate`, or `ss workflow samgov-evaluate` when you need a fixed historical slice instead of a rolling lookback.
 
 - Do not combine `--days` with `--posted-from/--posted-to`.
 - Example bounded historical smoke:
   `ss workflow samgov-smoke --posted-from 2024-01-01 --posted-to 2024-03-31 --pages 2 --limit 50 --window-days 90 --json`
+- Validation and evaluation bundles now constrain ranked leads to the effective posted window and report `requested_window`, `effective_window`, `snapshot_event_min`, `snapshot_event_max`, and `outside_window_count`.
 
 ## 1) Bounded SAM smoke run
 
@@ -52,6 +53,26 @@ Use `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` on `ss ingest samgov`, `ss
 
 Artifacts are written under:
 - `data/exports/smoke/samgov/<timestamp>/`
+
+## Native FOIA evaluation workflow
+
+- `ss workflow samgov-evaluate --days 30 --pages 5 --limit 250 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy --json`
+
+Use this when the operator goal is reviewable FOIA-target triage rather than pipeline health alone.
+
+Defaults:
+- `--scoring-version v3`
+- Bundle root: `data/exports/evaluation/samgov/<timestamp>/`
+
+Expected evaluation artifacts:
+- `results/evaluation_summary.json`
+- `results/scoring_comparison_v2_v3.json`
+- `report/FOIA_LEAD_REVIEW_BOARD.md`
+- `report/evaluation_report.md`
+- `exports/dossiers/index.json`
+- `exports/dossiers/<lead>.json`
+
+Evaluation bundles also surface family-distribution diagnostics and artifact-completeness checks so dominant fallback-family collapse and missing review artifacts are visible immediately.
 
 ## 2) Diagnostics review (SAM.gov)
 
@@ -176,7 +197,7 @@ DoD ontology keywords are emitted as `pack_id:rule_id` tags and flow directly in
 
 Lead scoring now exposes FOIA triage metadata (`dod_lane_count`, `dod_keyword_hit_count`, `foia_matrix_bonus`, `foia_potential_tier`) so analysts can see lane diversity and pair-backed DoD context at a glance.
 
-`ss leads snapshot` and `ss leads query` default to `v3` for the new FOIA-worthiness / proxy-quality scorer. Use `--scoring-version v2` only when you intentionally want an older comparison surface, and `--compare-scoring-versions v2,v3` when you want a side-by-side artifact inside SAM workflow bundles.
+`ss leads snapshot` and `ss leads query` default to `v3` for the new FOIA-worthiness / proxy-quality scorer. Use `--scoring-version v2` only when you intentionally want an older comparison surface, and `ss workflow samgov-evaluate` when you want the native FOIA review bundle with a `v2` vs `v3` comparison artifact.
 
 ## SAM Larger-Run Validation Runbook (2026-03-09)
 
@@ -188,6 +209,9 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
 
 # Larger bounded validation pass
 ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
+
+# Native FOIA evaluation bundle
+ss workflow samgov-evaluate --days 30 --pages 5 --limit 250 --window-days 30 --json
 
 # Diagnose sparse/degraded vs healthy outcomes
 ss diagnose samgov --days 30 --json
@@ -209,6 +233,7 @@ Interpretation:
 - `comparison_requested`, `comparison_available`, and `comparison_empty` now make requested control/historical comparisons explicit instead of inferring state from artifact presence.
 - Validation output separates failures into `pipeline_health`, `source_coverage_context_health`, and `lead_signal_quality`.
 - Each check now serializes `name`, `observed`, `threshold`, `severity`, `required` vs `advisory`, and pass/fail.
+- Evaluation bundles add artifact-completeness checks plus review-oriented outputs (`FOIA_LEAD_REVIEW_BOARD.md`, `evaluation_report.md`, and `exports/dossiers/`) and make `v3` the default scorer.
 - `ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now read the manifest/gate status directly so larger-run warnings and failures are not flattened into legacy smoke-style PASS output.
 
 Bundle contract (`samgov.bundle.v2`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries. The bundle report also renders requested and effective comparison windows directly for historical/control comparisons.

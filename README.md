@@ -24,7 +24,16 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontol
 ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia --json
 ```
 
-### 4) Ontology profile map
+### 4) Native FOIA lead evaluation
+
+```powershell
+ss workflow samgov-evaluate --days 30 --pages 5 --limit 250 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy --json
+```
+
+- Defaults to `--scoring-version v3` for evaluation bundles and review surfaces.
+- Emits `results/evaluation_summary.json`, `results/scoring_comparison_v2_v3.json`, `report/FOIA_LEAD_REVIEW_BOARD.md`, `report/evaluation_report.md`, and `exports/dossiers/`.
+
+### 5) Ontology profile map
 
 - `starter` -> `examples/ontology_sam_procurement_starter.json`
 - `dod_foia` -> `examples/ontology_sam_dod_foia_companion.json`
@@ -38,21 +47,22 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontol
 - `hidden_program_proxy` is the new conservative public-records proxy companion for SAM.gov support-footprint triage.
 - `hidden_program_proxy_exploratory` is lower-weight and opt-in only; it is not mixed into the default precision companion.
 
-### 5) Seeded SAM keyword files
+### 6) Seeded SAM keyword files
 
 - `examples/terms/sam_hidden_program_proxy_core_seeds.txt`
 - `examples/terms/sam_hidden_program_proxy_expansion_seeds.txt`
 - `examples/terms/sam_hidden_program_proxy_exploratory_seeds.txt`
-- Use `--keywords-file <path>` with `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, or `ss workflow samgov-validate` for newline-delimited seed terms.
+- Use `--keywords-file <path>` with `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, `ss workflow samgov-validate`, or `ss workflow samgov-evaluate` for newline-delimited seed terms.
 - Repeated `--keyword` values are merged with file terms, comments beginning with `#` are ignored, and duplicates are removed while preserving order.
 
-### 6) Fixed historical SAM windows
+### 7) Fixed historical SAM windows
 
-- Use `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` on `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, or `ss workflow samgov-validate` when you need a reproducible historical replay.
+- Use `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` on `ss ingest samgov`, `ss workflow samgov`, `ss workflow samgov-smoke`, `ss workflow samgov-validate`, or `ss workflow samgov-evaluate` when you need a reproducible historical replay.
 - Use either `--days` or `--posted-from/--posted-to`; do not mix them.
 - Example: `ss workflow samgov-smoke --posted-from 2024-01-01 --posted-to 2024-03-31 --pages 2 --limit 50 --window-days 90 --json`
+- Validation and evaluation bundles now clamp ranked lead snapshots to the effective posted window, report the snapshot event span, and stay sparse/empty honestly instead of backfilling current-window leads.
 
-### 7) Offline rebuild loops (after ontology edits)
+### 8) Offline rebuild loops (after ontology edits)
 
 Default precision hidden-program proxy loop:
 
@@ -77,14 +87,14 @@ ss leads snapshot --source "SAM.gov" --min-score 1 --limit 200 --scan-limit 5000
 
 On a fixed window, treat improvement as directional: we want denser useful keyword and `kw_pair` signal without degrading pipeline health or weakening the existing suppressors.
 
-### 8) Verification commands
+### 9) Verification commands
 
 ```powershell
 .\.venv\Scripts\pytest.exe -q tests/test_example_ontologies.py tests/test_workflow_cli_flags.py tests/test_samgov_ontology_tuning.py tests/test_leads_foia_matrix.py backend/tests/test_tagger.py
 .\.venv\Scripts\pytest.exe -q tests/test_workflow_wrapper.py
 ```
 
-### 9) Reviewer adjudication loop
+### 10) Reviewer adjudication loop
 
 - Export a reviewer-editable CSV from a lead snapshot:
   `ss export adjudication-template --snapshot-id 123 --out .\reviews\sam_snapshot_123_adjudications.csv`
@@ -333,6 +343,9 @@ ss workflow samgov --days 30 --pages 2 --limit 50 --keywords-file .\examples\ter
 
 # Smoke workflow (same chain + doctor checks + artifact bundle)
 ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy --json
+
+# Native FOIA lead evaluation workflow (v3 default + review artifacts)
+ss workflow samgov-evaluate --days 30 --pages 5 --limit 250 --window-days 30 --ontology-profile starter_plus_dod_foia_hidden_program_proxy --json
 ```
 ### Optional smoke-test mode
 
@@ -408,6 +421,7 @@ More detail: see `docs/RUNBOOK.md`.
 ## Status
 
 - SAM.gov baseline is healthy and repeatable; use `ss workflow samgov` / `ss workflow samgov-smoke` for ongoing smoke checks.
+- Use `ss workflow samgov-evaluate` when the operator goal is reviewable FOIA-target triage rather than workflow health alone.
 - USAspending health checks remain lightweight; use `ss doctor status --source USAspending --days 30` for feed sanity and `ss correlate rebuild-sam-usaspending-joins --window-days 30 --history-days 365 --min-score 45` for cross-source candidate joins.
 - Roadmap/checklist: see `ROADMAP.md` (authoritative tracker).
 
@@ -428,7 +442,7 @@ It is designed for repeatable investigator runs:
 1) ingest a time window (seeded searches)
 2) normalize + persist to Postgres (idempotent)
 3) tag with ontology signals (keywords + clause hits)
-4) score/rank leads (v3 scoring by default for SAM/operator review)
+4) score/rank leads (v3 scoring by default for SAM/operator review; `samgov-evaluate` keeps `v3` as the native FOIA review surface)
 5) snapshot leads (repeatability + deltas)
 6) cluster related records (entity / UEI / keyword / keyword-pair)
 ## Runbook
@@ -463,6 +477,8 @@ Evidence package guardrail:
 - Correlation lanes include `kw_pair` (co-term clustering) and `sam_usaspending_candidate_join` (pairwise cross-source incumbent candidates)
 - Relationship matrix rationale: `same_keyword` captures repeated precision tags while `kw_pair` promotes anchor+pair co-occurrence evidence for triage confidence.
 - Default lead snapshots are **v3**
+- `ss workflow samgov-evaluate` is the native FOIA operator workflow and defaults to `v3`, while also emitting a `v2` vs `v3` comparison artifact for review.
+- Evaluation/validation bundle summaries now include requested/effective posted windows, snapshot event span, outside-window counts, family distribution, and artifact completeness so historical replay trust is visible without database inspection.
 - Use `--scoring-version v2` only when you intentionally want an older comparison surface.
 - Operational noise handling (HRP/DACTS, NASA sponsoring agreement)
 - DOE/NNSA weapons complex pivots (SRS, Y-12, Pantex, KCNSC, CNS, SRNS)
@@ -500,10 +516,11 @@ Full details + checklists live here:
 
 ## SAM Larger-Run Validation + Bundle Contract (2026-03-09)
 
-ShadowScope now distinguishes two SAM.gov validation intents:
+ShadowScope now distinguishes three SAM.gov operator intents:
 
 - Small bounded smoke: quick pass/fail confidence on core workflow wiring.
 - Larger-run validation: bigger bounded windows/pages with explicit required and advisory quality gates.
+- Native FOIA evaluation: bundle-backed lead review with `v3` default scoring, scoring comparison, review board, and top dossiers.
 
 Recommended operator sequence:
 
@@ -514,16 +531,19 @@ ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json
 # 2) Larger bounded validation pass (operator-focused diagnostics + warnings)
 ss workflow samgov-validate --days 30 --pages 5 --limit 250 --window-days 30 --json
 
-# 3) Diagnose SAM status and gaps (no psql required)
+# 3) Native FOIA lead evaluation bundle
+ss workflow samgov-evaluate --days 30 --pages 5 --limit 250 --window-days 30 --json
+
+# 4) Diagnose SAM status and gaps (no psql required)
 ss diagnose samgov --days 30 --json
 
-# 4) Inspect a specific bundle contract/manifest
+# 5) Inspect a specific bundle contract/manifest
 ss inspect bundle --path <bundle_dir> --json
 ```
 
-`ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now honor the manifest-driven workflow gate status, required/advisory split, and category failures instead of relying on smoke-only pass heuristics.
+`ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now honor the manifest-driven workflow gate status, required/advisory split, artifact completeness, and category failures instead of relying on smoke-only pass heuristics.
 
-Normalized SAM bundle contract (`samgov.bundle.v2`):
+Normalized SAM bundle contract (`samgov.bundle.v2`), with evaluation-only addenda shown:
 
 ```text
 <bundle_dir>/
@@ -532,6 +552,8 @@ Normalized SAM bundle contract (`samgov.bundle.v2`):
     workflow_result.json
     workflow_summary.json
     doctor_status.json
+    evaluation_summary.json
+    scoring_comparison_v2_v3.json
   exports/
     lead_snapshot.csv/json
     review_summary.json
@@ -539,22 +561,27 @@ Normalized SAM bundle contract (`samgov.bundle.v2`):
     entities.csv/json
     event_entities.csv/json
     events.csv/jsonl
+    dossiers/
+      index.json
+      <lead>.json
   report/
     bundle_report.html
     foia_lead_review_board.html
     foia_lead_review_board.md
+    FOIA_LEAD_REVIEW_BOARD.md
+    evaluation_report.md
 ```
 
-`samgov.bundle.v2` keeps the flattened quality/status fields and surfaces requested vs effective comparison windows directly in `report/bundle_report.html`.
-
-Lead snapshot review exports now include a canonical `review_summary.json` artifact that records the snapshot id, scoring version, effective review window, review artifact filenames, completeness counts, and whether per-row evidence packages are available.
+Smoke/validate bundles keep the core manifest/results/exports/report files; `samgov-evaluate` adds the evaluation-specific entries shown above.
 
 Bundle interpretation:
 
 - `workflow_summary.json`: machine-readable run status with explicit `workflow_status`, `quality`, `has_required_failures`, `has_advisory_failures`, `has_usable_artifacts`, `partially_useful`, `reason_codes`, `operator_messages`, and explicit comparison state (`comparison_requested`, `comparison_available`, `comparison_empty`).
+- `evaluation_summary.json`: evaluation-only summary for requested/effective posted windows, snapshot event min/max, outside-window counts, family distribution, and artifact completeness.
 - `bundle_manifest.json`: single source of truth for bundle discovery (`generated_files`, status, summary counts, run parameters).
 - `bundle_report.html`: human-oriented run review surface rendered from the same status/comparison fields so the HTML cannot silently tell a different story than `workflow_summary.json`.
 - `foia_lead_review_board.html` / `foia_lead_review_board.md`: reviewer-first lead triage surface focused on top leads, noise patterns, draftability, and next-record targets.
+- `FOIA_LEAD_REVIEW_BOARD.md`, `evaluation_report.md`, and `exports/dossiers/`: evaluation-only reviewer surfaces for top-ranked leads.
 
 Warnings vs failures:
 

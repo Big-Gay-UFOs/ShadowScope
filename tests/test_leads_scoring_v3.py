@@ -440,6 +440,81 @@ def test_compute_leads_v3_score_details_explain_subscores_and_suppressors(tmp_pa
     assert routine_score < secure_score
 
 
+def test_compute_leads_v3_gates_context_only_rows_below_proxy_backed_leads(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_context_gate.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        proxy = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="v3_proxy_rank_gate",
+            created_at=now - timedelta(hours=2),
+            snippet="ICD-705 secure facility upgrade with DD254 support requirements.",
+            source_url="https://example.com/proxy-rank-gate",
+            doc_id="PROXY-GATE-1",
+            solicitation_number="SOL-PROXY-GATE-1",
+            awarding_agency_name="Department of the Air Force",
+            recipient_uei="UEI-PROXY-GATE-1",
+            naics_code="541715",
+            psc_code="R425",
+            place_of_performance_state="CA",
+            place_of_performance_country="USA",
+            notice_award_type="Solicitation",
+            raw_json={},
+            keywords=["sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context"],
+            clauses=[_clause("sam_proxy_secure_compartmented_facility_engineering", "icd705_scif_sapf_facility_upgrade_context")],
+            place_text="Edwards AFB, CA",
+        )
+        context_only = Event(
+            category="notice",
+            source="SAM.gov",
+            hash="v3_context_only_gate",
+            created_at=now - timedelta(hours=1),
+            snippet="Routine support services solicitation with period of performance, agency, NAICS, and place data.",
+            source_url="https://example.com/context-only-gate",
+            doc_id="CONTEXT-GATE-1",
+            solicitation_number="SOL-CONTEXT-GATE-1",
+            awarding_agency_name="Department of the Air Force",
+            recipient_uei="UEI-CONTEXT-GATE-1",
+            naics_code="541611",
+            psc_code="R408",
+            place_of_performance_state="VA",
+            place_of_performance_country="USA",
+            notice_award_type="Solicitation",
+            raw_json={},
+            keywords=[],
+            clauses=[],
+            place_text="Arlington, VA",
+        )
+        db.add_all([proxy, context_only])
+        db.commit()
+
+        ranked, scanned = compute_leads(
+            db,
+            source="SAM.gov",
+            min_score=-20,
+            limit=10,
+            scan_limit=50,
+            scoring_version="v3",
+        )
+
+    assert scanned == 2
+    by_hash = {event.hash: (score, details) for score, event, details in ranked}
+    proxy_score, proxy_details = by_hash["v3_proxy_rank_gate"]
+    context_score, context_details = by_hash["v3_context_only_gate"]
+
+    assert proxy_score > context_score
+    assert proxy_details["ranking_tier"] in {"highest", "review", "candidate"}
+    assert proxy_details["proxy_relevance_score"] > 0
+    assert context_details["ranking_tier"] == "context_only"
+    assert context_details["proxy_relevance_score"] == 0
+    assert context_details["top_rank_gate_penalty"] > 0
+    assert context_details["structural_context_score"] > 0
+
+
 def test_compute_leads_v3_counts_starter_context_ontology_as_structural_signal(tmp_path):
     db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_starter_context.db').as_posix()}"
     ensure_schema(db_url)

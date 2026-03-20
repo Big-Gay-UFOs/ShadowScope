@@ -123,6 +123,154 @@ def _lead_dossier_artifacts(
     return artifacts or None
 
 
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _load_snapshot_export_items(artifacts: dict[str, Any]) -> list[dict[str, Any]]:
+    exports = artifacts.get("exports") if isinstance(artifacts.get("exports"), dict) else {}
+    lead = exports.get("lead_snapshot") if isinstance(exports.get("lead_snapshot"), dict) else {}
+    json_path = lead.get("json")
+    if not json_path:
+        return []
+    path = Path(json_path).expanduser()
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    items = payload.get("items") if isinstance(payload, dict) else []
+    return [dict(item) for item in items if isinstance(item, dict)]
+
+
+def _effective_window_bounds(window: dict[str, Any]) -> tuple[Optional[datetime], Optional[datetime]]:
+    payload = serialize_sam_posted_window(window)
+    posted_from = str(payload.get("posted_from") or "").strip()
+    posted_to = str(payload.get("posted_to") or "").strip()
+    if not posted_from or not posted_to:
+        return None, None
+    try:
+        start_day = date.fromisoformat(posted_from)
+        end_day = date.fromisoformat(posted_to)
+    except ValueError:
+        return None, None
+    start_dt = datetime.combine(start_day, datetime.min.time(), tzinfo=timezone.utc)
+    end_dt = datetime.combine(end_day, datetime.max.time(), tzinfo=timezone.utc)
+    return start_dt, end_dt
+
+
+def _snapshot_window_diagnostics(
+    *,
+    items: list[dict[str, Any]],
+    effective_window: dict[str, Any],
+) -> dict[str, Any]:
+    start_dt, end_dt = _effective_window_bounds(effective_window)
+    occurred_values = [
+        _parse_iso_datetime(item.get("occurred_at")) or _parse_iso_datetime(item.get("created_at"))
+        for item in items
+    ]
+    occurred_values = [value for value in occurred_values if value is not None]
+    snapshot_event_min = min(occurred_values).isoformat() if occurred_values else None
+    snapshot_event_max = max(occurred_values).isoformat() if occurred_values else None
+
+    outside_items: list[dict[str, Any]] = []
+    if start_dt is not None and end_dt is not None:
+        for item in items:
+            occurred_at = _parse_iso_datetime(item.get("occurred_at")) or _parse_iso_datetime(item.get("created_at"))
+            if occurred_at is None or occurred_at < start_dt or occurred_at > end_dt:
+                outside_items.append(item)
+
+    top10 = items[:10]
+    top10_outside = [
+        item
+        for item in top10
+        if item in outside_items
+    ]
+    return {
+        "snapshot_event_min": snapshot_event_min,
+        "snapshot_event_max": snapshot_event_max,
+        "outside_window_count": len(outside_items),
+        "outside_window_event_ids": [
+            _safe_int(item.get("event_id"), default=0)
+            for item in outside_items
+            if _safe_int(item.get("event_id"), default=0) > 0
+        ][:20],
+        "top10_outside_window_count": len(top10_outside),
+        "top10_outside_window_event_ids": [
+            _safe_int(item.get("event_id"), default=0)
+            for item in top10_outside
+            if _safe_int(item.get("event_id"), default=0) > 0
+        ][:10],
+        "top10_inside_window": len(top10_outside) == 0,
+    }
+
+
+def _family_distribution_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
+    counts: dict[str, dict[str, Any]] = {}
+    for index, item in enumerate(items, start=1):
+        family = str(item.get("lead_family") or "unassigned")
+        bucket = counts.setdefault(
+            family,
+            {
+                "lead_family": family,
+                "label": str(item.get("lead_family_label") or family.replace("_", " ")),
+                "count": 0,
+                "sample_event_ids": [],
+            },
+        )
+        bucket["count"] += 1
+        event_id = _safe_int(item.get("event_id"), default=0)
+        if event_id > 0 and event_id not in bucket["sample_event_ids"] and len(bucket["sample_event_ids"]) < 5:
+            bucket["sample_event_ids"].append(event_id)
+
+    ordered = sorted(
+        counts.values(),
+        key=lambda item: (-(item.get("count") or 0), str(item.get("lead_family") or "")),
+    )
+
+    def _share(rows: list[dict[str, Any]], family: str) -> float:
+        if not rows:
+            return 0.0
+        family_count = len([item for item in rows if str(item.get("lead_family") or "unassigned") == family])
+        return round(float(family_count) / float(len(rows)), 4)
+
+    top10 = items[:10]
+    top50 = items[:50]
+    dominant = ordered[0] if ordered else None
+    dominant_family = None if dominant is None else str(dominant.get("lead_family") or "unassigned")
+    top10_share = _share(top10, dominant_family) if dominant_family else 0.0
+    top50_share = _share(top50, dominant_family) if dominant_family else 0.0
+    family_collapse_warning = bool(dominant_family) and (
+        top50_share > 0.5 or (dominant_family == "vendor_network_contract_lineage" and top10_share >= 0.5)
+    )
+    return {
+        "top_family_counts": ordered[:10],
+        "dominant_family": dominant_family,
+        "dominant_family_label": None if dominant is None else dominant.get("label"),
+        "dominant_family_share_top10": top10_share,
+        "dominant_family_share_top50": top50_share,
+        "family_share_top10": {
+            str(item.get("lead_family")): _share(top10, str(item.get("lead_family")))
+            for item in ordered[:10]
+        },
+        "family_share_top50": {
+            str(item.get("lead_family")): _share(top50, str(item.get("lead_family")))
+            for item in ordered[:10]
+        },
+        "family_collapse_warning": family_collapse_warning,
+    }
+
+
 def _snapshot_window_args(
     *,
     date_from: Any = None,
@@ -1071,6 +1219,12 @@ def run_samgov_smoke_workflow_hardened(
         f"Inspect {(bundle_dir / FOIA_LEAD_REVIEW_BOARD_HTML_PATH)} and {(bundle_dir / 'exports' / 'lead_snapshot.json')}."
     )
     dossier_hint = f"Inspect {(bundle_dir / 'report' / 'lead_dossiers')} and rerender the reviewer board if dossier files are missing."
+    snapshot_export_items = _load_snapshot_export_items({"exports": workflow_res.get("exports")})
+    snapshot_window_summary = _snapshot_window_diagnostics(
+        items=snapshot_export_items,
+        effective_window=effective_window,
+    )
+    family_distribution = _family_distribution_summary(snapshot_export_items)
 
     checks: list[dict[str, Any]] = []
     policy_overrides: list[dict[str, Any]] = []
@@ -1322,6 +1476,30 @@ def run_samgov_smoke_workflow_hardened(
             )
         )
 
+    if snapshot_export_items or snapshot_items == 0:
+        checks.append(
+            workflow_module._serialize_check(
+                name="snapshot_window_integrity",
+                ok=snapshot_window_summary.get("outside_window_count", 0) == 0,
+                observed={
+                    "snapshot_event_min": snapshot_window_summary.get("snapshot_event_min"),
+                    "snapshot_event_max": snapshot_window_summary.get("snapshot_event_max"),
+                    "outside_window_count": snapshot_window_summary.get("outside_window_count"),
+                    "top10_outside_window_count": snapshot_window_summary.get("top10_outside_window_count"),
+                },
+                actual={
+                    "outside_window_event_ids": snapshot_window_summary.get("outside_window_event_ids") or [],
+                    "top10_outside_window_event_ids": snapshot_window_summary.get("top10_outside_window_event_ids") or [],
+                },
+                threshold="outside_window_count == 0",
+                expected="outside_window_count == 0",
+                why="Historical SAM bundles must not leak lead rows from outside the effective postedDate window.",
+                hint=rerun_snapshot_cmd,
+                kind="validation",
+                validation_mode=mode,
+            )
+        )
+
     if mode == "larger":
         checks.append(
             workflow_module._threshold_check(
@@ -1446,6 +1624,7 @@ def run_samgov_smoke_workflow_hardened(
         "scoring_version": str(scoring_version),
         "compare_scoring_versions": list(compare_scoring_versions or []),
         "window_days": int(window_days),
+        "requested_window": serialize_sam_posted_window(requested_window),
         "ingest_window": effective_window,
         "counts": {
             "events_window": _safe_int(counts.get("events_window")),
@@ -1495,6 +1674,8 @@ def run_samgov_smoke_workflow_hardened(
             "evidence_packages_written": dossier_exports.get("count"),
         },
         "mission_quality": mission_quality_summary,
+        "snapshot_window_summary": snapshot_window_summary,
+        "family_distribution_summary": family_distribution,
     }
 
     results_dir = bundle_dir / SAM_BUNDLE_RESULTS_DIR
@@ -1552,6 +1733,12 @@ def run_samgov_smoke_workflow_hardened(
         "check_groups": check_groups,
         "mission_quality": mission_quality_summary,
         "baseline": baseline,
+        "requested_window": serialize_sam_posted_window(requested_window),
+        "effective_window": effective_window,
+        "snapshot_event_min": snapshot_window_summary.get("snapshot_event_min"),
+        "snapshot_event_max": snapshot_window_summary.get("snapshot_event_max"),
+        "outside_window_count": snapshot_window_summary.get("outside_window_count"),
+        "family_distribution_summary": family_distribution,
     }
 
     artifacts = {
@@ -1637,6 +1824,7 @@ def run_samgov_smoke_workflow_hardened(
             "kw_pair": kw_pair_lane,
             "same_sam_naics": same_sam_naics_lane,
             "snapshot_items": snapshot_items,
+            "outside_window_count": snapshot_window_summary.get("outside_window_count"),
         },
         "check_summary": {
             "total": len(checks),
@@ -1669,6 +1857,8 @@ def run_samgov_smoke_workflow_hardened(
         },
         "quality_gate_policy": quality_gate_policy,
         "run_parameters": {
+            "requested_window": serialize_sam_posted_window(requested_window),
+            "effective_window": effective_window,
             "ingest_days": effective_window.get("effective_days"),
             "posted_window_mode": effective_window.get("mode"),
             "effective_posted_from": effective_window.get("posted_from"),
@@ -1693,6 +1883,13 @@ def run_samgov_smoke_workflow_hardened(
             "since_days": int(since_days) if since_days is not None else None,
             "ontology_path": str(Path(ontology_path)),
         },
+        "snapshot_event_span": {
+            "snapshot_event_min": snapshot_window_summary.get("snapshot_event_min"),
+            "snapshot_event_max": snapshot_window_summary.get("snapshot_event_max"),
+            "outside_window_count": snapshot_window_summary.get("outside_window_count"),
+            "outside_window_event_ids": snapshot_window_summary.get("outside_window_event_ids") or [],
+        },
+        "family_distribution_summary": family_distribution,
         "ingest_diagnostics": ingest_request_diag,
         "generated_files": flatten_bundle_files(artifacts=artifacts, bundle_dir=bundle_dir),
     }
