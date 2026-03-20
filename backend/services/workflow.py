@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional
 
 from backend.correlate import correlate
 from backend.services.doctor import doctor_status  # noqa: F401
+from backend.services.evidence_package import DEFAULT_BUNDLE_DOSSIER_TOP_N
 from backend.services.entities import link_entities_from_events
 from backend.services.export import export_events
 from backend.services.export_correlations import export_kw_pairs
@@ -1139,6 +1140,7 @@ def run_samgov_smoke_workflow(
     compare_scoring_versions: Optional[list[str]] = None,
     notes: Optional[str] = None,
     bundle_root: Optional[Path] = None,
+    lead_dossier_top_n: int = DEFAULT_BUNDLE_DOSSIER_TOP_N,
     database_url: Optional[str] = None,
     require_nonzero: bool = True,
     skip_ingest: bool = False,
@@ -1181,6 +1183,7 @@ def run_samgov_smoke_workflow(
         compare_scoring_versions=list(compare_scoring_versions or []),
         notes=notes,
         bundle_root=(Path(bundle_root).expanduser() if bundle_root else None),
+        lead_dossier_top_n=int(lead_dossier_top_n),
         database_url=database_url,
         require_nonzero=bool(require_nonzero),
         skip_ingest=bool(skip_ingest),
@@ -1224,6 +1227,7 @@ def run_samgov_validation_workflow(
     compare_scoring_versions: Optional[list[str]] = None,
     notes: Optional[str] = "samgov larger-run validation",
     bundle_root: Optional[Path] = None,
+    lead_dossier_top_n: int = DEFAULT_BUNDLE_DOSSIER_TOP_N,
     database_url: Optional[str] = None,
     require_nonzero: bool = True,
     skip_ingest: bool = False,
@@ -1264,6 +1268,7 @@ def run_samgov_validation_workflow(
         compare_scoring_versions=list(compare_scoring_versions or []),
         notes=notes,
         bundle_root=(Path(bundle_root).expanduser() if bundle_root else None),
+        lead_dossier_top_n=int(lead_dossier_top_n),
         database_url=database_url,
         require_nonzero=bool(require_nonzero),
         skip_ingest=bool(skip_ingest),

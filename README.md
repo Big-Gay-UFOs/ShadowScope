@@ -92,6 +92,10 @@ On a fixed window, treat improvement as directional: we want denser useful keywo
 - Evaluate ranking quality and refresh a bundle-backed report:
   `ss leads adjudication-metrics --adjudications .\reviews\sam_snapshot_123_adjudications.csv --k 5 --k 10 --k 25 --bundle .\data\exports\smoke\samgov\20260309_112458 --json`
 - Bundle artifacts are kept local under `exports/lead_adjudications.csv` and `exports/lead_adjudication_metrics.json`.
+- SAM bundle workflows now auto-export reviewer dossiers for the top ranked leads by default.
+  Use `--lead-dossier-top-n <N>` on `ss workflow samgov-smoke` or `ss workflow samgov-validate` to change the count, or `--lead-dossier-top-n 0` to disable bundle dossier export.
+- Bundle dossier artifacts now live under `report/lead_dossiers/` with:
+  `dossier_index.json`, `dossier_index.csv`, reviewer markdown dossiers, and `evidence_packages/*.json`.
 - Precision@k uses decisive reviewer labels (`keep` / `reject`) only; `unclear` remains visible without being upgraded into a forced verdict.
 
 ## Quickstart

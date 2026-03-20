@@ -20,7 +20,13 @@ from backend.services.bundle import (
     render_sam_bundle_report,
     write_bundle_manifest,
 )
+from backend.services.evidence_package import (
+    DEFAULT_BUNDLE_DOSSIER_TOP_N,
+    export_top_lead_evidence_packages,
+)
 from backend.services.foia_review_board import (
+    FOIA_LEAD_DOSSIER_INDEX_CSV_PATH,
+    FOIA_LEAD_DOSSIER_INDEX_JSON_PATH,
     FOIA_LEAD_REVIEW_BOARD_HTML_PATH,
     FOIA_LEAD_REVIEW_BOARD_MD_PATH,
     build_foia_lead_review_diagnostics,
@@ -841,6 +847,7 @@ def run_samgov_smoke_workflow_hardened(
     compare_scoring_versions: Optional[list[str]] = None,
     notes: Optional[str] = None,
     bundle_root: Optional[Path] = None,
+    lead_dossier_top_n: int = DEFAULT_BUNDLE_DOSSIER_TOP_N,
     database_url: Optional[str] = None,
     require_nonzero: bool = True,
     skip_ingest: bool = False,
@@ -1320,12 +1327,25 @@ def run_samgov_smoke_workflow_hardened(
     lead_export = dict(lead_export or {})
     lead_snapshot_payload = _load_json_payload(lead_export.get("json"))
     review_summary_payload = _load_json_payload(lead_export.get("review_summary_json"))
+    resolved_lead_dossier_top_n = max(int(lead_dossier_top_n), 0)
+    snapshot_payload = workflow_res.get("snapshot") if isinstance(workflow_res.get("snapshot"), dict) else {}
+    lead_snapshot_id = _safe_int(snapshot_payload.get("snapshot_id"))
+    if lead_snapshot_id <= 0:
+        lead_snapshot_id = _safe_int(((lead_snapshot_payload.get("snapshot") or {}).get("id")))
+    dossier_exports = export_top_lead_evidence_packages(
+        lead_snapshot=lead_snapshot_payload,
+        bundle_dir=bundle_dir,
+        top_n=resolved_lead_dossier_top_n,
+        snapshot_id=lead_snapshot_id or None,
+        database_url=database_url,
+    )
     mission_quality_diagnostics = build_foia_lead_review_diagnostics(
         lead_snapshot=lead_snapshot_payload,
         review_summary=review_summary_payload,
         bundle_dir=bundle_dir,
         mission_top_n=10,
-        dossier_export_enabled=True,
+        dossier_top_n=resolved_lead_dossier_top_n,
+        dossier_export_enabled=resolved_lead_dossier_top_n > 0,
     )
     mission_quality_summary = mission_quality_diagnostics["mission_quality"]
     checks.extend(
@@ -1381,6 +1401,7 @@ def run_samgov_smoke_workflow_hardened(
             "start_page": int(start_page),
             "window_days": int(window_days),
             "keywords": list(keywords or []),
+            "lead_dossier_top_n": resolved_lead_dossier_top_n,
         }
     )
 
@@ -1435,6 +1456,11 @@ def run_samgov_smoke_workflow_hardened(
         },
         "ingest_request_diagnostics": ingest_request_diag,
         "snapshot_items": snapshot_items,
+        "lead_dossiers": {
+            "top_n": resolved_lead_dossier_top_n,
+            "snapshot_id": dossier_exports.get("snapshot_id"),
+            "evidence_packages_written": dossier_exports.get("count"),
+        },
         "mission_quality": mission_quality_summary,
     }
 
@@ -1480,6 +1506,12 @@ def run_samgov_smoke_workflow_hardened(
         "thresholds": thresholds,
         "quality_gate_policy": quality_gate_policy,
         "run_metadata": run_metadata,
+        "lead_dossier_top_n": resolved_lead_dossier_top_n,
+        "lead_dossiers": {
+            "top_n": resolved_lead_dossier_top_n,
+            "snapshot_id": dossier_exports.get("snapshot_id"),
+            "evidence_packages_written": dossier_exports.get("count"),
+        },
         "failed_required_checks": failed_required_checks,
         "failed_advisory_checks": warning_checks,
         "warning_checks": warning_checks,
@@ -1497,6 +1529,10 @@ def run_samgov_smoke_workflow_hardened(
         "doctor_status_json": doctor_json,
         "foia_lead_review_board_html": bundle_dir / FOIA_LEAD_REVIEW_BOARD_HTML_PATH,
         "foia_lead_review_board_md": bundle_dir / FOIA_LEAD_REVIEW_BOARD_MD_PATH,
+        "lead_dossiers": {
+            "index_json": bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH,
+            "index_csv": bundle_dir / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH,
+        },
         "exports": (workflow_res.get("exports") if isinstance(workflow_res, dict) else None),
     }
 
@@ -1508,6 +1544,7 @@ def run_samgov_smoke_workflow_hardened(
         "report_html": bundle_dir / "report" / "bundle_report.html",
         "foia_lead_review_board_html": artifacts.get("foia_lead_review_board_html"),
         "foia_lead_review_board_md": artifacts.get("foia_lead_review_board_md"),
+        "lead_dossiers": artifacts.get("lead_dossiers"),
         "exports": artifacts.get("exports"),
     }
     workflow_module._write_json(summary_json, summary_payload)
@@ -1515,6 +1552,10 @@ def run_samgov_smoke_workflow_hardened(
     review_board_artifacts = render_foia_lead_review_board_from_bundle(bundle_dir)
     artifacts["foia_lead_review_board_html"] = review_board_artifacts["html"]
     artifacts["foia_lead_review_board_md"] = review_board_artifacts["markdown"]
+    artifacts["lead_dossiers"] = {
+        "index_json": review_board_artifacts.get("dossier_index_json") or (bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH),
+        "index_csv": review_board_artifacts.get("dossier_index_csv") or (bundle_dir / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH),
+    }
 
     report_html = render_sam_bundle_report(
         bundle_dir=bundle_dir,
@@ -1523,6 +1564,13 @@ def run_samgov_smoke_workflow_hardened(
         artifacts=artifacts,
     )
     artifacts["report_html"] = report_html
+    summary_payload["artifacts"]["report_html"] = report_html
+    summary_payload["artifacts"]["foia_lead_review_board_html"] = artifacts["foia_lead_review_board_html"]
+    summary_payload["artifacts"]["foia_lead_review_board_md"] = artifacts["foia_lead_review_board_md"]
+    summary_payload["artifacts"]["lead_dossiers"] = artifacts.get("lead_dossiers")
+    workflow_module._write_json(summary_json, summary_payload)
+
+    lead_dossiers_payload = _load_json_payload((artifacts.get("lead_dossiers") or {}).get("index_json"))
 
     manifest_payload = {
         "bundle_version": SAM_BUNDLE_VERSION,
@@ -1531,6 +1579,7 @@ def run_samgov_smoke_workflow_hardened(
         "validation_mode": mode,
         "scoring_version": str(scoring_version),
         "compare_scoring_versions": list(compare_scoring_versions or []),
+        "lead_dossier_top_n": resolved_lead_dossier_top_n,
         "generated_at": now.isoformat(),
         "workflow_status": workflow_status,
         "status": workflow_status,
@@ -1582,6 +1631,12 @@ def run_samgov_smoke_workflow_hardened(
             },
         },
         "mission_quality": mission_quality_summary,
+        "lead_dossiers": lead_dossiers_payload
+        or {
+            "top_n": resolved_lead_dossier_top_n,
+            "snapshot_id": dossier_exports.get("snapshot_id"),
+            "evidence_packages_written": dossier_exports.get("count"),
+        },
         "quality_gate_policy": quality_gate_policy,
         "run_parameters": {
             "ingest_days": effective_window.get("effective_days"),
@@ -1598,6 +1653,7 @@ def run_samgov_smoke_workflow_hardened(
             "scan_limit": int(scan_limit),
             "scoring_version": str(scoring_version),
             "compare_scoring_versions": list(compare_scoring_versions or []),
+            "lead_dossier_top_n": resolved_lead_dossier_top_n,
             "date_from": _iso_or_none(date_from),
             "date_to": _iso_or_none(date_to),
             "occurred_after": _iso_or_none(occurred_after),
@@ -1637,6 +1693,7 @@ def run_samgov_smoke_workflow_hardened(
         "validation_mode": mode,
         "scoring_version": str(scoring_version),
         "compare_scoring_versions": list(compare_scoring_versions or []),
+        "lead_dossier_top_n": resolved_lead_dossier_top_n,
         "bundle_version": SAM_BUNDLE_VERSION,
         "bundle_dir": bundle_dir,
         "run_metadata": run_metadata,
@@ -1689,6 +1746,7 @@ def run_samgov_validation_workflow_hardened(
     compare_scoring_versions: Optional[list[str]] = None,
     notes: Optional[str] = "samgov larger-run validation",
     bundle_root: Optional[Path] = None,
+    lead_dossier_top_n: int = DEFAULT_BUNDLE_DOSSIER_TOP_N,
     database_url: Optional[str] = None,
     require_nonzero: bool = True,
     skip_ingest: bool = False,
@@ -1727,6 +1785,7 @@ def run_samgov_validation_workflow_hardened(
         compare_scoring_versions=list(compare_scoring_versions or []),
         notes=notes,
         bundle_root=(Path(bundle_root).expanduser() if bundle_root else EXPORTS_DIR / "validation" / "samgov"),
+        lead_dossier_top_n=int(lead_dossier_top_n),
         database_url=database_url,
         require_nonzero=bool(require_nonzero),
         skip_ingest=bool(skip_ingest),

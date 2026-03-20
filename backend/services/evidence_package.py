@@ -33,6 +33,8 @@ from backend.services.explainability import (
 from backend.services.investigator_filters import event_place_region_label
 from backend.services.lead_families import classify_lead_families
 
+DEFAULT_BUNDLE_DOSSIER_TOP_N = 10
+
 
 def _iso(value: Any) -> str | None:
     if value is None:
@@ -284,6 +286,12 @@ def _write_payload(payload: dict[str, Any], *, output: Optional[Path], base_name
     return path
 
 
+def bundle_lead_dossier_base_name(*, rank: int, event_id: int) -> str:
+    safe_rank = max(int(rank), 0)
+    safe_event_id = max(int(event_id), 0)
+    return f"lead_{safe_rank:03d}_event_{safe_event_id}"
+
+
 def export_correlation_evidence_package(
     *,
     correlation_id: int,
@@ -440,16 +448,37 @@ def export_lead_evidence_package(
                 "event_hash": event.hash,
                 "rank": int(item.rank),
                 "score": int(item.score),
+                "snippet": event.snippet,
                 "source": event.source,
                 "doc_id": event.doc_id,
                 "source_url": event.source_url,
                 "lead_family": details.get("lead_family"),
+                "lead_family_label": details.get("lead_family_label"),
                 "secondary_lead_families": details.get("secondary_lead_families") or [],
                 "lead_family_selection": details.get("lead_family_selection") or {},
                 "lead_family_assignments": details.get("lead_family_assignments") or [],
                 "lead_family_context": details.get("lead_family_context") or {},
                 "corroboration_summary": details.get("corroboration_summary") or {},
                 "contributing_lanes": details.get("contributing_lanes") or [],
+                "top_positive_signals": details.get("top_positive_signals") or [],
+                "top_suppressors": details.get("top_suppressors") or [],
+                "linked_source_summary": (
+                    (details.get("corroboration_summary") or {}).get("linked_source_summary") or []
+                ),
+                "candidate_evidence": (
+                    (details.get("corroboration_summary") or {}).get("candidate_join_evidence") or []
+                ),
+                "identifiers": lead_record.get("identifiers") or {},
+                "agency": lead_record.get("agency") or {},
+                "recipient": lead_record.get("recipient") or {},
+                "psc": lead_record.get("psc") or {},
+                "naics": lead_record.get("naics") or {},
+                "place_time": {
+                    "place_text": lead_record.get("place_text"),
+                    "place_region": lead_record.get("place_region"),
+                    "occurred_at": lead_record.get("occurred_at"),
+                    "created_at": lead_record.get("created_at"),
+                },
                 "score_details": details,
             },
             "supporting_correlations": supporting_correlations,
@@ -500,4 +529,97 @@ def export_evidence_package(
     )
 
 
-__all__ = ["export_evidence_package", "export_correlation_evidence_package", "export_lead_evidence_package"]
+def export_top_lead_evidence_packages(
+    *,
+    lead_snapshot: dict[str, Any],
+    bundle_dir: Path,
+    top_n: int = DEFAULT_BUNDLE_DOSSIER_TOP_N,
+    snapshot_id: Optional[int] = None,
+    database_url: Optional[str] = None,
+) -> dict[str, Any]:
+    rows = [dict(item) for item in (lead_snapshot.get("items") or []) if isinstance(item, dict)]
+    rows.sort(
+        key=lambda item: (
+            safe_int(item.get("rank"), default=10**9),
+            safe_int(item.get("event_id"), default=10**9),
+        )
+    )
+    resolved_top_n = max(int(top_n), 0)
+    resolved_snapshot_id = safe_int(snapshot_id, default=0)
+    if resolved_snapshot_id <= 0:
+        resolved_snapshot_id = safe_int(((lead_snapshot.get("snapshot") or {}).get("id")), default=0)
+
+    output_dir = Path(bundle_dir).expanduser() / "report" / "lead_dossiers" / "evidence_packages"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    results: list[dict[str, Any]] = []
+    if resolved_top_n <= 0 or resolved_snapshot_id <= 0:
+        return {
+            "enabled": resolved_top_n > 0,
+            "snapshot_id": resolved_snapshot_id or None,
+            "top_n": resolved_top_n,
+            "count": 0,
+            "output_dir": output_dir,
+            "items": results,
+        }
+
+    for row in rows[:resolved_top_n]:
+        rank = safe_int(row.get("rank"), default=0)
+        event_id = safe_int(row.get("event_id"), default=0)
+        if rank <= 0 or event_id <= 0:
+            results.append(
+                {
+                    "rank": rank or None,
+                    "event_id": event_id or None,
+                    "json": None,
+                    "error": "missing_rank_or_event_id",
+                }
+            )
+            continue
+
+        base_name = bundle_lead_dossier_base_name(rank=rank, event_id=event_id)
+        output_path = output_dir / f"{base_name}.json"
+        try:
+            export_result = export_lead_evidence_package(
+                snapshot_id=resolved_snapshot_id,
+                lead_event_id=event_id,
+                database_url=database_url,
+                output=output_path,
+            )
+            results.append(
+                {
+                    "rank": rank,
+                    "event_id": event_id,
+                    "json": export_result.get("json"),
+                    "package_type": export_result.get("package_type"),
+                    "source_record_count": export_result.get("source_record_count"),
+                }
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "rank": rank,
+                    "event_id": event_id,
+                    "json": None,
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "enabled": True,
+        "snapshot_id": resolved_snapshot_id,
+        "top_n": resolved_top_n,
+        "count": len([item for item in results if item.get("json")]),
+        "output_dir": output_dir,
+        "items": results,
+    }
+
+
+__all__ = [
+    "DEFAULT_BUNDLE_DOSSIER_TOP_N",
+    "bundle_lead_dossier_base_name",
+    "export_evidence_package",
+    "export_correlation_evidence_package",
+    "export_lead_evidence_package",
+    "export_top_lead_evidence_packages",
+]

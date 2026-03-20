@@ -47,6 +47,8 @@ Use `--posted-from YYYY-MM-DD --posted-to YYYY-MM-DD` on `ss ingest samgov`, `ss
 ## 1) Bounded SAM smoke run
 
 - `ss workflow samgov-smoke --days 30 --pages 2 --limit 50 --window-days 30 --json`
+- Optional dossier export override: add `--lead-dossier-top-n <N>` to change how many top-ranked leads get bundle dossiers/evidence packages.
+  Use `--lead-dossier-top-n 0` to disable auto dossier export for that run.
 
 Artifacts are written under:
 - `data/exports/smoke/samgov/<timestamp>/`
@@ -150,6 +152,7 @@ Outputs:
 - `exports/lead_adjudication_metrics.json`: acceptance rate, precision@k, rejection reasons, by-family, and by-scoring-version metrics
 - Lead snapshot exports now also emit a canonical `review_summary.json` alongside `lead_snapshot.csv` and `lead_snapshot.json`; it captures snapshot id, scoring version, effective review window, artifact filenames, completeness counts, and evidence-package availability.
 - Bundles now also emit `report/foia_lead_review_board.html` and `report/foia_lead_review_board.md` for reviewer-first FOIA lead triage, plus per-lead dossier markdown files under `report/lead_dossiers/`.
+- Bundles also emit `report/lead_dossiers/dossier_index.json`, `report/lead_dossiers/dossier_index.csv`, and structured evidence-package JSON files under `report/lead_dossiers/evidence_packages/`.
 
 Interpretation:
 

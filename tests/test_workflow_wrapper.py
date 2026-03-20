@@ -6,6 +6,11 @@ from pathlib import Path
 from backend.services.adjudication import evaluate_lead_adjudications, export_lead_adjudication_template
 from backend.services.bundle import SAM_BUNDLE_VERSION
 from backend.db.models import Event, LeadSnapshotItem, ensure_schema, get_session_factory
+from backend.services.foia_review_board import (
+    FOIA_LEAD_DOSSIER_EVIDENCE_DIR,
+    FOIA_LEAD_DOSSIER_INDEX_CSV_PATH,
+    FOIA_LEAD_DOSSIER_INDEX_JSON_PATH,
+)
 import backend.services.workflow as workflow_module
 from backend.services.workflow import (
     run_samgov_smoke_workflow,
@@ -737,6 +742,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert res["smoke_passed"] is True
 
     artifacts = res["artifacts"]
+    bundle_dir = Path(res["bundle_dir"])
     summary_path = Path(artifacts["smoke_summary_json"])
     doctor_path = Path(artifacts["doctor_status_json"])
     workflow_path = Path(artifacts["workflow_result_json"])
@@ -744,6 +750,9 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     report_path = Path(artifacts["report_html"])
     review_board_path = Path(artifacts["foia_lead_review_board_html"])
     review_board_md_path = Path(artifacts["foia_lead_review_board_md"])
+    dossier_index_json_path = bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH
+    dossier_index_csv_path = bundle_dir / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH
+    dossier_evidence_dir = bundle_dir / FOIA_LEAD_DOSSIER_EVIDENCE_DIR
 
     assert summary_path.exists()
     assert doctor_path.exists()
@@ -752,6 +761,9 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert report_path.exists()
     assert review_board_path.exists()
     assert review_board_md_path.exists()
+    assert dossier_index_json_path.exists()
+    assert dossier_index_csv_path.exists()
+    assert dossier_evidence_dir.exists()
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary_payload["workflow_status"] == "warning"
@@ -784,6 +796,8 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert manifest_payload.get("scoring_version") == "v3"
     assert manifest_payload.get("workflow_status") == "warning"
     assert manifest_payload.get("quality") == "degraded"
+    assert manifest_payload.get("lead_dossier_top_n") == 10
+    assert (manifest_payload.get("lead_dossiers") or {}).get("count") == 3
     generated_files = manifest_payload.get("generated_files") or {}
     assert "workflow_result_json" in generated_files
     assert "workflow_summary_json" in generated_files
@@ -792,6 +806,8 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert "foia_lead_review_board_html" in generated_files
     assert "foia_lead_review_board_md" in generated_files
     assert "export_lead_review_summary_json" in generated_files
+    assert "lead_dossier_index_json" in generated_files
+    assert "lead_dossier_index_csv" in generated_files
 
     exports = artifacts.get("exports") or {}
     lead_export = exports.get("lead_snapshot") or {}
@@ -816,10 +832,14 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert "Source coverage/context health" in report_html
     assert "Lead-signal quality" in report_html
     assert "Mission Quality" in report_html
+    assert "lead_dossiers/dossier_index.json" in report_html
+    assert "lead_dossiers/dossier_index.csv" in report_html
 
     review_board_html = review_board_path.read_text(encoding="utf-8")
     assert "FOIA Lead Review Board" in review_board_html
     assert "Top Leads" in review_board_html
+    assert "Dossier index JSON" in review_board_html
+    assert "evidence" in review_board_html
 
     baseline = summary_payload.get("baseline", {})
     entity_cov = baseline.get("entity_coverage", {})
@@ -833,6 +853,24 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     checks_by_name = {item.get("name"): item for item in summary_payload.get("checks", [])}
     assert checks_by_name["sam_research_context_coverage_threshold"]["status"] == "pass"
     assert checks_by_name["same_sam_naics_lane_threshold"]["status"] == "pass"
+
+    dossier_index_payload = json.loads(dossier_index_json_path.read_text(encoding="utf-8"))
+    assert dossier_index_payload["top_n"] == 10
+    assert dossier_index_payload["count"] == 3
+    first_dossier = dossier_index_payload["items"][0]
+    assert first_dossier["rank"] == 1
+    assert first_dossier["event_id"] is not None
+    assert first_dossier["scoring_version"] == "v3"
+    assert first_dossier["dossier_path"].startswith("report/lead_dossiers/lead_001_event_")
+    assert first_dossier["evidence_package_path"].startswith("report/lead_dossiers/evidence_packages/lead_001_event_")
+
+    evidence_packages = sorted(dossier_evidence_dir.glob("lead_*.json"))
+    assert len(evidence_packages) == 3
+    evidence_payload = json.loads(evidence_packages[0].read_text(encoding="utf-8"))
+    assert evidence_payload["package_type"] == "lead_evidence_package"
+    assert evidence_payload["lead"]["top_positive_signals"] is not None
+    assert evidence_payload["lead"]["top_suppressors"] is not None
+    assert evidence_payload["lead"]["place_time"] is not None
 
 
 def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
@@ -892,6 +930,43 @@ def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
     assert "2024-01-01" in report_html
     assert "2024-03-31" in report_html
     assert "scoring_version=v3" in report_html
+
+
+def test_samgov_smoke_bundle_respects_configured_lead_dossier_top_n(tmp_path: Path):
+    db_path = tmp_path / "sam_smoke_dossiers.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_smoke_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        lead_dossier_top_n=2,
+        bundle_root=tmp_path / "smoke_artifacts_top_two",
+        require_nonzero=True,
+    )
+
+    bundle_dir = Path(res["bundle_dir"])
+    dossier_index_payload = json.loads((bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH).read_text(encoding="utf-8"))
+    evidence_packages = sorted((bundle_dir / FOIA_LEAD_DOSSIER_EVIDENCE_DIR).glob("lead_*.json"))
+
+    assert res["lead_dossier_top_n"] == 2
+    assert dossier_index_payload["top_n"] == 2
+    assert dossier_index_payload["count"] == 2
+    assert len(evidence_packages) == 2
+    assert all(item["rank"] in {1, 2} for item in dossier_index_payload["items"])
 
 
 def test_samgov_smoke_bundle_can_emit_scoring_comparison_artifact(tmp_path: Path):

@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from backend.services.foia_review_board import (
+    FOIA_LEAD_DOSSIER_INDEX_CSV_PATH,
+    FOIA_LEAD_DOSSIER_INDEX_JSON_PATH,
     FOIA_LEAD_REVIEW_BOARD_HTML_PATH,
     FOIA_LEAD_REVIEW_BOARD_MD_PATH,
 )
@@ -209,6 +211,11 @@ def flatten_bundle_files(*, artifacts: dict[str, Any], bundle_dir: Path) -> dict
         )
         if isinstance(adjudication_metrics, dict):
             _add("export_lead_adjudication_metrics_json", adjudication_metrics.get("json"))
+
+    lead_dossiers = artifacts.get("lead_dossiers") if isinstance(artifacts.get("lead_dossiers"), dict) else {}
+    if isinstance(lead_dossiers, dict):
+        _add("lead_dossier_index_json", lead_dossiers.get("index_json"))
+        _add("lead_dossier_index_csv", lead_dossiers.get("index_csv"))
 
     return files
 
@@ -534,11 +541,21 @@ def render_sam_bundle_report(
     evaluation_markup = _render_evaluation_section(bundle_dir=bundle_dir, artifacts=artifacts)
     review_board_html = _as_path(artifacts.get("foia_lead_review_board_html")) or (bundle_dir / FOIA_LEAD_REVIEW_BOARD_HTML_PATH)
     review_board_md = _as_path(artifacts.get("foia_lead_review_board_md")) or (bundle_dir / FOIA_LEAD_REVIEW_BOARD_MD_PATH)
+    lead_dossiers = artifacts.get("lead_dossiers") if isinstance(artifacts.get("lead_dossiers"), dict) else {}
+    dossier_index_json = _as_path((lead_dossiers or {}).get("index_json")) or (bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH)
+    dossier_index_csv = _as_path((lead_dossiers or {}).get("index_csv")) or (bundle_dir / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH)
+    dossier_links: list[str] = []
+    if dossier_index_json.exists():
+        dossier_links.append(f"<a href=\"../{html.escape(_rel(dossier_index_json, bundle_dir))}\">lead_dossiers/dossier_index.json</a>")
+    if dossier_index_csv.exists():
+        dossier_links.append(f"<a href=\"../{html.escape(_rel(dossier_index_csv, bundle_dir))}\">lead_dossiers/dossier_index.csv</a>")
     review_board_markup = (
         "<h2>Reviewer Surface</h2>"
         "<div class=\"meta\">Open the reviewer-first FOIA Lead Review Board for ranked lead evaluation, noise patterns, and next-record targeting.</div>"
         f"<p><a href=\"{html.escape(review_board_html.name)}\">foia_lead_review_board.html</a>"
-        f" | <a href=\"{html.escape(review_board_md.name)}\">foia_lead_review_board.md</a></p>"
+        f" | <a href=\"{html.escape(review_board_md.name)}\">foia_lead_review_board.md</a>"
+        + (f" | {' | '.join(dossier_links)}" if dossier_links else "")
+        + "</p>"
     )
 
     generated_at = str(summary.get("generated_at") or datetime.now(timezone.utc).isoformat())
