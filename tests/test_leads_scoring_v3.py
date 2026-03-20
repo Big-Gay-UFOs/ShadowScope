@@ -1271,6 +1271,31 @@ def test_compute_leads_v3_caps_starter_only_pair_bonus_and_exposes_pair_quality(
     assert starter_score < software_score
 
 
+def test_compute_leads_v3_keeps_classified_visit_rules_out_of_routine_access_control_hints(tmp_path):
+    db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_visit_rules.db').as_posix()}"
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+
+    with SessionFactory() as db:
+        _seed_v3_rank_regression_fixture(db)
+        ranked, _scanned = compute_leads(
+            db,
+            source="SAM.gov",
+            min_score=-50,
+            limit=20,
+            scan_limit=100,
+            scoring_version="v3",
+            pair_signal_threshold=0.15,
+            pair_event_count_threshold=2,
+        )
+
+    by_hash = {event.hash: details for _score, event, details in ranked}
+    starter_details = by_hash["v3_reg_starter_pair_noise"]
+
+    assert "site_security_access_control" not in starter_details["classification_tags"]
+    assert "site_security_access_control" not in starter_details["routine_noise_tags"]
+
+
 def test_compute_leads_v3_ignores_starter_only_pairs_for_family_relevance_bonus(tmp_path):
     db_url = f"sqlite:///{(tmp_path / 'leads_scoring_v3_family_pair_guard.db').as_posix()}"
     ensure_schema(db_url)
