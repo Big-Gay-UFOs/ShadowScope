@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-from backend.services.foia_review_board import render_foia_lead_review_board_from_bundle
+from backend.services.foia_review_board import (
+    FOIA_LEAD_DOSSIER_INDEX_CSV_PATH,
+    FOIA_LEAD_DOSSIER_INDEX_JSON_PATH,
+    render_foia_lead_review_board_from_bundle,
+)
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -317,6 +321,7 @@ def test_foia_lead_review_board_contains_required_sections_and_links(tmp_path: P
 
     html = artifacts["html"].read_text(encoding="utf-8")
     markdown = artifacts["markdown"].read_text(encoding="utf-8")
+    dossier_index = json.loads((bundle / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH).read_text(encoding="utf-8"))
 
     assert "FOIA Lead Review Board" in html
     assert "Run Header" in html
@@ -325,6 +330,8 @@ def test_foia_lead_review_board_contains_required_sections_and_links(tmp_path: P
     assert "Run-Level Diagnostics" in html
     assert "Why likely noise" in html
     assert "FOIA draftability" in html
+    assert "Dossier index JSON" in html
+    assert "Dossier index CSV" in html
     assert "lead_dossiers/lead_001_event_101.md" in html
     assert "starter-only ontology support" in html or "starter-only pair support" in html
     assert "Routine-Noise Share" in html
@@ -332,6 +339,9 @@ def test_foia_lead_review_board_contains_required_sections_and_links(tmp_path: P
     assert "FOIA Lead Review Board" in markdown
     assert "## Top Leads" in markdown
     assert (bundle / "report" / "lead_dossiers" / "lead_001_event_101.md").exists()
+    assert (bundle / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH).exists()
+    assert dossier_index["count"] == 3
+    assert dossier_index["items"][0]["dossier_path"] == "report/lead_dossiers/lead_001_event_101.md"
 
 
 def test_foia_lead_review_board_handles_empty_or_partial_bundles(tmp_path: Path):
@@ -362,3 +372,76 @@ def test_foia_lead_review_board_renders_adjudication_when_present(tmp_path: Path
     assert "Adjudication metrics" in html
     assert "## Adjudication" in markdown
     assert "### Precision @ k" in markdown
+
+
+def test_foia_lead_review_board_dossiers_handle_missing_fields_conservatively(tmp_path: Path):
+    bundle = _write_bundle(tmp_path / "bundle_partial", include_adjudication=False, include_leads=False)
+    partial_row = _lead_row(
+        rank=1,
+        score=7,
+        event_id=201,
+        lead_family=None,
+        why_summary="Thin partial row for missing-field handling.",
+        snippet="Partial row with limited serialized evidence.",
+        top_positive_signals=[],
+        top_suppressors=[],
+        contributing_lanes=["kw_pair"],
+        candidate_join_evidence=[],
+        linked_source_summary=[],
+        matched_ontology_rules=[],
+        pair_count=0,
+        noise_penalty=0,
+        has_foia_handles=False,
+        has_agency_target=False,
+        has_vendor_context=False,
+        has_classification_context=False,
+        source_url="",
+        solicitation_number=None,
+        award_id=None,
+    )
+    partial_row["psc_code"] = None
+    partial_row["psc_description"] = None
+    partial_row["naics_code"] = None
+    partial_row["naics_description"] = None
+    partial_row["place_text"] = None
+    partial_row["place_region"] = None
+    partial_row["source_url"] = None
+    partial_row["entity_id"] = None
+    partial_row["occurred_at"] = None
+    partial_row["created_at"] = None
+    partial_row["doc_id"] = None
+    partial_row["document_id"] = None
+    partial_row["source_record_id"] = None
+
+    _write_json(
+        bundle / "exports" / "lead_snapshot.json",
+        {
+            "count": 1,
+            "scoring_version": "v3",
+            "family_groups": [],
+            "items": [partial_row],
+        },
+    )
+    _write_json(
+        bundle / "exports" / "review_summary.json",
+        {
+            "scoring_version": "v3",
+            "effective_window": {
+                "earliest": "2026-03-10T00:00:00+00:00",
+                "latest": "2026-03-10T00:00:00+00:00",
+                "span_days": 0,
+            },
+            "completeness_counts": {},
+        },
+    )
+
+    render_foia_lead_review_board_from_bundle(bundle)
+
+    dossier_text = (bundle / "report" / "lead_dossiers" / "lead_001_event_201.md").read_text(encoding="utf-8")
+    dossier_index = json.loads((bundle / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH).read_text(encoding="utf-8"))
+
+    assert "No vendor/entity block available." in dossier_text
+    assert "No PSC / NAICS classification anchors available." in dossier_text
+    assert "No place/time anchors available." in dossier_text
+    assert dossier_index["items"][0]["identifiers"] == []
+    assert dossier_index["items"][0]["dossier_path"] == "report/lead_dossiers/lead_001_event_201.md"

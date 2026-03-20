@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import html
 import json
 from collections import Counter
@@ -10,6 +11,10 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 from backend.services.adjudication import load_bundle_adjudication_state
+from backend.services.evidence_package import (
+    DEFAULT_BUNDLE_DOSSIER_TOP_N,
+    bundle_lead_dossier_base_name,
+)
 from backend.services.lead_families import (
     lead_family_label,
     summarize_lead_family_distribution,
@@ -25,11 +30,13 @@ from backend.services.review_contract import (
 FOIA_LEAD_REVIEW_BOARD_HTML_PATH = Path("report") / "foia_lead_review_board.html"
 FOIA_LEAD_REVIEW_BOARD_MD_PATH = Path("report") / "foia_lead_review_board.md"
 FOIA_LEAD_DOSSIER_DIR = Path("report") / "lead_dossiers"
+FOIA_LEAD_DOSSIER_INDEX_JSON_PATH = FOIA_LEAD_DOSSIER_DIR / "dossier_index.json"
+FOIA_LEAD_DOSSIER_INDEX_CSV_PATH = FOIA_LEAD_DOSSIER_DIR / "dossier_index.csv"
+FOIA_LEAD_DOSSIER_EVIDENCE_DIR = FOIA_LEAD_DOSSIER_DIR / "evidence_packages"
 
 _TOP_LEAD_TABLE_LIMIT = 15
 _TOP_LEAD_DETAIL_LIMIT = 10
-_TOP_LEAD_DOSSIER_LIMIT = 15
-_MISSION_QUALITY_TOP_LEAD_LIMIT = 10
+_MISSION_QUALITY_TOP_LEAD_LIMIT = DEFAULT_BUNDLE_DOSSIER_TOP_N
 _ROUTINE_NOISE_PREFIXES = ("operational_noise_terms:", "sam_proxy_noise_expansion:")
 _ROUTINE_NOISE_TOKENS = ("routine", "admin", "commodity", "janitorial", "license renewal", "maintenance")
 _STARTER_PACK_PREFIXES = ("sam_procurement_starter",)
@@ -56,6 +63,17 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return float(default)
+
+
+def _first_int(*values: Any, default: int) -> int:
+    for value in values:
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except Exception:
+            continue
+    return int(default)
 
 
 def _norm_text(value: Any) -> str:
@@ -464,6 +482,27 @@ def _vendor_block(row: dict[str, Any]) -> list[str]:
     return out or ["No vendor/entity block available."]
 
 
+def _agency_office_block(row: dict[str, Any]) -> list[str]:
+    fields = [
+        ("contracting_office", _first_present(row.get("contracting_office_name"), row.get("contracting_office_code"))),
+        ("awarding_agency", _first_present(row.get("awarding_agency_name"), row.get("awarding_agency_code"))),
+        ("funding_agency", _first_present(row.get("funding_agency_name"), row.get("funding_agency_code"))),
+    ]
+    out = [f"{label}: {value}" for label, value in fields if _norm_text(value)]
+    return out or ["No agency or office handle available."]
+
+
+def _classification_block(row: dict[str, Any]) -> list[str]:
+    fields = [
+        ("psc", _first_present(row.get("psc_code"), row.get("psc_description"))),
+        ("psc_description", row.get("psc_description")),
+        ("naics", _first_present(row.get("naics_code"), row.get("naics_description"))),
+        ("naics_description", row.get("naics_description")),
+    ]
+    out = [f"{label}: {value}" for label, value in fields if _norm_text(value)]
+    return out or ["No PSC / NAICS classification anchors available."]
+
+
 def _place_time_block(row: dict[str, Any]) -> list[str]:
     fields = [
         ("place", row.get("place_text")),
@@ -473,6 +512,75 @@ def _place_time_block(row: dict[str, Any]) -> list[str]:
     ]
     out = [f"{label}: {_iso_text(value) if label.endswith('_at') else value}" for label, value in fields if _norm_text(value)]
     return out or ["No place/time anchors available."]
+
+
+def _lead_scoring_version(row: dict[str, Any]) -> str:
+    return (
+        _first_present(
+            row.get("scoring_version"),
+            row.get("snapshot_scoring_version"),
+            _norm_dict(row.get("score_details")).get("scoring_version"),
+        )
+        or "Unavailable"
+    )
+
+
+def _linked_source_texts(row: dict[str, Any]) -> list[str]:
+    return [linked_source_text(item) for item in _linked_source_items(row)]
+
+
+def _candidate_evidence_texts(row: dict[str, Any]) -> list[str]:
+    return [candidate_join_text(item) for item in _candidate_join_items(row)]
+
+
+def _corroboration_summary_lines(row: dict[str, Any]) -> list[str]:
+    details = _norm_dict(row.get("score_details"))
+    corroboration_summary = _norm_dict(row.get("corroboration_summary"))
+    sources = _norm_list(details.get("corroboration_sources"))
+    items: list[str] = []
+    corroboration_score = details.get("corroboration_score")
+    if corroboration_score is not None:
+        items.append(f"corroboration_score: {corroboration_score}")
+    lanes = _corroboration_lanes(row)
+    if lanes:
+        items.append(f"lanes: {', '.join(lanes)}")
+    correlation_types = _norm_list(corroboration_summary.get("correlation_types_hit"))
+    if correlation_types:
+        items.append("correlation_types_hit: " + ", ".join([str(item) for item in correlation_types if _norm_text(item)]))
+    if sources:
+        items.append("corroboration_sources: " + "; ".join([signal_text(item) for item in sources if isinstance(item, dict)]))
+    items.append("candidate_grade_note: candidate evidence remains evidence for review, not asserted fact.")
+    return items
+
+
+def _score_detail_lines(row: dict[str, Any]) -> list[str]:
+    details = _norm_dict(row.get("score_details"))
+    items = [f"{label}: {value}" for label, value in _subscore_rows(row)]
+    extras = [
+        ("pair_count", details.get("pair_count")),
+        ("pair_strength", details.get("pair_strength")),
+        ("foia_matrix_bonus", details.get("foia_matrix_bonus")),
+        ("foia_potential_tier", details.get("foia_potential_tier")),
+    ]
+    for label, value in extras:
+        if value not in (None, "", []):
+            items.append(f"{label}: {value}")
+    return items or ["No score detail payload available."]
+
+
+def _bundle_relative_or_none(path: Any, bundle_dir: Path) -> str | None:
+    if not isinstance(path, Path):
+        return None
+    return _bundle_relative(path, bundle_dir)
+
+
+def _bundle_evidence_package_path(bundle_dir: Path, row: dict[str, Any]) -> Path | None:
+    rank = _safe_int(row.get("rank"))
+    event_id = _safe_int(row.get("event_id"))
+    if rank <= 0 or event_id <= 0:
+        return None
+    path = bundle_dir / FOIA_LEAD_DOSSIER_EVIDENCE_DIR / f"{bundle_lead_dossier_base_name(rank=rank, event_id=event_id)}.json"
+    return path if path.exists() else None
 
 
 def _derive_lead_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -499,12 +607,20 @@ def _derive_lead_row(row: dict[str, Any]) -> dict[str, Any]:
         "corroboration_lanes": _corroboration_lanes(row) or ["No corroboration lanes serialized."],
         "candidate_evidence_summary": _candidate_evidence_summary(row),
         "vendor_block": _vendor_block(row),
+        "agency_office_block": _agency_office_block(row),
+        "classification_block": _classification_block(row),
         "place_time_block": _place_time_block(row),
+        "score_detail_lines": _score_detail_lines(row),
+        "linked_source_texts": _linked_source_texts(row) or ["No linked source summary serialized."],
+        "candidate_evidence_texts": _candidate_evidence_texts(row) or ["No candidate evidence serialized."],
+        "corroboration_summary_lines": _corroboration_summary_lines(row) or ["No corroboration summary serialized."],
+        "scoring_version": _lead_scoring_version(row),
         "next_records_target": next_target,
         "routine_noise": bool(noise.get("routine_noise")),
         "starter_only_pair": _safe_int(_norm_dict(row.get("score_details")).get("pair_count")) > 0 and not _non_starter_rule_keys(row),
         "non_starter_rules": _non_starter_rule_keys(row),
         "dossier_path": None,
+        "evidence_package_path": None,
     }
 
 
@@ -606,6 +722,7 @@ def build_foia_lead_review_diagnostics(
     review_summary: Optional[dict[str, Any]] = None,
     bundle_dir: Optional[Path] = None,
     mission_top_n: int = _MISSION_QUALITY_TOP_LEAD_LIMIT,
+    dossier_top_n: int = DEFAULT_BUNDLE_DOSSIER_TOP_N,
     dossier_export_enabled: bool = False,
 ) -> dict[str, Any]:
     review_summary = _norm_dict(review_summary)
@@ -618,18 +735,24 @@ def build_foia_lead_review_diagnostics(
     )
 
     derived_rows = [_derive_lead_row(row) for row in rows_raw]
-    dossiers: dict[int, Path] = {}
+    resolved_dossier_top_n = max(int(dossier_top_n), 0)
+    dossiers: dict[int, dict[str, Path | None]] = {}
+    dossier_index: dict[str, Any] = {}
     dossier_export_enabled = bool(dossier_export_enabled and bundle_dir is not None)
     if dossier_export_enabled and bundle_dir is not None:
-        dossiers = _write_dossiers(bundle_dir, derived_rows)
+        dossiers = _write_dossiers(bundle_dir, derived_rows, top_n=resolved_dossier_top_n)
         for item in derived_rows:
-            dossier_path = dossiers.get(item["rank"])
-            if dossier_path is not None:
-                item["dossier_path"] = dossier_path
+            dossier_paths = dossiers.get(item["rank"]) or {}
+            if isinstance(dossier_paths.get("markdown_path"), Path):
+                item["dossier_path"] = dossier_paths["markdown_path"]
+            if isinstance(dossier_paths.get("evidence_package_path"), Path):
+                item["evidence_package_path"] = dossier_paths["evidence_package_path"]
+        dossier_index = _write_dossier_index(bundle_dir, derived_rows, top_n=resolved_dossier_top_n)
 
     top_n = max(int(mission_top_n), 0)
     top_rows_raw = rows_raw[:top_n]
     top_rows = derived_rows[:top_n]
+    dossier_rows = derived_rows[:resolved_dossier_top_n] if dossier_export_enabled else []
 
     family_groups = summarize_lead_family_groups(rows_raw)
     family_distribution = summarize_lead_family_distribution(rows_raw)
@@ -713,18 +836,18 @@ def build_foia_lead_review_diagnostics(
         else 0.0
     )
 
-    dossier_expected_count = len(top_rows) if dossier_export_enabled else None
+    dossier_expected_count = len(dossier_rows) if dossier_export_enabled else None
     dossier_linked_count = None
     dossier_linkage_pct = None
     if dossier_export_enabled:
         dossier_linked_count = sum(
             1
-            for item in top_rows
+            for item in dossier_rows
             if isinstance(item.get("dossier_path"), Path) and Path(item["dossier_path"]).exists()
         )
         dossier_linkage_pct = (
-            round((100.0 * dossier_linked_count / float(len(top_rows))), 1)
-            if top_rows
+            round((100.0 * dossier_linked_count / float(len(dossier_rows))), 1)
+            if dossier_rows
             else 0.0
         )
 
@@ -775,6 +898,7 @@ def build_foia_lead_review_diagnostics(
             "levels": {str(level): int(count) for level, count in sorted(draftability_counts.items())},
         },
         "dossier_export_enabled": dossier_export_enabled,
+        "dossier_top_n": resolved_dossier_top_n if dossier_export_enabled else None,
         "dossier_expected_count": dossier_expected_count,
         "dossier_linked_count": dossier_linked_count,
         "dossier_linkage_pct": dossier_linkage_pct,
@@ -790,6 +914,7 @@ def build_foia_lead_review_diagnostics(
         "top_non_starter_rules": top_non_starter_rules,
         "verdict": verdict,
         "mission_quality": mission_quality,
+        "dossier_index": dossier_index,
     }
 
 
@@ -822,21 +947,38 @@ def _md_table(headers: list[str], rows: list[list[Any]], *, fallback: str) -> st
     return "\n".join(lines)
 
 
-def _write_dossiers(bundle_dir: Path, rows: list[dict[str, Any]]) -> dict[int, Path]:
+def _write_dossiers(
+    bundle_dir: Path,
+    rows: list[dict[str, Any]],
+    *,
+    top_n: int,
+) -> dict[int, dict[str, Path | None]]:
     dossier_dir = bundle_dir / FOIA_LEAD_DOSSIER_DIR
     dossier_dir.mkdir(parents=True, exist_ok=True)
-    written: dict[int, Path] = {}
-    for item in rows[: _TOP_LEAD_DOSSIER_LIMIT]:
+    written: dict[int, dict[str, Path | None]] = {}
+    for item in rows[: max(int(top_n), 0)]:
         row = item["row"]
         rank = max(item["rank"], 0)
         event_id = _safe_int(row.get("event_id"))
-        filename = f"lead_{rank:03d}_event_{event_id or 0}.md"
+        base_name = bundle_lead_dossier_base_name(rank=rank, event_id=event_id or 0)
+        filename = f"{base_name}.md"
         path = dossier_dir / filename
         identifiers = _identifiers(row)
+        agency_block = item["agency_office_block"]
+        vendor_block = item["vendor_block"]
+        classification_block = item["classification_block"]
+        place_time_block = item["place_time_block"]
+        score_detail_lines = item["score_detail_lines"]
+        corroboration_summary_lines = item["corroboration_summary_lines"]
+        linked_source_lines = item["linked_source_texts"]
+        candidate_evidence_lines = item["candidate_evidence_texts"]
+        evidence_package_path = _bundle_evidence_package_path(bundle_dir, row)
         content = [
             f"# Lead #{item['rank']}: {item['lead_family_label']}",
             "",
             f"- Score: {item['score']}",
+            f"- Scoring version: {item['scoring_version']}",
+            f"- Lead family: {item['lead_family_label']}",
             f"- FOIA draftability: {item['foia_draftability']['summary']}",
             f"- Why likely noise: {item['why_likely_noise']['summary']}",
             f"- Agency/office: {item['agency_label']}",
@@ -854,6 +996,26 @@ def _write_dossiers(bundle_dir: Path, rows: list[dict[str, Any]]) -> dict[int, P
             "",
             ("- " + "\n- ".join(identifiers)) if identifiers else "- Unavailable",
             "",
+            "## Agency / Office",
+            "",
+            "- " + "\n- ".join(agency_block),
+            "",
+            "## Recipient / Vendor",
+            "",
+            "- " + "\n- ".join(vendor_block),
+            "",
+            "## PSC / NAICS",
+            "",
+            "- " + "\n- ".join(classification_block),
+            "",
+            "## Place / Time",
+            "",
+            "- " + "\n- ".join(place_time_block),
+            "",
+            f"## {'v3 Score Details' if item['scoring_version'] == 'v3' else 'Score Details'}",
+            "",
+            "- " + "\n- ".join(score_detail_lines),
+            "",
             "## Signals",
             "",
             ("- " + "\n- ".join(item["positive_signals"])) if item["positive_signals"] else "- Unavailable",
@@ -862,10 +1024,22 @@ def _write_dossiers(bundle_dir: Path, rows: list[dict[str, Any]]) -> dict[int, P
             "",
             ("- " + "\n- ".join(item["suppressors"])) if item["suppressors"] else "- Unavailable",
             "",
-            "## Corroboration",
+            "## Corroboration Summary",
             "",
-            f"- Lanes: {', '.join(item['corroboration_lanes'])}",
-            f"- Candidate evidence: {item['candidate_evidence_summary']}",
+            "- " + "\n- ".join(corroboration_summary_lines),
+            "",
+            "## Linked Source Summary",
+            "",
+            "- " + "\n- ".join(linked_source_lines),
+            "",
+            "## Candidate Evidence",
+            "",
+            "- Candidate-grade review aid only. Treat these as evidence for review, not asserted fact.",
+            ("- " + "\n- ".join(candidate_evidence_lines)) if candidate_evidence_lines else "- Unavailable",
+            "",
+            "## Candidate Evidence Summary",
+            "",
+            item["candidate_evidence_summary"],
             "",
             "## Next Records Target",
             "",
@@ -876,12 +1050,95 @@ def _write_dossiers(bundle_dir: Path, rows: list[dict[str, Any]]) -> dict[int, P
             "- Bundle lead snapshot: ../../exports/lead_snapshot.json",
             "- Bundle review summary: ../../exports/review_summary.json",
         ]
+        if evidence_package_path is not None:
+            content.append(f"- Evidence package JSON: evidence_packages/{evidence_package_path.name}")
         source_url = _norm_text(row.get("source_url"))
         if source_url:
             content.append(f"- Source URL: {source_url}")
         path.write_text("\n".join(content) + "\n", encoding="utf-8")
-        written[item["rank"]] = path
+        written[item["rank"]] = {
+            "markdown_path": path,
+            "evidence_package_path": evidence_package_path,
+        }
     return written
+
+
+def _write_dossier_index(
+    bundle_dir: Path,
+    rows: list[dict[str, Any]],
+    *,
+    top_n: int,
+) -> dict[str, Any]:
+    dossier_dir = bundle_dir / FOIA_LEAD_DOSSIER_DIR
+    dossier_dir.mkdir(parents=True, exist_ok=True)
+    index_json_path = bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH
+    index_csv_path = bundle_dir / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH
+
+    items: list[dict[str, Any]] = []
+    csv_rows: list[dict[str, Any]] = []
+    for item in rows[: max(int(top_n), 0)]:
+        row = item["row"]
+        dossier_rel = _bundle_relative_or_none(item.get("dossier_path"), bundle_dir)
+        evidence_rel = _bundle_relative_or_none(item.get("evidence_package_path"), bundle_dir)
+        entry = {
+            "rank": item["rank"],
+            "event_id": _safe_int(row.get("event_id")),
+            "score": item["score"],
+            "scoring_version": item["scoring_version"],
+            "lead_family": item["lead_family"],
+            "lead_family_label": item["lead_family_label"],
+            "snippet": _norm_text(row.get("snippet")) or _norm_text(row.get("why_summary")) or "Unavailable",
+            "agency_label": item["agency_label"],
+            "identifiers": _identifiers(row),
+            "identifiers_text": item["identifiers_text"],
+            "dossier_path": dossier_rel,
+            "evidence_package_path": evidence_rel,
+        }
+        items.append(entry)
+        csv_rows.append(
+            {
+                "rank": entry["rank"],
+                "event_id": entry["event_id"],
+                "score": entry["score"],
+                "scoring_version": entry["scoring_version"],
+                "lead_family": entry["lead_family"],
+                "snippet": entry["snippet"],
+                "agency_label": entry["agency_label"],
+                "identifiers": entry["identifiers_text"],
+                "dossier_path": entry["dossier_path"] or "",
+                "evidence_package_path": entry["evidence_package_path"] or "",
+            }
+        )
+
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "top_n": max(int(top_n), 0),
+        "count": len(items),
+        "items": items,
+    }
+    index_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    with index_csv_path.open("w", encoding="utf-8", newline="") as handle:
+        fieldnames = [
+            "rank",
+            "event_id",
+            "score",
+            "scoring_version",
+            "lead_family",
+            "snippet",
+            "agency_label",
+            "identifiers",
+            "dossier_path",
+            "evidence_package_path",
+        ]
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in csv_rows:
+            writer.writerow(row)
+    return {
+        "json": index_json_path,
+        "csv": index_csv_path,
+        "payload": payload,
+    }
 
 
 def _render_adjudication_html(bundle_dir: Path, adjudication_state: dict[str, Any], metrics: dict[str, Any]) -> str:
@@ -1021,12 +1278,22 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         or _norm_text(manifest.get("generated_at"))
         or datetime.now(timezone.utc).isoformat()
     )
+    dossier_top_n = max(
+        _first_int(
+            summary.get("lead_dossier_top_n"),
+            run_metadata.get("lead_dossier_top_n"),
+            manifest.get("lead_dossier_top_n"),
+            default=DEFAULT_BUNDLE_DOSSIER_TOP_N,
+        ),
+        0,
+    )
     diagnostics = build_foia_lead_review_diagnostics(
         lead_snapshot=lead_snapshot,
         review_summary=review_summary,
         bundle_dir=root,
-        mission_top_n=_MISSION_QUALITY_TOP_LEAD_LIMIT,
-        dossier_export_enabled=True,
+        mission_top_n=dossier_top_n,
+        dossier_top_n=dossier_top_n,
+        dossier_export_enabled=dossier_top_n > 0,
     )
     rows_raw = diagnostics["rows_raw"]
     derived_rows = diagnostics["derived_rows"]
@@ -1034,6 +1301,9 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
     family_distribution = diagnostics["family_distribution"]
     verdict = diagnostics["verdict"]
     mission_quality = diagnostics["mission_quality"]
+    dossier_index = diagnostics.get("dossier_index") if isinstance(diagnostics.get("dossier_index"), dict) else {}
+    table_limit = dossier_top_n or _TOP_LEAD_TABLE_LIMIT
+    detail_limit = min(dossier_top_n, _TOP_LEAD_DETAIL_LIMIT) if dossier_top_n > 0 else _TOP_LEAD_DETAIL_LIMIT
     family_rows = []
     primary_by_family = {
         str(group.get("lead_family") or ""): group
@@ -1091,6 +1361,12 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         _link("Lead snapshot JSON", "../exports/lead_snapshot.json"),
         _link("Review summary JSON", "../exports/review_summary.json"),
     ]
+    dossier_index_json = dossier_index.get("json")
+    dossier_index_csv = dossier_index.get("csv")
+    if isinstance(dossier_index_json, Path):
+        nav_links.append(_link("Dossier index JSON", _relative_href(html_path.parent, dossier_index_json)))
+    if isinstance(dossier_index_csv, Path):
+        nav_links.append(_link("Dossier index CSV", _relative_href(html_path.parent, dossier_index_csv)))
     metrics_path = adjudication_state.get("metrics_json")
     if isinstance(metrics_path, Path):
         nav_links.append(_link("Adjudication metrics", _relative_href(html_path.parent, metrics_path)))
@@ -1102,16 +1378,19 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         ["Ontology profile", _ontology_profile_label(run_metadata)],
         ["Requested window", _requested_window_text(run_metadata)],
         ["Effective review window", _effective_window_text(review_summary)],
+        ["Lead dossier top N", dossier_top_n],
     ]
 
     top_leads_table_rows = []
-    for item in derived_rows[: _TOP_LEAD_TABLE_LIMIT]:
+    for item in derived_rows[:table_limit]:
         dossier_path = item["dossier_path"]
-        dossier_link = (
-            _link("dossier", _relative_href(html_path.parent, dossier_path))
-            if isinstance(dossier_path, Path)
-            else "Unavailable"
-        )
+        evidence_package_path = item.get("evidence_package_path")
+        dossier_links: list[str] = []
+        if isinstance(dossier_path, Path):
+            dossier_links.append(_link("dossier", _relative_href(html_path.parent, dossier_path)))
+        if isinstance(evidence_package_path, Path):
+            dossier_links.append(_link("evidence", _relative_href(html_path.parent, evidence_package_path)))
+        dossier_link = " | ".join(dossier_links) if dossier_links else "Unavailable"
         top_leads_table_rows.append(
             [
                 item["rank"],
@@ -1128,7 +1407,7 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         )
 
     detail_cards: list[str] = []
-    for item in derived_rows[: _TOP_LEAD_DETAIL_LIMIT]:
+    for item in derived_rows[:detail_limit]:
         row = item["row"]
         positive = "".join([f"<li>{_esc(value)}</li>" for value in item["positive_signals"][:6]]) or "<li>Unavailable</li>"
         suppressors = "".join([f"<li>{_esc(value)}</li>" for value in item["suppressors"][:6]]) or "<li>Unavailable</li>"
@@ -1142,8 +1421,13 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
             ]
         )
         dossier_markup = ""
+        dossier_links: list[str] = []
         if isinstance(item["dossier_path"], Path):
-            dossier_markup = "<div class=\"tiny-links\">" + _link("Lead dossier", _relative_href(html_path.parent, item["dossier_path"])) + "</div>"
+            dossier_links.append(_link("Lead dossier", _relative_href(html_path.parent, item["dossier_path"])))
+        if isinstance(item.get("evidence_package_path"), Path):
+            dossier_links.append(_link("Evidence package", _relative_href(html_path.parent, item["evidence_package_path"])))
+        if dossier_links:
+            dossier_markup = "<div class=\"tiny-links\">" + " | ".join(dossier_links) + "</div>"
         detail_cards.append(
             "<article class=\"card\">"
             f"<h3 id=\"lead-{item['rank']}\">#{item['rank']} | {_esc(item['lead_family_label'])} | score={item['score']}</h3>"
@@ -1181,11 +1465,11 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         "</div>"
         "<div class=\"diag-card\">"
         "<h3>Starter-Only Pair Dominance</h3>"
-        f"<p>{_esc(starter_only_pct)} of the reviewed top {_MISSION_QUALITY_TOP_LEAD_LIMIT} leads rely on kw_pair plus starter-only ontology support.</p>"
+        f"<p>{_esc(starter_only_pct)} of the reviewed top {mission_quality.get('mission_top_n') or _MISSION_QUALITY_TOP_LEAD_LIMIT} leads rely on kw_pair plus starter-only ontology support.</p>"
         "</div>"
         "<div class=\"diag-card\">"
         "<h3>Routine-Noise Share</h3>"
-        f"<p>{_esc(routine_noise_pct)} of the reviewed top {_MISSION_QUALITY_TOP_LEAD_LIMIT} leads carry routine-noise suppressor hits.</p>"
+        f"<p>{_esc(routine_noise_pct)} of the reviewed top {mission_quality.get('mission_top_n') or _MISSION_QUALITY_TOP_LEAD_LIMIT} leads carry routine-noise suppressor hits.</p>"
         "</div>"
         "<div class=\"diag-card wide\">"
         "<h3>Top Non-Starter Packs / Rules</h3>"
@@ -1353,9 +1637,19 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
                     item["why_interesting"],
                     item["why_likely_noise"]["summary"],
                     item["foia_draftability"]["summary"],
-                    _md_link("dossier", _relative_href(md_path.parent, item["dossier_path"])) if isinstance(item["dossier_path"], Path) else "Unavailable",
+                    " / ".join(
+                        [
+                            value
+                            for value in [
+                                _md_link("dossier", _relative_href(md_path.parent, item["dossier_path"])) if isinstance(item["dossier_path"], Path) else None,
+                                _md_link("evidence", _relative_href(md_path.parent, item["evidence_package_path"])) if isinstance(item.get("evidence_package_path"), Path) else None,
+                            ]
+                            if value
+                        ]
+                    )
+                    or "Unavailable",
                 ]
-                for item in derived_rows[: _TOP_LEAD_TABLE_LIMIT]
+                for item in derived_rows[:table_limit]
             ],
             fallback="No lead snapshot rows available for review.",
         ),
@@ -1366,12 +1660,13 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
     if not derived_rows:
         md_lines.append("No detailed lead cards are available.")
         md_lines.append("")
-    for item in derived_rows[: _TOP_LEAD_DETAIL_LIMIT]:
+    for item in derived_rows[:detail_limit]:
         md_lines.extend(
             [
                 f"### Lead #{item['rank']} - {item['lead_family_label']}",
                 "",
                 f"- Score: {item['score']}",
+                f"- Scoring version: {item['scoring_version']}",
                 f"- Why likely noise: {item['why_likely_noise']['summary']}",
                 f"- FOIA draftability: {item['foia_draftability']['summary']}",
                 f"- Candidate evidence: {item['candidate_evidence_summary']}",
@@ -1396,8 +1691,8 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
             f"- Family distribution: {family_distribution_text}",
             f"- Ambiguous leads: {family_distribution.get('ambiguous_items', 0)} of {family_distribution.get('total_items', 0)}",
             f"- Score spread / compression: {_norm_text(_norm_dict(mission_quality.get('score_spread')).get('summary')) or _score_spread_summary(rows_raw)}",
-            f"- Starter-only pair dominance (top {_MISSION_QUALITY_TOP_LEAD_LIMIT}): {starter_only_pct}",
-            f"- Routine-noise share (top {_MISSION_QUALITY_TOP_LEAD_LIMIT}): {routine_noise_pct}",
+            f"- Starter-only pair dominance (top {mission_quality.get('mission_top_n') or _MISSION_QUALITY_TOP_LEAD_LIMIT}): {starter_only_pct}",
+            f"- Routine-noise share (top {mission_quality.get('mission_top_n') or _MISSION_QUALITY_TOP_LEAD_LIMIT}): {routine_noise_pct}",
             f"- Top non-starter packs/rules: {non_starter_text}",
             "",
         ]
@@ -1406,10 +1701,19 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         md_lines.append(_render_adjudication_md(root, adjudication_state, adjudication_metrics))
 
     md_path.write_text("\n".join(md_lines).strip() + "\n", encoding="utf-8")
-    return {"html": html_path, "markdown": md_path}
+    result: dict[str, Path] = {"html": html_path, "markdown": md_path}
+    if isinstance(dossier_index_json, Path):
+        result["dossier_index_json"] = dossier_index_json
+    if isinstance(dossier_index_csv, Path):
+        result["dossier_index_csv"] = dossier_index_csv
+    return result
 
 
 __all__ = [
+    "FOIA_LEAD_DOSSIER_DIR",
+    "FOIA_LEAD_DOSSIER_EVIDENCE_DIR",
+    "FOIA_LEAD_DOSSIER_INDEX_CSV_PATH",
+    "FOIA_LEAD_DOSSIER_INDEX_JSON_PATH",
     "FOIA_LEAD_REVIEW_BOARD_HTML_PATH",
     "FOIA_LEAD_REVIEW_BOARD_MD_PATH",
     "build_foia_lead_review_diagnostics",

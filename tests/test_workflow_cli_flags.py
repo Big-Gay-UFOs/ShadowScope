@@ -274,6 +274,32 @@ def test_workflow_samgov_smoke_allows_compare_scoring_versions(monkeypatch):
     assert captured.get("compare_scoring_versions") == ["v2", "v3"]
 
 
+def test_workflow_samgov_smoke_allows_configuring_lead_dossier_top_n(monkeypatch):
+    captured = {}
+
+    def fake_run_samgov_smoke_workflow(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "ok",
+            "smoke_passed": True,
+            "bundle_dir": "data/exports/smoke/samgov/test",
+            "checks": [],
+            "baseline": {},
+            "artifacts": {},
+            "lead_dossier_top_n": kwargs.get("lead_dossier_top_n"),
+        }
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_smoke_workflow", fake_run_samgov_smoke_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["workflow", "samgov-smoke", "--lead-dossier-top-n", "4", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("lead_dossier_top_n") == 4
+
+
 def test_workflow_usaspending_default_min_events_keywords_is_two(monkeypatch):
     captured = {}
 
@@ -360,6 +386,32 @@ def test_workflow_samgov_validate_allows_compare_scoring_versions(monkeypatch):
 
     assert result.exit_code == 0, result.stdout
     assert captured.get("compare_scoring_versions") == ["v2", "v3"]
+
+
+def test_workflow_samgov_validate_allows_configuring_lead_dossier_top_n(monkeypatch):
+    captured = {}
+
+    def fake_run_samgov_validation_workflow(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "ok",
+            "smoke_passed": True,
+            "bundle_dir": "data/exports/validation/samgov/test",
+            "checks": [],
+            "baseline": {},
+            "artifacts": {},
+            "lead_dossier_top_n": kwargs.get("lead_dossier_top_n"),
+        }
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_validation_workflow", fake_run_samgov_validation_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["workflow", "samgov-validate", "--lead-dossier-top-n", "6", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("lead_dossier_top_n") == 6
 
 
 def test_workflow_samgov_validate_cli_surfaces_required_failures(monkeypatch):

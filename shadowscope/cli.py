@@ -1652,6 +1652,11 @@ def workflow_samgov_validate(
     ),
     notes: Optional[str] = typer.Option("samgov larger-run validation", "--notes", help="Snapshot: optional notes"),
     bundle_root: Optional[str] = typer.Option(None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/validation/samgov)"),
+    lead_dossier_top_n: int = typer.Option(
+        10,
+        "--lead-dossier-top-n",
+        help="Artifacts: auto-export reviewer dossiers/evidence packages for the top N ranked leads inside the bundle (0 disables).",
+    ),
     require_nonzero: bool = typer.Option(True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required checks fail"),
     threshold: Optional[List[str]] = typer.Option(None, "--threshold", help="Threshold override key=value (repeat)."),
     skip_ingest: bool = typer.Option(False, "--skip-ingest", help="Skip ingest step (offline fixture replay)"),
@@ -1706,6 +1711,7 @@ def workflow_samgov_validate(
         compare_scoring_versions=compare_scoring_versions,
         notes=notes,
         bundle_root=bundle_path,
+        lead_dossier_top_n=lead_dossier_top_n,
         database_url=database_url,
         require_nonzero=require_nonzero,
         skip_ingest=skip_ingest,
@@ -1723,6 +1729,7 @@ def workflow_samgov_validate(
         typer.echo(f"Scoring version: {res.get('scoring_version')}")
         if res.get("compare_scoring_versions"):
             typer.echo(f"Compare scoring versions: {','.join(res.get('compare_scoring_versions') or [])}")
+        typer.echo(f"Lead dossier top N: {res.get('lead_dossier_top_n')}")
         artifacts = res.get("artifacts") or {}
         if artifacts.get("bundle_manifest_json"):
             typer.echo(f"Bundle manifest: {Path(artifacts.get('bundle_manifest_json')).resolve()}")
@@ -1805,6 +1812,11 @@ def workflow_samgov_smoke(
     bundle_root: Optional[str] = typer.Option(
         None, "--bundle-root", help="Artifact bundle root directory (defaults to data/exports/smoke/samgov)"
     ),
+    lead_dossier_top_n: int = typer.Option(
+        10,
+        "--lead-dossier-top-n",
+        help="Artifacts: auto-export reviewer dossiers/evidence packages for the top N ranked leads inside the bundle (0 disables).",
+    ),
     require_nonzero: bool = typer.Option(
         True, "--require-nonzero/--no-require-nonzero", help="Fail with exit code 2 when required checks fail"
     ),
@@ -1861,6 +1873,7 @@ def workflow_samgov_smoke(
         compare_scoring_versions=compare_scoring_versions,
         notes=notes,
         bundle_root=bundle_path,
+        lead_dossier_top_n=lead_dossier_top_n,
         database_url=database_url,
         require_nonzero=require_nonzero,
         skip_ingest=skip_ingest,
@@ -1878,6 +1891,7 @@ def workflow_samgov_smoke(
         typer.echo(f"Scoring version: {res.get('scoring_version')}")
         if res.get("compare_scoring_versions"):
             typer.echo(f"Compare scoring versions: {','.join(res.get('compare_scoring_versions') or [])}")
+        typer.echo(f"Lead dossier top N: {res.get('lead_dossier_top_n')}")
         artifacts = res.get("artifacts") or {}
         if artifacts.get("smoke_summary_json"):
             typer.echo(f"Workflow summary: {Path(artifacts.get('smoke_summary_json')).resolve()}")
