@@ -249,10 +249,15 @@ def build_scoring_delta_explanation(
 
     parts: list[str] = []
     for key, label in (
+        ("proxy_relevance_score", "proxy"),
+        ("corroboration_score", "corroboration"),
+        ("family_relevance_bonus", "family"),
         ("clause_score", "clauses"),
         ("keyword_score", "keywords"),
         ("entity_bonus", "entity"),
         ("pair_bonus", "pair"),
+        ("pair_bonus_suppressed", "pair_cap"),
+        ("starter_context_score", "starter"),
         ("structural_context_score", "structural"),
         ("foia_matrix_bonus", "foia"),
         ("noise_penalty", "noise"),
@@ -260,8 +265,8 @@ def build_scoring_delta_explanation(
         base_value = _score_number(baseline, key)
         target_value = _score_number(target, key)
         delta = target_value - base_value
-        if key == "noise_penalty":
-            # noise_penalty is stored as a positive magnitude but reduces the total score.
+        if key in {"noise_penalty", "pair_bonus_suppressed"}:
+            # Stored as positive magnitudes but reduce effective score lift.
             delta = -delta
         if delta == 0:
             continue

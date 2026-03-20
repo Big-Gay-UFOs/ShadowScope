@@ -443,3 +443,38 @@ def test_mixed_fixture_set_does_not_collapse_to_vendor_network_contract_lineage(
     }
     assert secondary["vendor_network_contract_lineage"] == 4
     assert distribution["ambiguous_items"] == 4
+
+
+def test_summarize_lead_family_distribution_respects_filter_for_secondary_counts():
+    rows = [
+        {
+            "rank": 1,
+            "score": 90,
+            "event_id": 1,
+            "lead_family": "facility_security_hardening",
+            "secondary_lead_families": [
+                "compartmented_support_intel",
+                "vendor_network_contract_lineage",
+            ],
+        },
+        {
+            "rank": 2,
+            "score": 80,
+            "event_id": 2,
+            "lead_family": "compartmented_support_intel",
+            "secondary_lead_families": ["vendor_network_contract_lineage"],
+        },
+    ]
+
+    distribution = summarize_lead_family_distribution(
+        rows,
+        lead_family_filter="compartmented_support_intel",
+    )
+    primary = {row["lead_family"]: row["count"] for row in distribution["primary"]}
+    secondary = {row["lead_family"]: row["count"] for row in distribution["secondary"]}
+    any_assignment = {row["lead_family"]: row["count"] for row in distribution["any_assignment"]}
+
+    assert primary == {"compartmented_support_intel": 2}
+    assert secondary == {}
+    assert any_assignment == {"compartmented_support_intel": 2}
+    assert distribution["ambiguous_items"] == 2

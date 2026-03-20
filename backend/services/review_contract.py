@@ -229,6 +229,14 @@ def why_summary(details: dict[str, Any]) -> str:
         ]
         if details.get("lead_family"):
             why_bits.insert(0, f"lead_family={details.get('lead_family')}")
+        pair_suppressed = _score_part(details, "pair_bonus_suppressed", 0)
+        if pair_suppressed:
+            why_bits.append(f"pair_cap=-{pair_suppressed}")
+        routine_noise = _score_part(details, "routine_noise_surcharge", 0)
+        if routine_noise:
+            why_bits.append(f"routine_noise=-{routine_noise}")
+        if details.get("weak_proxy_context_cap_applied"):
+            why_bits.append("context capped for weak proxy/corroboration")
         top_positive_signals = details.get("top_positive_signals") or []
         top_suppressors = details.get("top_suppressors") or []
         corroboration_sources = details.get("corroboration_sources") or []

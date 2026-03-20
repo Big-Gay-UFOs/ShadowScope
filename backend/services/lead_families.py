@@ -957,6 +957,25 @@ def _summary_secondary_families(item: dict[str, Any]) -> list[Any]:
     return decoded if isinstance(decoded, list) else []
 
 
+def _distribution_secondary_families(
+    item: dict[str, Any],
+    *,
+    primary: str | None,
+    lead_family_filter: str | None = None,
+) -> list[str]:
+    secondaries = [text for text in _unique_texts(_summary_secondary_families(item))]
+    family_key = _norm_key(lead_family_filter)
+    if not family_key:
+        return secondaries
+
+    primary_key = _norm_key(primary)
+    return [
+        secondary
+        for secondary in secondaries
+        if _norm_key(secondary) == family_key and _norm_key(secondary) != primary_key
+    ]
+
+
 def _summary_family(item: dict[str, Any], *, lead_family_filter: str | None = None) -> str | None:
     primary = _norm_text(item.get("lead_family")) or None
     family_key = _norm_key(lead_family_filter)
@@ -1036,9 +1055,14 @@ def summarize_lead_family_distribution(
         else:
             unassigned_items += 1
 
-        secondaries = [text for text in _unique_texts(_summary_secondary_families(item))]
-        if secondaries:
+        raw_secondaries = [text for text in _unique_texts(_summary_secondary_families(item))]
+        if raw_secondaries:
             ambiguous_items += 1
+        secondaries = _distribution_secondary_families(
+            item,
+            primary=primary,
+            lead_family_filter=lead_family_filter,
+        )
         seen = {_norm_key(primary)} if primary else set()
         for secondary in secondaries:
             secondary_counts[secondary] += 1
