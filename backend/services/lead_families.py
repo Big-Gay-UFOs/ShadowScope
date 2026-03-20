@@ -250,8 +250,9 @@ LEAD_FAMILY_TAXONOMY: dict[str, dict[str, Any]] = {
     "vendor_network_contract_lineage": {
         "label": "Vendor Network Contract Lineage",
         "min_total_score": 4,
-        "min_ontology_score": 1,
+        "min_ontology_score": 2,
         "min_corroboration_score": 2,
+        "scope": "fallback",
         "pack_weights": {
             "sam_proxy_procurement_continuity_classified_followon": 3,
             "sam_proxy_operator_site_program_pairs": 2,
@@ -274,29 +275,29 @@ LEAD_FAMILY_TAXONOMY: dict[str, dict[str, Any]] = {
             "same_doc_id": 2,
             "same_entity": 2,
             "same_uei": 2,
-            "same_agency": 1,
-            "same_psc": 1,
-            "same_naics": 1,
-            "same_place_region": 1,
-            "same_keyword": 1,
-            "kw_pair": 1,
             "sam_usaspending_candidate_join": 2,
         },
+        "specific_lanes": [
+            "same_award_id",
+            "same_contract_id",
+            "same_doc_id",
+            "same_entity",
+            "same_uei",
+            "sam_usaspending_candidate_join",
+        ],
         "candidate_evidence_weights": {
             "identifier_exact": 3,
             "contract_family": 3,
             "recipient_uei": 2,
             "recipient_name": 2,
-            "awarding_agency": 1,
-            "funding_agency": 1,
-            "place_region": 1,
-            "psc": 1,
-            "naics": 1,
         },
-        "source_weights": {
-            "USAspending": 1,
-            "SAM.gov": 1,
-        },
+        "specific_candidate_evidence_types": [
+            "identifier_exact",
+            "contract_family",
+            "recipient_uei",
+            "recipient_name",
+        ],
+        "source_weights": {},
     },
 }
 
@@ -315,11 +316,32 @@ def _norm_list(value: Any) -> list[Any]:
     return []
 
 
+def _norm_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
     except Exception:
         return int(default)
+
+
+def _unique_texts(values: list[Any]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = _norm_text(value)
+        if not text:
+            continue
+        key = _norm_key(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+    return out
 
 
 def _build_ontology_index(details: dict[str, Any]) -> list[dict[str, Any]]:
@@ -364,6 +386,33 @@ def _build_ontology_index(details: dict[str, Any]) -> list[dict[str, Any]]:
                 "weight": 1,
                 "field": None,
                 "match": None,
+            }
+        )
+
+    # Some scoring paths preserve high-signal keyword/clause matches only in top_positive_signals.
+    for signal in _norm_list(details.get("top_positive_signals")):
+        if not isinstance(signal, dict):
+            continue
+        signal_type = _norm_key(signal.get("signal_type"))
+        if signal_type not in {"clause", "keyword"}:
+            continue
+        pack = _norm_key(signal.get("pack"))
+        rule = _norm_key(signal.get("rule"))
+        if not pack:
+            continue
+        rule_key = f"{pack}:{rule}" if rule else pack
+        if rule_key in seen:
+            continue
+        seen.add(rule_key)
+        items.append(
+            {
+                "pack": pack,
+                "rule": rule,
+                "rule_key": rule_key,
+                "weight": max(min(_safe_int(signal.get("contribution"), default=1), 3), 1),
+                "field": _norm_text(signal.get("field")) or None,
+                "match": _norm_text(signal.get("match")) or None,
+                "source": "score_signal",
             }
         )
 
@@ -433,6 +482,63 @@ def build_corroboration_summary(
     }
 
 
+def _best_context_agency(event_context: dict[str, Any]) -> str | None:
+    candidates = (
+        (event_context.get("awarding_agency_name"), event_context.get("awarding_agency_code")),
+        (event_context.get("funding_agency_name"), event_context.get("funding_agency_code")),
+        (event_context.get("contracting_office_name"), event_context.get("contracting_office_code")),
+    )
+    for name, code in candidates:
+        name_text = _norm_text(name)
+        code_text = _norm_text(code)
+        if name_text and code_text:
+            return f"{name_text} ({code_text})"
+        if name_text or code_text:
+            return name_text or code_text
+    return None
+
+
+def _build_family_context(details: dict[str, Any]) -> dict[str, Any]:
+    event_context = _norm_dict(details.get("event_context"))
+    identifiers = _unique_texts(
+        [
+            event_context.get("doc_id"),
+            event_context.get("solicitation_number"),
+            event_context.get("notice_id"),
+            event_context.get("document_id"),
+            event_context.get("award_id"),
+            event_context.get("piid"),
+            event_context.get("generated_unique_award_id"),
+            event_context.get("source_record_id"),
+        ]
+    )
+    score_profile = {
+        key: _safe_int(details.get(key), default=0)
+        for key in (
+            "proxy_relevance_score",
+            "investigability_score",
+            "corroboration_score",
+            "structural_context_score",
+            "noise_penalty",
+            "total_score",
+        )
+        if key in details
+    }
+    return {
+        "source": _norm_text(event_context.get("source")),
+        "agency": _best_context_agency(event_context),
+        "vendor": _norm_text(event_context.get("recipient_name")),
+        "vendor_uei": _norm_text(event_context.get("recipient_uei")),
+        "entity_id": _safe_int(event_context.get("entity_id"), default=0) or None,
+        "place_region": _norm_text(event_context.get("place_region")),
+        "psc_code": _norm_text(event_context.get("psc_code")),
+        "naics_code": _norm_text(event_context.get("naics_code")),
+        "notice_award_type": _norm_text(event_context.get("notice_award_type")),
+        "traceable_identifiers": identifiers[:5],
+        "score_profile": score_profile,
+    }
+
+
 def _family_ontology_matches(
     *,
     family_spec: dict[str, Any],
@@ -484,7 +590,7 @@ def _family_corroboration_matches(
     family_spec: dict[str, Any],
     details: dict[str, Any],
     corroboration_summary: dict[str, Any],
-) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
     lane_weights = {
         _norm_text(key): _safe_int(value, default=0)
         for key, value in dict(family_spec.get("lane_weights") or {}).items()
@@ -500,9 +606,24 @@ def _family_corroboration_matches(
         for key, value in dict(family_spec.get("source_weights") or {}).items()
         if _safe_int(value, default=0) > 0
     }
+    specific_lanes = {_norm_text(item) for item in _norm_list(family_spec.get("specific_lanes")) if _norm_text(item)}
+    if not specific_lanes:
+        specific_lanes = set(lane_weights.keys())
+    specific_candidate_types = {
+        _norm_text(item)
+        for item in _norm_list(family_spec.get("specific_candidate_evidence_types"))
+        if _norm_text(item)
+    }
+    if not specific_candidate_types and (
+        "specific_candidate_evidence_types" not in family_spec
+        and "specific_candidate_evidence_weights" not in family_spec
+    ):
+        specific_candidate_types = set(candidate_weights.keys())
 
     lane_counts = _lane_counter(details)
     score = 0
+    specific_score = 0
+    context_score = 0
     matches: list[dict[str, Any]] = []
     source_matches: list[dict[str, Any]] = []
 
@@ -512,12 +633,18 @@ def _family_corroboration_matches(
             continue
         contribution = int(weight)
         score += contribution
+        is_specific = lane in specific_lanes
+        if is_specific:
+            specific_score += contribution
+        else:
+            context_score += contribution
         matches.append(
             {
                 "kind": "lane",
                 "lane": lane,
                 "weight": contribution,
                 "count": int(count),
+                "specific": bool(is_specific),
             }
         )
 
@@ -525,19 +652,36 @@ def _family_corroboration_matches(
         if not isinstance(candidate, dict):
             continue
         candidate_score = 0
+        specific_candidate_score = 0
         evidence_types = [_norm_text(item) for item in _norm_list(candidate.get("evidence_types")) if _norm_text(item)]
+        specific_evidence_types: list[str] = []
+        context_evidence_types: list[str] = []
         for evidence_type in evidence_types:
-            candidate_score += candidate_weights.get(evidence_type, 0)
+            weight = candidate_weights.get(evidence_type, 0)
+            candidate_score += weight
+            if weight <= 0:
+                continue
+            if evidence_type in specific_candidate_types:
+                specific_candidate_score += weight
+                specific_evidence_types.append(evidence_type)
+            else:
+                context_evidence_types.append(evidence_type)
         if candidate_score <= 0:
             continue
         score += candidate_score
+        specific_score += specific_candidate_score
+        context_score += max(candidate_score - specific_candidate_score, 0)
         matches.append(
             {
                 "kind": "candidate_join",
                 "lane": "sam_usaspending_candidate_join",
                 "correlation_id": candidate.get("correlation_id"),
                 "weight": candidate_score,
+                "specific_weight": specific_candidate_score,
+                "context_weight": max(candidate_score - specific_candidate_score, 0),
                 "evidence_types": evidence_types,
+                "specific_evidence_types": specific_evidence_types,
+                "context_evidence_types": context_evidence_types,
                 "status": "candidate",
                 "likely_incumbent": bool(candidate.get("likely_incumbent")),
             }
@@ -551,6 +695,7 @@ def _family_corroboration_matches(
         if source_weight <= 0:
             continue
         score += source_weight
+        context_score += source_weight
         match = {
             "source": source,
             "weight": int(source_weight),
@@ -565,11 +710,12 @@ def _family_corroboration_matches(
     matches.sort(
         key=lambda item: (
             -_safe_int(item.get("weight"), default=0),
+            -_safe_int(item.get("specific_weight"), default=0),
             _norm_text(item.get("kind")),
             _norm_text(item.get("lane") or item.get("source")),
         )
     )
-    return score, matches, source_matches
+    return score, specific_score, context_score, matches, source_matches
 
 
 def _assignment_rationale(
@@ -577,6 +723,7 @@ def _assignment_rationale(
     label: str,
     ontology_matches: list[dict[str, Any]],
     corroboration_matches: list[dict[str, Any]],
+    selection: dict[str, Any] | None = None,
 ) -> str:
     ontology_bits = [
         ":".join(filter(None, [_norm_text(item.get("pack")), _norm_text(item.get("rule"))]))
@@ -592,11 +739,87 @@ def _assignment_rationale(
         elif kind == "linked_source":
             corroboration_bits.append("linked_source:" + _norm_text(item.get("source")))
     parts = [label]
+    if isinstance(selection, dict):
+        score_bits = [
+            f"selection={_safe_int(selection.get('selection_score'), default=0)}",
+            f"total={_safe_int(selection.get('total_score'), default=0)}",
+            f"ontology={_safe_int(selection.get('ontology_score'), default=0)}",
+            f"corroboration={_safe_int(selection.get('corroboration_score'), default=0)}",
+        ]
+        parts.append("score=" + ", ".join(score_bits))
     if ontology_bits:
         parts.append("ontology=" + ", ".join([bit for bit in ontology_bits if bit]))
     if corroboration_bits:
         parts.append("corroboration=" + ", ".join([bit for bit in corroboration_bits if bit]))
     return " | ".join(parts)
+
+
+def _family_selection_breakdown(
+    *,
+    family_spec: dict[str, Any],
+    total_score: int,
+    ontology_score: int,
+    corroboration_score: int,
+    specific_corroboration_score: int,
+    context_corroboration_score: int,
+    ontology_matches: list[dict[str, Any]],
+    corroboration_matches: list[dict[str, Any]],
+) -> dict[str, Any]:
+    scope = _norm_key(family_spec.get("scope")) or "specialized"
+    rule_match_count = len({_norm_key(item.get("rule_key") or f"{item.get('pack')}:{item.get('rule')}") for item in ontology_matches})
+    pack_match_count = len({_norm_key(item.get("pack")) for item in ontology_matches if _norm_key(item.get("pack"))})
+    ontology_bonus = min(int(ontology_score), 3) + min(rule_match_count, 2)
+    specificity_bonus = min(int(specific_corroboration_score), 3)
+    fallback_penalty = min(int(context_corroboration_score), 3) if scope == "fallback" else 0
+    selection_score = int(total_score + ontology_bonus + specificity_bonus - fallback_penalty)
+    return {
+        "scope": scope,
+        "selection_score": selection_score,
+        "total_score": int(total_score),
+        "ontology_score": int(ontology_score),
+        "corroboration_score": int(corroboration_score),
+        "specific_corroboration_score": int(specific_corroboration_score),
+        "context_corroboration_score": int(context_corroboration_score),
+        "ontology_bonus": int(ontology_bonus),
+        "specificity_bonus": int(specificity_bonus),
+        "fallback_penalty": int(fallback_penalty),
+        "rule_match_count": int(rule_match_count),
+        "pack_match_count": int(pack_match_count),
+        "corroboration_match_count": len(corroboration_matches),
+    }
+
+
+def _lead_family_selection_summary(assignments: list[dict[str, Any]]) -> dict[str, Any]:
+    primary = assignments[0] if assignments else None
+    runner_up = assignments[1] if len(assignments) > 1 else None
+    return {
+        "primary_family": None if primary is None else primary.get("family"),
+        "primary_label": None if primary is None else primary.get("label"),
+        "primary_selection_score": None
+        if primary is None
+        else _safe_int(_norm_dict(primary.get("selection")).get("selection_score"), default=0),
+        "runner_up_family": None if runner_up is None else runner_up.get("family"),
+        "runner_up_label": None if runner_up is None else runner_up.get("label"),
+        "runner_up_selection_score": None
+        if runner_up is None
+        else _safe_int(_norm_dict(runner_up.get("selection")).get("selection_score"), default=0),
+        "selection_margin": (
+            None
+            if primary is None or runner_up is None
+            else _safe_int(_norm_dict(primary.get("selection")).get("selection_score"), default=0)
+            - _safe_int(_norm_dict(runner_up.get("selection")).get("selection_score"), default=0)
+        ),
+        "considered_family_count": len(assignments),
+        "considered_families": [
+            {
+                "family": assignment.get("family"),
+                "label": assignment.get("label"),
+                "selection_score": _safe_int(_norm_dict(assignment.get("selection")).get("selection_score"), default=0),
+                "score": _safe_int(assignment.get("score"), default=0),
+            }
+            for assignment in assignments[:5]
+        ],
+    }
 
 
 def classify_lead_families(
@@ -612,6 +835,7 @@ def classify_lead_families(
         linked_records_by_correlation=linked_records_by_correlation,
     )
     ontology_index = _build_ontology_index(enriched)
+    family_context = _build_family_context(enriched)
 
     assignments: list[dict[str, Any]] = []
     for family, spec in LEAD_FAMILY_TAXONOMY.items():
@@ -619,7 +843,13 @@ def classify_lead_families(
             family_spec=spec,
             ontology_index=ontology_index,
         )
-        corroboration_score, corroboration_matches, source_matches = _family_corroboration_matches(
+        (
+            corroboration_score,
+            specific_corroboration_score,
+            context_corroboration_score,
+            corroboration_matches,
+            source_matches,
+        ) = _family_corroboration_matches(
             family_spec=spec,
             details=enriched,
             corroboration_summary=corroboration_summary,
@@ -631,6 +861,16 @@ def classify_lead_families(
             continue
         if total_score < _safe_int(spec.get("min_total_score"), default=1):
             continue
+        selection = _family_selection_breakdown(
+            family_spec=spec,
+            total_score=total_score,
+            ontology_score=ontology_score,
+            corroboration_score=corroboration_score,
+            specific_corroboration_score=specific_corroboration_score,
+            context_corroboration_score=context_corroboration_score,
+            ontology_matches=ontology_matches,
+            corroboration_matches=corroboration_matches,
+        )
         assignments.append(
             {
                 "family": family,
@@ -638,21 +878,33 @@ def classify_lead_families(
                 "score": total_score,
                 "ontology_score": ontology_score,
                 "corroboration_score": corroboration_score,
+                "score_breakdown": {
+                    "total_score": total_score,
+                    "ontology_score": ontology_score,
+                    "corroboration_score": corroboration_score,
+                    "specific_corroboration_score": specific_corroboration_score,
+                    "context_corroboration_score": context_corroboration_score,
+                },
+                "selection": selection,
                 "ontology_matches": ontology_matches[:6],
                 "corroboration_matches": corroboration_matches[:8],
                 "linked_source_summary": source_matches[:4],
+                "context_summary": family_context,
                 "rationale": _assignment_rationale(
                     label=str(spec.get("label") or family.replace("_", " ")),
                     ontology_matches=ontology_matches,
                     corroboration_matches=corroboration_matches,
+                    selection=selection,
                 ),
             }
         )
 
     assignments.sort(
         key=lambda item: (
+            -_safe_int(_norm_dict(item.get("selection")).get("selection_score"), default=0),
             -_safe_int(item.get("score"), default=0),
             -_safe_int(item.get("ontology_score"), default=0),
+            -_safe_int(_norm_dict(item.get("selection")).get("specific_corroboration_score"), default=0),
             -_safe_int(item.get("corroboration_score"), default=0),
             _norm_text(item.get("family")),
         )
@@ -660,12 +912,15 @@ def classify_lead_families(
 
     primary = assignments[0] if assignments else None
     secondary = [str(item.get("family")) for item in assignments[1:]]
+    selection_summary = _lead_family_selection_summary(assignments)
 
     enriched["corroboration_summary"] = corroboration_summary
+    enriched["lead_family_context"] = family_context
     enriched["lead_family"] = None if primary is None else primary.get("family")
     enriched["lead_family_label"] = None if primary is None else primary.get("label")
     enriched["secondary_lead_families"] = secondary
     enriched["lead_family_assignments"] = assignments
+    enriched["lead_family_selection"] = selection_summary
     return enriched
 
 
@@ -759,10 +1014,73 @@ def summarize_lead_family_groups(
     return rows
 
 
+def summarize_lead_family_distribution(
+    items: list[dict[str, Any]],
+    *,
+    lead_family_filter: str | None = None,
+) -> dict[str, Any]:
+    total_items = len(items)
+    primary_rows = summarize_lead_family_groups(items, lead_family_filter=lead_family_filter)
+    for row in primary_rows:
+        row["share_pct"] = round((100.0 * int(row.get("count") or 0) / total_items), 1) if total_items else 0.0
+
+    secondary_counts: Counter[str] = Counter()
+    assignment_counts: Counter[str] = Counter()
+    ambiguous_items = 0
+    unassigned_items = 0
+
+    for item in items:
+        primary = _summary_family(item, lead_family_filter=lead_family_filter)
+        if primary:
+            assignment_counts[primary] += 1
+        else:
+            unassigned_items += 1
+
+        secondaries = [text for text in _unique_texts(_summary_secondary_families(item))]
+        if secondaries:
+            ambiguous_items += 1
+        seen = {_norm_key(primary)} if primary else set()
+        for secondary in secondaries:
+            secondary_counts[secondary] += 1
+            key = _norm_key(secondary)
+            if key in seen:
+                continue
+            seen.add(key)
+            assignment_counts[secondary] += 1
+
+    def _counter_rows(counter: Counter[str]) -> list[dict[str, Any]]:
+        rows = [
+            {
+                "lead_family": family,
+                "label": lead_family_label(family) or "Unassigned",
+                "count": int(count),
+                "share_pct": round((100.0 * int(count) / total_items), 1) if total_items else 0.0,
+            }
+            for family, count in counter.items()
+        ]
+        rows.sort(
+            key=lambda item: (
+                -(item.get("count") or 0),
+                _norm_text(item.get("lead_family")),
+            )
+        )
+        return rows
+
+    return {
+        "total_items": total_items,
+        "ambiguous_items": ambiguous_items,
+        "unassigned_items": unassigned_items,
+        "primary": primary_rows,
+        "secondary": _counter_rows(secondary_counts),
+        "any_assignment": _counter_rows(assignment_counts),
+    }
+
+
 __all__ = [
     "LEAD_FAMILY_TAXONOMY",
     "classify_lead_families",
     "lead_family_label",
     "lead_matches_family",
+    "summarize_lead_family_distribution",
     "summarize_lead_family_groups",
 ]

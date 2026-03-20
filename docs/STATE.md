@@ -70,7 +70,7 @@ Observed ranges:
 
 ### Bundle contract
 
-SAM workflow bundles now use `samgov.bundle.v1` with:
+SAM workflow bundles now use `samgov.bundle.v2` with:
 
 - `bundle_manifest.json`
 - `results/workflow_result.json`

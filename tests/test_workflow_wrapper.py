@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from backend.services.adjudication import evaluate_lead_adjudications, export_lead_adjudication_template
+from backend.services.bundle import SAM_BUNDLE_VERSION
 from backend.db.models import Event, LeadSnapshotItem, ensure_schema, get_session_factory
 import backend.services.workflow as workflow_module
 from backend.services.workflow import (
@@ -534,7 +535,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert summary_payload.get("failed_required_checks") == []
 
     manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest_payload.get("bundle_version") == "samgov.bundle.v1"
+    assert manifest_payload.get("bundle_version") == SAM_BUNDLE_VERSION
     assert manifest_payload.get("workflow_type") == "samgov-smoke"
     assert manifest_payload.get("scoring_version") == "v3"
     assert manifest_payload.get("workflow_status") == "ok"
@@ -847,6 +848,132 @@ def test_samgov_smoke_comparison_empty_is_explicit_and_reported(tmp_path: Path, 
     assert "comparison_empty" in report_html
     assert "comparison_requested_but_empty" in report_html
     assert "zero comparable rows" in report_html
+
+
+def test_samgov_bundle_report_renders_requested_and_effective_comparison_windows(tmp_path: Path, monkeypatch):
+    comparison_csv = tmp_path / "comparison_window_fixture.csv"
+    comparison_json = tmp_path / "comparison_window_fixture.json"
+    comparison_csv.write_text("event_id,state\n1,shared\n", encoding="utf-8")
+    comparison_json.write_text(
+        json.dumps(
+            {
+                "baseline_version": "v2",
+                "target_version": "v3",
+                "versions": ["v2", "v3"],
+                "count": 1,
+                "state_counts": {"shared": 1},
+                "items": [{"event_id": 1, "state": "shared"}],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    effective_window = {
+        "mode": "explicit_dates",
+        "requested_days": None,
+        "effective_days": 32,
+        "posted_from": "2024-02-01",
+        "posted_to": "2024-03-04",
+        "calendar_span_days": 32,
+    }
+
+    def fake_run_samgov_workflow(**_kwargs):
+        return {
+            "source": "SAM.gov",
+            "status": "ok",
+            "ingest": {
+                "status": "success",
+                "fetched": 25,
+                "inserted": 25,
+                "normalized": 25,
+                "date_window": effective_window,
+            },
+            "snapshot": {"items": 5},
+            "exports": {
+                "scoring_comparison": {
+                    "csv": comparison_csv,
+                    "json": comparison_json,
+                    "count": 1,
+                    "baseline_version": "v2",
+                    "target_version": "v3",
+                    "versions": ["v2", "v3"],
+                }
+            },
+        }
+
+    def fake_doctor_status(**_kwargs):
+        return {
+            "db": {"status": "ok"},
+            "counts": {
+                "events_window": 30,
+                "events_with_entity_window": 20,
+                "lead_snapshots_total": 1,
+            },
+            "keywords": {
+                "scanned_events": 30,
+                "events_with_keywords": 20,
+                "coverage_pct": 66.7,
+                "unique_keywords": 5,
+            },
+            "entities": {
+                "window_linked_coverage_pct": 66.7,
+                "sample_scanned_events": 30,
+                "sample_events_with_identity_signal": 30,
+                "sample_events_with_identity_signal_linked": 20,
+                "sample_identity_signal_coverage_pct": 66.7,
+                "sample_events_with_name": 30,
+                "sample_events_with_name_linked": 20,
+                "sample_name_coverage_pct": 66.7,
+            },
+            "correlations": {
+                "by_lane": {
+                    "same_keyword": 5,
+                    "kw_pair": 5,
+                    "same_sam_naics": 2,
+                    "same_entity": 3,
+                    "same_uei": 0,
+                }
+            },
+            "sam_context": {
+                "scanned_events": 30,
+                "events_with_research_context": 20,
+                "research_context_coverage_pct": 66.7,
+                "events_with_core_procurement_context": 20,
+                "core_procurement_context_coverage_pct": 66.7,
+                "avg_context_fields_per_event": 3.2,
+                "coverage_by_field_pct": {
+                    "sam_notice_type": 100.0,
+                    "sam_solicitation_number": 100.0,
+                    "sam_naics_code": 80.0,
+                },
+                "top_notice_types": [],
+                "top_naics_codes": [],
+                "top_set_aside_codes": [],
+            },
+            "hints": [],
+        }
+
+    monkeypatch.setattr(workflow_module, "run_samgov_workflow", fake_run_samgov_workflow)
+    monkeypatch.setattr(workflow_module, "doctor_status", fake_doctor_status)
+
+    res = run_samgov_smoke_workflow(
+        bundle_root=tmp_path / "comparison_window_bundle",
+        require_nonzero=True,
+        skip_ingest=False,
+        posted_from=date(2024, 1, 1),
+        posted_to=date(2024, 3, 31),
+        compare_scoring_versions=["v2", "v3"],
+    )
+
+    assert res["workflow_status"] == "warning"
+    assert "requested_window_differs_from_effective_window" in res["comparison_reason_codes"]
+    report_html = Path(res["artifacts"]["report_html"]).read_text(encoding="utf-8")
+    assert "requested_window" in report_html
+    assert "effective_window" in report_html
+    assert "2024-01-01..2024-03-31" in report_html
+    assert "2024-02-01..2024-03-04" in report_html
+    assert "comparison_effective_window_matches_request" in report_html
 
 
 def test_samgov_bundle_reports_include_adjudication_metrics_when_present(tmp_path: Path):

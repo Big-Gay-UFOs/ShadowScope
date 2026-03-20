@@ -20,6 +20,7 @@ from backend.db.models import (
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
 from backend.services.explainability import (
     aggregate_matched_ontology,
+    build_event_context_payload,
     coerce_number,
     correlation_lane_payload,
     enrich_lead_score_details,
@@ -373,6 +374,7 @@ def export_lead_evidence_package(
             clauses=event.clauses,
             base_details=item.score_details if isinstance(item.score_details, dict) else {},
             correlations=correlations_by_event.get(int(event.id), []),
+            event_context=build_event_context_payload(event),
         )
         linked_source_context = load_event_linked_source_summary(db, event_ids=[int(event.id)])
         context = linked_source_context.get(int(event.id), {})
@@ -443,6 +445,9 @@ def export_lead_evidence_package(
                 "source_url": event.source_url,
                 "lead_family": details.get("lead_family"),
                 "secondary_lead_families": details.get("secondary_lead_families") or [],
+                "lead_family_selection": details.get("lead_family_selection") or {},
+                "lead_family_assignments": details.get("lead_family_assignments") or [],
+                "lead_family_context": details.get("lead_family_context") or {},
                 "corroboration_summary": details.get("corroboration_summary") or {},
                 "contributing_lanes": details.get("contributing_lanes") or [],
                 "score_details": details,

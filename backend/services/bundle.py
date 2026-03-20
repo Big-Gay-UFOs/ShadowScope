@@ -12,7 +12,7 @@ from backend.services.foia_review_board import (
     FOIA_LEAD_REVIEW_BOARD_MD_PATH,
 )
 
-SAM_BUNDLE_VERSION = "samgov.bundle.v1"
+SAM_BUNDLE_VERSION = "samgov.bundle.v2"
 SAM_BUNDLE_MANIFEST_NAME = "bundle_manifest.json"
 SAM_BUNDLE_RESULTS_DIR = Path("results")
 SAM_BUNDLE_EXPORTS_DIR = Path("exports")
@@ -283,6 +283,37 @@ def _display_value(value: Any) -> str:
     return str(value)
 
 
+def _comparison_window_text(value: Any) -> str:
+    if not isinstance(value, dict):
+        return _display_value(value)
+    posted_from = str(value.get("posted_from") or "").strip()
+    posted_to = str(value.get("posted_to") or "").strip()
+    mode = str(value.get("mode") or "").strip()
+    requested_days = value.get("requested_days")
+    effective_days = value.get("effective_days")
+    calendar_span_days = value.get("calendar_span_days")
+
+    if posted_from and posted_to:
+        headline = f"{posted_from}..{posted_to}"
+    elif effective_days is not None:
+        headline = f"last {effective_days} days"
+    elif requested_days is not None:
+        headline = f"requested {requested_days} days"
+    else:
+        headline = "Unavailable"
+
+    parts = [headline]
+    if mode:
+        parts.append(f"mode={mode}")
+    if requested_days is not None and requested_days != effective_days:
+        parts.append(f"requested_days={requested_days}")
+    if effective_days is not None:
+        parts.append(f"effective_days={effective_days}")
+    if calendar_span_days is not None:
+        parts.append(f"span={calendar_span_days} days")
+    return " | ".join(parts)
+
+
 def _summary_baseline(summary: dict[str, Any]) -> dict[str, Any]:
     return summary.get("baseline") if isinstance(summary.get("baseline"), dict) else {}
 
@@ -429,6 +460,8 @@ def render_sam_bundle_report(
     comparison_rows = "".join(
         [
             _row("requested_versions", comparison.get("requested_versions") or compare_scoring_versions),
+            _row("requested_window", _comparison_window_text(comparison.get("requested_window"))),
+            _row("effective_window", _comparison_window_text(comparison.get("effective_window"))),
             _row("baseline_version", comparison.get("baseline_version")),
             _row("target_version", comparison.get("target_version")),
             _row("count", comparison.get("count")),

@@ -8,6 +8,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.orm import Session
 
 from backend.db.models import Correlation, CorrelationLink, Event
+from backend.services.investigator_filters import event_place_region_label
 LANE_PRIORITY: tuple[str, ...] = (
     "kw_pair",
     "same_keyword",
@@ -482,6 +483,45 @@ def _linked_source_row_sort_key(row: Any) -> tuple[int, int, str, str, str, int]
     )
 
 
+def build_event_context_payload(event: Event | None) -> dict[str, Any]:
+    if event is None:
+        return {}
+    return {
+        "category": event.category,
+        "source": event.source,
+        "source_url": event.source_url,
+        "doc_id": event.doc_id,
+        "award_id": event.award_id,
+        "generated_unique_award_id": event.generated_unique_award_id,
+        "piid": event.piid,
+        "fain": event.fain,
+        "uri": event.uri,
+        "source_record_id": event.source_record_id,
+        "recipient_name": event.recipient_name,
+        "recipient_uei": event.recipient_uei,
+        "recipient_cage_code": event.recipient_cage_code,
+        "entity_id": event.entity_id,
+        "awarding_agency_code": event.awarding_agency_code,
+        "awarding_agency_name": event.awarding_agency_name,
+        "funding_agency_code": event.funding_agency_code,
+        "funding_agency_name": event.funding_agency_name,
+        "contracting_office_code": event.contracting_office_code,
+        "contracting_office_name": event.contracting_office_name,
+        "psc_code": event.psc_code,
+        "naics_code": event.naics_code,
+        "notice_award_type": event.notice_award_type,
+        "place_of_performance_state": event.place_of_performance_state,
+        "place_of_performance_country": event.place_of_performance_country,
+        "place_text": event.place_text,
+        "place_region": event_place_region_label(event),
+        "solicitation_number": event.solicitation_number,
+        "notice_id": event.notice_id,
+        "document_id": event.document_id,
+        "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
+        "created_at": event.created_at.isoformat() if event.created_at else None,
+    }
+
+
 def load_event_linked_source_summary(
     db: Session,
     *,
@@ -631,6 +671,7 @@ def enrich_lead_score_details(
     clauses: Any,
     base_details: dict[str, Any] | None,
     correlations: list[dict[str, Any]] | None,
+    event_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     details = dict(base_details or {})
     correlation_items = [dict(item) for item in (correlations or []) if isinstance(item, dict)]
@@ -706,4 +747,6 @@ def enrich_lead_score_details(
             "total_score": total,
         }
         details.setdefault("total_score", total)
+    if event_context:
+        details["event_context"] = dict(event_context)
     return details

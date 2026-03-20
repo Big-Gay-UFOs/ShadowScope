@@ -29,6 +29,7 @@ from backend.db.models import (
     get_session_factory,
 )
 from backend.services.explainability import (
+    build_event_context_payload,
     enrich_lead_score_details,
     load_event_linked_source_summary,
     load_event_correlation_evidence,
@@ -277,42 +278,6 @@ def build_scoring_delta_explanation(
     return "; ".join(parts[:4])
 
 
-def _event_scoring_context(event: Event) -> dict[str, Any]:
-    return {
-        "category": event.category,
-        "source": event.source,
-        "source_url": event.source_url,
-        "doc_id": event.doc_id,
-        "award_id": event.award_id,
-        "generated_unique_award_id": event.generated_unique_award_id,
-        "piid": event.piid,
-        "fain": event.fain,
-        "uri": event.uri,
-        "source_record_id": event.source_record_id,
-        "recipient_name": event.recipient_name,
-        "recipient_uei": event.recipient_uei,
-        "recipient_cage_code": event.recipient_cage_code,
-        "awarding_agency_code": event.awarding_agency_code,
-        "awarding_agency_name": event.awarding_agency_name,
-        "funding_agency_code": event.funding_agency_code,
-        "funding_agency_name": event.funding_agency_name,
-        "contracting_office_code": event.contracting_office_code,
-        "contracting_office_name": event.contracting_office_name,
-        "psc_code": event.psc_code,
-        "naics_code": event.naics_code,
-        "notice_award_type": event.notice_award_type,
-        "place_of_performance_state": event.place_of_performance_state,
-        "place_of_performance_country": event.place_of_performance_country,
-        "place_text": event.place_text,
-        "solicitation_number": event.solicitation_number,
-        "notice_id": event.notice_id,
-        "document_id": event.document_id,
-        "occurred_at": event.occurred_at,
-        "created_at": event.created_at,
-    }
-
-
-
 def compute_leads(
     db: Session,
     *,
@@ -420,6 +385,7 @@ def compute_leads(
 
     scored: List[Tuple[int, Event, Dict[str, Any]]] = []
     for e in rows:
+        event_context = build_event_context_payload(e)
 
         kw_list = _norm_list(e.keywords)
         has_noise = any(
@@ -471,7 +437,7 @@ def compute_leads(
                 pair_count_total=int(pair_n_total),
                 pair_strength=float(strength),
                 correlations=correlations,
-                event_context=_event_scoring_context(e),
+                event_context=event_context,
                 allow_source_metadata_boosts=_supports_v3_source_metadata_boosts(e.source),
             )
         else:
@@ -508,6 +474,7 @@ def compute_leads(
             clauses=e.clauses,
             base_details=details,
             correlations=correlations,
+            event_context=event_context,
         )
 
         if int(score) >= int(min_score):
