@@ -23,6 +23,7 @@ from backend.services.bundle import (
 from backend.services.foia_review_board import (
     FOIA_LEAD_REVIEW_BOARD_HTML_PATH,
     FOIA_LEAD_REVIEW_BOARD_MD_PATH,
+    build_foia_lead_review_diagnostics,
     render_foia_lead_review_board_from_bundle,
 )
 
@@ -130,6 +131,7 @@ def _summarize_check_groups(checks: list[dict[str, Any]]) -> dict[str, dict[str,
         "pipeline_health",
         "source_coverage_context_health",
         "lead_signal_quality",
+        "mission_quality",
     ]
     groups: dict[str, dict[str, Any]] = {}
     for category in ordered_categories:
@@ -191,6 +193,7 @@ def _summarize_policy_groups(items: list[dict[str, Any]]) -> dict[str, dict[str,
         "pipeline_health",
         "source_coverage_context_health",
         "lead_signal_quality",
+        "mission_quality",
     ]
     groups: dict[str, dict[str, Any]] = {}
     for category in ordered_categories:
@@ -465,6 +468,191 @@ def _build_comparison_checks(
     return checks
 
 
+def _build_mission_quality_checks(
+    *,
+    workflow_module: Any,
+    mission_quality: dict[str, Any],
+    thresholds: dict[str, float],
+    validation_mode: str,
+    scoring_version_cmd: str,
+    review_board_hint: str,
+    dossier_hint: str,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    family_diversity = mission_quality.get("family_diversity") if isinstance(mission_quality.get("family_diversity"), dict) else {}
+    score_spread = mission_quality.get("score_spread") if isinstance(mission_quality.get("score_spread"), dict) else {}
+    foia_draftability = (
+        mission_quality.get("foia_draftability") if isinstance(mission_quality.get("foia_draftability"), dict) else {}
+    )
+
+    scoring_version = str(mission_quality.get("scoring_version") or "").strip().lower()
+    row_scoring_versions = [
+        str(item).strip().lower()
+        for item in (mission_quality.get("row_scoring_versions") or [])
+        if str(item).strip()
+    ]
+    scoring_version_ok = bool(scoring_version == "v3" and (not row_scoring_versions or set(row_scoring_versions) == {"v3"}))
+    checks.append(
+        workflow_module._serialize_check(
+            name="scoring_version_is_v3",
+            ok=scoring_version_ok,
+            observed={
+                "lead_snapshot_scoring_version": mission_quality.get("scoring_version"),
+                "row_scoring_versions": row_scoring_versions,
+            },
+            actual={
+                "lead_snapshot_scoring_version": mission_quality.get("scoring_version"),
+                "row_scoring_versions": row_scoring_versions,
+            },
+            threshold="v3",
+            expected="v3",
+            why="Larger-run mission review should gate on the current v3 ranked surface, not an older scoring contract.",
+            hint=scoring_version_cmd,
+            kind="artifact",
+            validation_mode=validation_mode,
+        )
+    )
+
+    checks.append(
+        workflow_module._threshold_check(
+            name="top_leads_core_field_coverage_threshold",
+            observed=mission_quality.get("core_field_coverage_pct"),
+            threshold=thresholds["top_leads_core_field_coverage_pct_min"],
+            unit="%",
+            why="Top-ranked FOIA leads need enough identifiers, office handles, vendor context, and record hooks to be reviewable.",
+            hint=review_board_hint,
+            actual={
+                "considered_top_leads": mission_quality.get("considered_top_leads"),
+                "core_field_counts": mission_quality.get("core_field_counts") or {},
+                "rows_with_three_plus_core_fields": mission_quality.get("rows_with_three_plus_core_fields"),
+                "rows_with_three_plus_core_fields_pct": mission_quality.get("rows_with_three_plus_core_fields_pct"),
+            },
+            validation_mode=validation_mode,
+        )
+    )
+
+    checks.append(
+        workflow_module._threshold_check(
+            name="top_leads_family_diversity_threshold",
+            observed=family_diversity.get("unique_primary_families"),
+            threshold=thresholds["top_leads_family_diversity_min"],
+            why="A family-collapsed top rank makes the surface weaker for FOIA target generation across programs, contractors, and facilities.",
+            hint=review_board_hint,
+            actual={
+                "considered_top_leads": mission_quality.get("considered_top_leads"),
+                "primary_family_counts": family_diversity.get("primary_family_counts") or {},
+                "top_family": family_diversity.get("top_family"),
+                "top_family_share_pct": family_diversity.get("top_family_share_pct"),
+                "unassigned_count": family_diversity.get("unassigned_count"),
+            },
+            validation_mode=validation_mode,
+        )
+    )
+
+    checks.append(
+        workflow_module._threshold_check(
+            name="nonstarter_pack_presence_threshold",
+            observed=mission_quality.get("nonstarter_pack_presence_pct"),
+            threshold=thresholds["nonstarter_pack_presence_pct_min"],
+            unit="%",
+            why="Useful FOIA leads should be driven by proxy or companion-pack evidence, not only starter ontology support.",
+            hint=review_board_hint,
+            actual={
+                "considered_top_leads": mission_quality.get("considered_top_leads"),
+                "nonstarter_pack_count": mission_quality.get("nonstarter_pack_count"),
+                "top_non_starter_rules": mission_quality.get("top_non_starter_rules") or [],
+            },
+            validation_mode=validation_mode,
+        )
+    )
+
+    checks.append(
+        workflow_module._threshold_check(
+            name="starter_only_pair_dominance_threshold",
+            observed=mission_quality.get("starter_only_pair_share_pct"),
+            threshold=thresholds["starter_only_pair_dominance_pct_max"],
+            comparator="<=",
+            unit="%",
+            why="Starter-only kw_pair support should not dominate the top-ranked review surface.",
+            hint=review_board_hint,
+            actual={
+                "considered_top_leads": mission_quality.get("considered_top_leads"),
+                "starter_only_pair_count": mission_quality.get("starter_only_pair_count"),
+                "starter_only_pair_share_pct": mission_quality.get("starter_only_pair_share_pct"),
+            },
+            validation_mode=validation_mode,
+        )
+    )
+
+    checks.append(
+        workflow_module._threshold_check(
+            name="score_spread_threshold",
+            observed=score_spread.get("spread"),
+            threshold=thresholds["score_spread_min"],
+            why="The top-ranked lead surface should not be so compressed that version drift or rank collapse is hidden from operators.",
+            hint=review_board_hint,
+            actual=score_spread,
+            validation_mode=validation_mode,
+        )
+    )
+
+    checks.append(
+        workflow_module._threshold_check(
+            name="routine_noise_share_threshold",
+            observed=mission_quality.get("routine_noise_share_pct"),
+            threshold=thresholds["routine_noise_share_pct_max"],
+            comparator="<=",
+            unit="%",
+            why="Routine-noise suppressors should not make up a large share of the top-ranked FOIA review surface.",
+            hint=review_board_hint,
+            actual={
+                "considered_top_leads": mission_quality.get("considered_top_leads"),
+                "routine_noise_count": mission_quality.get("routine_noise_count"),
+                "routine_noise_share_pct": mission_quality.get("routine_noise_share_pct"),
+            },
+            validation_mode=validation_mode,
+        )
+    )
+
+    if bool(mission_quality.get("dossier_export_enabled")):
+        checks.append(
+            workflow_module._threshold_check(
+                name="dossier_linkage_threshold",
+                observed=mission_quality.get("dossier_linkage_pct"),
+                threshold=thresholds["dossier_linkage_pct_min"],
+                unit="%",
+                why="When reviewer dossiers are exported, top leads should link cleanly into those artifact files.",
+                hint=dossier_hint,
+                actual={
+                    "expected_count": mission_quality.get("dossier_expected_count"),
+                    "linked_count": mission_quality.get("dossier_linked_count"),
+                    "linkage_pct": mission_quality.get("dossier_linkage_pct"),
+                },
+                validation_mode=validation_mode,
+            )
+        )
+
+    checks.append(
+        workflow_module._threshold_check(
+            name="foia_draftability_threshold",
+            observed=foia_draftability.get("draftable_share_pct"),
+            threshold=thresholds["foia_draftability_pct_min"],
+            unit="%",
+            why="Larger-run validation should fail when too few top-ranked leads are draftable into concrete FOIA follow-up targets.",
+            hint=review_board_hint,
+            actual={
+                "considered_top_leads": mission_quality.get("considered_top_leads"),
+                "draftable_count": foia_draftability.get("draftable_count"),
+                "draftable_share_pct": foia_draftability.get("draftable_share_pct"),
+                "levels": foia_draftability.get("levels") or {},
+            },
+            validation_mode=validation_mode,
+        )
+    )
+
+    return checks
+
+
 def _build_sam_run_status(
     *,
     failed_required_checks: list[dict[str, Any]],
@@ -544,6 +732,10 @@ def _build_sam_run_status(
 
     if workflow_status != "ok" and not reason_codes:
         reason_codes.append(f"workflow_status:{workflow_status}")
+    if "mission_quality" in required_failure_categories:
+        reason_codes.append("mission_quality_failed")
+    elif "mission_quality" in advisory_failure_categories:
+        reason_codes.append("mission_quality_warning")
 
     operator_messages: list[str] = []
     if required_failure_categories:
@@ -557,6 +749,14 @@ def _build_sam_run_status(
     if warning_checks and not required_failure_categories and advisory_failure_categories:
         operator_messages.append(
             "Required gates passed, but advisory misses prevent treating this run as fully healthy."
+        )
+    if "mission_quality" in required_failure_categories:
+        operator_messages.append(
+            "Mission-quality review gates failed: the ranked FOIA lead surface is not strong enough yet even though ingest or structural coverage may have succeeded."
+        )
+    elif "mission_quality" in advisory_failure_categories:
+        operator_messages.append(
+            "Mission-quality weaknesses were detected on the ranked FOIA lead surface; review the top leads before treating this run as mission-healthy."
         )
     if rate_limit_retries > 0:
         operator_messages.append(
@@ -824,6 +1024,13 @@ def run_samgov_smoke_workflow_hardened(
         )
     )
     rerun_snapshot_cmd = " ".join(rerun_snapshot_parts)
+    scoring_version_cmd = (
+        f"{smoke_tune_cmd if mode == 'smoke' else larger_validate_cmd} --scoring-version v3"
+    )
+    review_board_hint = (
+        f"Inspect {(bundle_dir / FOIA_LEAD_REVIEW_BOARD_HTML_PATH)} and {(bundle_dir / 'exports' / 'lead_snapshot.json')}."
+    )
+    dossier_hint = f"Inspect {(bundle_dir / 'report' / 'lead_dossiers')} and rerender the reviewer board if dossier files are missing."
 
     checks: list[dict[str, Any]] = []
     policy_overrides: list[dict[str, Any]] = []
@@ -1105,6 +1312,34 @@ def run_samgov_smoke_workflow_hardened(
         )
     )
 
+    lead_export = (
+        workflow_res.get("exports", {}).get("lead_snapshot")
+        if isinstance(workflow_res, dict) and isinstance(workflow_res.get("exports"), dict)
+        else {}
+    )
+    lead_export = dict(lead_export or {})
+    lead_snapshot_payload = _load_json_payload(lead_export.get("json"))
+    review_summary_payload = _load_json_payload(lead_export.get("review_summary_json"))
+    mission_quality_diagnostics = build_foia_lead_review_diagnostics(
+        lead_snapshot=lead_snapshot_payload,
+        review_summary=review_summary_payload,
+        bundle_dir=bundle_dir,
+        mission_top_n=10,
+        dossier_export_enabled=True,
+    )
+    mission_quality_summary = mission_quality_diagnostics["mission_quality"]
+    checks.extend(
+        _build_mission_quality_checks(
+            workflow_module=workflow_module,
+            mission_quality=mission_quality_summary,
+            thresholds=thresholds,
+            validation_mode=mode,
+            scoring_version_cmd=scoring_version_cmd,
+            review_board_hint=review_board_hint,
+            dossier_hint=dossier_hint,
+        )
+    )
+
     failed_required_checks = [c for c in checks if bool(c.get("required", True)) and not bool(c.get("ok"))]
     warning_checks = [c for c in checks if not bool(c.get("required", True)) and not bool(c.get("ok"))]
     check_groups = _summarize_check_groups(checks)
@@ -1200,6 +1435,7 @@ def run_samgov_smoke_workflow_hardened(
         },
         "ingest_request_diagnostics": ingest_request_diag,
         "snapshot_items": snapshot_items,
+        "mission_quality": mission_quality_summary,
     }
 
     results_dir = bundle_dir / SAM_BUNDLE_RESULTS_DIR
@@ -1249,6 +1485,7 @@ def run_samgov_smoke_workflow_hardened(
         "warning_checks": warning_checks,
         "checks": checks,
         "check_groups": check_groups,
+        "mission_quality": mission_quality_summary,
         "baseline": baseline,
     }
 
@@ -1344,6 +1581,7 @@ def run_samgov_smoke_workflow_hardened(
                 for category, group in check_groups.items()
             },
         },
+        "mission_quality": mission_quality_summary,
         "quality_gate_policy": quality_gate_policy,
         "run_parameters": {
             "ingest_days": effective_window.get("effective_days"),
@@ -1411,6 +1649,7 @@ def run_samgov_smoke_workflow_hardened(
         "failed_advisory_checks": warning_checks,
         "warning_checks": warning_checks,
         "thresholds": thresholds,
+        "mission_quality": mission_quality_summary,
         "baseline": baseline,
         "artifacts": artifacts,
     }

@@ -29,6 +29,7 @@ FOIA_LEAD_DOSSIER_DIR = Path("report") / "lead_dossiers"
 _TOP_LEAD_TABLE_LIMIT = 15
 _TOP_LEAD_DETAIL_LIMIT = 10
 _TOP_LEAD_DOSSIER_LIMIT = 15
+_MISSION_QUALITY_TOP_LEAD_LIMIT = 10
 _ROUTINE_NOISE_PREFIXES = ("operational_noise_terms:", "sam_proxy_noise_expansion:")
 _ROUTINE_NOISE_TOKENS = ("routine", "admin", "commodity", "janitorial", "license renewal", "maintenance")
 _STARTER_PACK_PREFIXES = ("sam_procurement_starter",)
@@ -508,9 +509,22 @@ def _derive_lead_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _score_spread_summary(rows: list[dict[str, Any]]) -> str:
+    return _score_spread_metrics(rows).get("summary") or "No scores available."
+
+
+def _score_spread_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     scores = [_safe_int(item.get("score")) for item in rows if item.get("score") is not None]
     if not scores:
-        return "No scores available."
+        return {
+            "max_score": None,
+            "min_score": None,
+            "spread": 0,
+            "median_score": None,
+            "unique_score_count": 0,
+            "repeated_peak": 0,
+            "compression": "unavailable",
+            "summary": "No scores available.",
+        }
     top_scores = scores[: min(len(scores), 10)]
     spread = max(top_scores) - min(top_scores)
     repeated_peak = max(Counter(top_scores).values()) if top_scores else 0
@@ -520,10 +534,19 @@ def _score_spread_summary(rows: list[dict[str, Any]]) -> str:
         compression = "moderately compressed"
     else:
         compression = "well separated"
-    return (
-        f"Top {len(top_scores)} scores span {max(top_scores)}..{min(top_scores)} "
-        f"(spread={spread}); median={median(scores):.1f}; ranking is {compression}."
-    )
+    return {
+        "max_score": max(top_scores),
+        "min_score": min(top_scores),
+        "spread": int(spread),
+        "median_score": float(median(scores)),
+        "unique_score_count": len(set(top_scores)),
+        "repeated_peak": int(repeated_peak),
+        "compression": compression,
+        "summary": (
+            f"Top {len(top_scores)} scores span {max(top_scores)}..{min(top_scores)} "
+            f"(spread={spread}); median={median(scores):.1f}; ranking is {compression}."
+        ),
+    }
 
 
 def _top_non_starter_rules(rows: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
@@ -574,6 +597,199 @@ def _overall_verdict(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "level": "thin",
         "title": "Run is thin and under-corroborated.",
         "detail": "The board shows some signal, but current leads need stronger corroboration or better record handles before they are draftable.",
+    }
+
+
+def build_foia_lead_review_diagnostics(
+    *,
+    lead_snapshot: dict[str, Any],
+    review_summary: Optional[dict[str, Any]] = None,
+    bundle_dir: Optional[Path] = None,
+    mission_top_n: int = _MISSION_QUALITY_TOP_LEAD_LIMIT,
+    dossier_export_enabled: bool = False,
+) -> dict[str, Any]:
+    review_summary = _norm_dict(review_summary)
+    rows_raw = [dict(item) for item in _norm_list(lead_snapshot.get("items")) if isinstance(item, dict)]
+    rows_raw.sort(
+        key=lambda item: (
+            _safe_int(item.get("rank"), default=10**9),
+            _safe_int(item.get("event_id"), default=10**9),
+        )
+    )
+
+    derived_rows = [_derive_lead_row(row) for row in rows_raw]
+    dossiers: dict[int, Path] = {}
+    dossier_export_enabled = bool(dossier_export_enabled and bundle_dir is not None)
+    if dossier_export_enabled and bundle_dir is not None:
+        dossiers = _write_dossiers(bundle_dir, derived_rows)
+        for item in derived_rows:
+            dossier_path = dossiers.get(item["rank"])
+            if dossier_path is not None:
+                item["dossier_path"] = dossier_path
+
+    top_n = max(int(mission_top_n), 0)
+    top_rows_raw = rows_raw[:top_n]
+    top_rows = derived_rows[:top_n]
+
+    family_groups = summarize_lead_family_groups(rows_raw)
+    family_distribution = summarize_lead_family_distribution(rows_raw)
+    top_non_starter_rules = _top_non_starter_rules(top_rows_raw)
+    score_spread = _score_spread_metrics(top_rows_raw)
+    verdict = _overall_verdict(top_rows or derived_rows)
+
+    core_fields = (
+        "has_core_identifiers",
+        "has_agency_target",
+        "has_vendor_context",
+        "has_classification_context",
+        "has_foia_handles",
+    )
+    core_field_counts = {
+        field: sum(1 for row in top_rows_raw if bool(row.get(field)))
+        for field in core_fields
+    }
+    total_core_slots = len(top_rows_raw) * len(core_fields)
+    core_field_coverage_pct = (
+        round((100.0 * sum(core_field_counts.values()) / float(total_core_slots)), 1)
+        if total_core_slots
+        else 0.0
+    )
+    rows_with_three_plus_core_fields = sum(
+        1
+        for row in top_rows_raw
+        if sum(1 for field in core_fields if bool(row.get(field))) >= 3
+    )
+    rows_with_three_plus_core_fields_pct = (
+        round((100.0 * rows_with_three_plus_core_fields / float(len(top_rows_raw))), 1)
+        if top_rows_raw
+        else 0.0
+    )
+
+    assigned_family_counts: Counter[str] = Counter()
+    unassigned_count = 0
+    for item in top_rows:
+        family = _norm_text(item.get("lead_family"))
+        if family and family != "unassigned":
+            assigned_family_counts[family] += 1
+        else:
+            unassigned_count += 1
+    top_family, top_family_count = (assigned_family_counts.most_common(1)[0] if assigned_family_counts else (None, 0))
+    top_family_share_pct = (
+        round((100.0 * top_family_count / float(len(top_rows))), 1)
+        if top_rows
+        else 0.0
+    )
+
+    nonstarter_pack_count = sum(1 for item in top_rows if item["non_starter_rules"])
+    nonstarter_pack_presence_pct = (
+        round((100.0 * nonstarter_pack_count / float(len(top_rows))), 1)
+        if top_rows
+        else 0.0
+    )
+    starter_only_pair_count = sum(1 for item in top_rows if item["starter_only_pair"])
+    starter_only_pair_share_pct = (
+        round((100.0 * starter_only_pair_count / float(len(top_rows))), 1)
+        if top_rows
+        else 0.0
+    )
+    routine_noise_count = sum(1 for item in top_rows if item["routine_noise"])
+    routine_noise_share_pct = (
+        round((100.0 * routine_noise_count / float(len(top_rows))), 1)
+        if top_rows
+        else 0.0
+    )
+
+    draftability_counts: Counter[str] = Counter(
+        str(item["foia_draftability"]["level"])
+        for item in top_rows
+        if isinstance(item.get("foia_draftability"), dict)
+    )
+    draftable_count = sum(
+        count for level, count in draftability_counts.items() if str(level) in {"strong", "moderate"}
+    )
+    foia_draftability_pct = (
+        round((100.0 * draftable_count / float(len(top_rows))), 1)
+        if top_rows
+        else 0.0
+    )
+
+    dossier_expected_count = len(top_rows) if dossier_export_enabled else None
+    dossier_linked_count = None
+    dossier_linkage_pct = None
+    if dossier_export_enabled:
+        dossier_linked_count = sum(
+            1
+            for item in top_rows
+            if isinstance(item.get("dossier_path"), Path) and Path(item["dossier_path"]).exists()
+        )
+        dossier_linkage_pct = (
+            round((100.0 * dossier_linked_count / float(len(top_rows))), 1)
+            if top_rows
+            else 0.0
+        )
+
+    row_scoring_versions = sorted(
+        {
+            str(
+                row.get("scoring_version")
+                or _norm_dict(row.get("score_details")).get("scoring_version")
+                or ""
+            ).strip().lower()
+            for row in top_rows_raw
+        }
+        - {""}
+    )
+    scoring_version = _first_present(
+        lead_snapshot.get("scoring_version"),
+        review_summary.get("scoring_version"),
+        row_scoring_versions[0] if len(row_scoring_versions) == 1 else None,
+    )
+
+    mission_quality = {
+        "artifact_available": bool(rows_raw),
+        "mission_top_n": top_n,
+        "considered_top_leads": len(top_rows),
+        "scoring_version": scoring_version,
+        "row_scoring_versions": row_scoring_versions,
+        "core_field_coverage_pct": core_field_coverage_pct,
+        "core_field_counts": core_field_counts,
+        "rows_with_three_plus_core_fields": rows_with_three_plus_core_fields,
+        "rows_with_three_plus_core_fields_pct": rows_with_three_plus_core_fields_pct,
+        "family_diversity": {
+            "unique_primary_families": len(assigned_family_counts),
+            "primary_family_counts": dict(assigned_family_counts),
+            "top_family": top_family,
+            "top_family_share_pct": top_family_share_pct,
+            "unassigned_count": unassigned_count,
+        },
+        "nonstarter_pack_count": nonstarter_pack_count,
+        "nonstarter_pack_presence_pct": nonstarter_pack_presence_pct,
+        "starter_only_pair_count": starter_only_pair_count,
+        "starter_only_pair_share_pct": starter_only_pair_share_pct,
+        "routine_noise_count": routine_noise_count,
+        "routine_noise_share_pct": routine_noise_share_pct,
+        "score_spread": score_spread,
+        "foia_draftability": {
+            "draftable_count": draftable_count,
+            "draftable_share_pct": foia_draftability_pct,
+            "levels": {str(level): int(count) for level, count in sorted(draftability_counts.items())},
+        },
+        "dossier_export_enabled": dossier_export_enabled,
+        "dossier_expected_count": dossier_expected_count,
+        "dossier_linked_count": dossier_linked_count,
+        "dossier_linkage_pct": dossier_linkage_pct,
+        "top_non_starter_rules": top_non_starter_rules,
+        "verdict": verdict,
+    }
+
+    return {
+        "rows_raw": rows_raw,
+        "derived_rows": derived_rows,
+        "family_groups": family_groups,
+        "family_distribution": family_distribution,
+        "top_non_starter_rules": top_non_starter_rules,
+        "verdict": verdict,
+        "mission_quality": mission_quality,
     }
 
 
@@ -805,18 +1021,19 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         or _norm_text(manifest.get("generated_at"))
         or datetime.now(timezone.utc).isoformat()
     )
-    rows_raw = [dict(item) for item in _norm_list(lead_snapshot.get("items")) if isinstance(item, dict)]
-    rows_raw.sort(key=lambda item: (_safe_int(item.get("rank"), default=10**9), _safe_int(item.get("event_id"), default=10**9)))
-    derived_rows = [_derive_lead_row(row) for row in rows_raw]
-    verdict = _overall_verdict(derived_rows[: _TOP_LEAD_TABLE_LIMIT] or derived_rows)
-    dossiers = _write_dossiers(root, derived_rows)
-    for item in derived_rows:
-        dossier_path = dossiers.get(item["rank"])
-        if dossier_path is not None:
-            item["dossier_path"] = dossier_path
-
-    family_groups = summarize_lead_family_groups(rows_raw)
-    family_distribution = summarize_lead_family_distribution(rows_raw)
+    diagnostics = build_foia_lead_review_diagnostics(
+        lead_snapshot=lead_snapshot,
+        review_summary=review_summary,
+        bundle_dir=root,
+        mission_top_n=_MISSION_QUALITY_TOP_LEAD_LIMIT,
+        dossier_export_enabled=True,
+    )
+    rows_raw = diagnostics["rows_raw"]
+    derived_rows = diagnostics["derived_rows"]
+    family_groups = diagnostics["family_groups"]
+    family_distribution = diagnostics["family_distribution"]
+    verdict = diagnostics["verdict"]
+    mission_quality = diagnostics["mission_quality"]
     family_rows = []
     primary_by_family = {
         str(group.get("lead_family") or ""): group
@@ -860,18 +1077,9 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
                 primary_group.get("top_score"),
             ]
         )
-    diagnostics_rows = derived_rows[: _TOP_LEAD_TABLE_LIMIT]
-    routine_noise_pct = _format_pct(
-        (100.0 * sum(1 for item in diagnostics_rows if item["routine_noise"]) / len(diagnostics_rows))
-        if diagnostics_rows
-        else None
-    )
-    starter_only_pct = _format_pct(
-        (100.0 * sum(1 for item in diagnostics_rows if item["starter_only_pair"]) / len(diagnostics_rows))
-        if diagnostics_rows
-        else None
-    )
-    top_non_starter_rules = _top_non_starter_rules(rows_raw)
+    routine_noise_pct = _format_pct(mission_quality.get("routine_noise_share_pct"))
+    starter_only_pct = _format_pct(mission_quality.get("starter_only_pair_share_pct"))
+    top_non_starter_rules = diagnostics["top_non_starter_rules"]
 
     html_path = root / FOIA_LEAD_REVIEW_BOARD_HTML_PATH
     md_path = root / FOIA_LEAD_REVIEW_BOARD_MD_PATH
@@ -969,15 +1177,15 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         + "</div>"
         "<div class=\"diag-card\">"
         "<h3>Score Spread / Compression</h3>"
-        f"<p>{_esc(_score_spread_summary(rows_raw))}</p>"
+        f"<p>{_esc(_norm_text(_norm_dict(mission_quality.get('score_spread')).get('summary')) or _score_spread_summary(rows_raw))}</p>"
         "</div>"
         "<div class=\"diag-card\">"
         "<h3>Starter-Only Pair Dominance</h3>"
-        f"<p>{_esc(starter_only_pct)} of the reviewed top leads rely on kw_pair plus starter-only ontology support.</p>"
+        f"<p>{_esc(starter_only_pct)} of the reviewed top {_MISSION_QUALITY_TOP_LEAD_LIMIT} leads rely on kw_pair plus starter-only ontology support.</p>"
         "</div>"
         "<div class=\"diag-card\">"
         "<h3>Routine-Noise Share</h3>"
-        f"<p>{_esc(routine_noise_pct)} of the reviewed top leads carry routine-noise suppressor hits.</p>"
+        f"<p>{_esc(routine_noise_pct)} of the reviewed top {_MISSION_QUALITY_TOP_LEAD_LIMIT} leads carry routine-noise suppressor hits.</p>"
         "</div>"
         "<div class=\"diag-card wide\">"
         "<h3>Top Non-Starter Packs / Rules</h3>"
@@ -1187,9 +1395,9 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
             "",
             f"- Family distribution: {family_distribution_text}",
             f"- Ambiguous leads: {family_distribution.get('ambiguous_items', 0)} of {family_distribution.get('total_items', 0)}",
-            f"- Score spread / compression: {_score_spread_summary(rows_raw)}",
-            f"- Starter-only pair dominance: {starter_only_pct}",
-            f"- Routine-noise share: {routine_noise_pct}",
+            f"- Score spread / compression: {_norm_text(_norm_dict(mission_quality.get('score_spread')).get('summary')) or _score_spread_summary(rows_raw)}",
+            f"- Starter-only pair dominance (top {_MISSION_QUALITY_TOP_LEAD_LIMIT}): {starter_only_pct}",
+            f"- Routine-noise share (top {_MISSION_QUALITY_TOP_LEAD_LIMIT}): {routine_noise_pct}",
             f"- Top non-starter packs/rules: {non_starter_text}",
             "",
         ]
@@ -1204,5 +1412,6 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
 __all__ = [
     "FOIA_LEAD_REVIEW_BOARD_HTML_PATH",
     "FOIA_LEAD_REVIEW_BOARD_MD_PATH",
+    "build_foia_lead_review_diagnostics",
     "render_foia_lead_review_board_from_bundle",
 ]

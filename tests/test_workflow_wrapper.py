@@ -218,6 +218,249 @@ def _seed_usaspending_events(db, now: datetime) -> None:
     )
 
 
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _mission_review_row(
+    *,
+    rank: int,
+    score: int,
+    scoring_version: str,
+    event_id: int,
+    lead_family: str | None,
+    matched_rules: list[str],
+    pair_count: int,
+    top_suppressors: list[dict],
+    contributing_lanes: list[str],
+    has_core_identifiers: bool,
+    has_agency_target: bool,
+    has_vendor_context: bool,
+    has_classification_context: bool,
+    has_foia_handles: bool,
+    solicitation_number: str | None = None,
+    award_id: str | None = None,
+    candidate_join_evidence: list[dict] | None = None,
+    linked_source_summary: list[dict] | None = None,
+) -> dict:
+    candidate_join_evidence = list(candidate_join_evidence or [])
+    linked_source_summary = list(linked_source_summary or [])
+    family_label = lead_family.replace("_", " ").title() if lead_family else None
+    source_url = f"https://sam.gov/opp/{event_id}" if has_foia_handles else None
+    score_details = {
+        "scoring_version": scoring_version,
+        "matched_ontology_rules": matched_rules,
+        "matched_ontology_clauses": [
+            {
+                "pack": rule.split(":", 1)[0],
+                "rule": rule.split(":", 1)[1] if ":" in rule else "",
+                "weight": 3,
+            }
+            for rule in matched_rules
+        ],
+        "pair_count": pair_count,
+        "pair_bonus": pair_count,
+        "pair_bonus_applied": pair_count,
+        "corroboration_score": 6 if len(contributing_lanes) > 1 or candidate_join_evidence else 1,
+        "noise_penalty": sum(int(item.get("penalty") or 0) for item in top_suppressors),
+        "noise_penalty_applied": sum(int(item.get("penalty") or 0) for item in top_suppressors),
+        "total_score": score,
+    }
+    if scoring_version == "v3":
+        score_details.update(
+            {
+                "proxy_relevance_score": max(score - 12, 0),
+                "investigability_score": 4 if has_foia_handles else 1,
+                "structural_context_score": 3 if has_classification_context else 1,
+            }
+        )
+    else:
+        score_details.update(
+            {
+                "clause_score": max(score - 8, 0),
+                "keyword_score": 3 if matched_rules else 0,
+                "entity_bonus": 1 if has_vendor_context else 0,
+            }
+        )
+
+    return {
+        "snapshot_id": 77,
+        "snapshot_item_id": rank,
+        "snapshot_scoring_version": scoring_version,
+        "rank": rank,
+        "score": score,
+        "scoring_version": scoring_version,
+        "lead_family": lead_family,
+        "lead_family_label": family_label,
+        "secondary_lead_families": [],
+        "why_summary": f"lead_family={lead_family or 'unassigned'} | ranked reviewer fixture",
+        "score_details": score_details,
+        "top_positive_signals": [
+            {
+                "label": matched_rules[0] if matched_rules else "starter/context support",
+                "bucket": "proxy_relevance" if matched_rules and not matched_rules[0].startswith("sam_procurement_starter:") else "structural_context",
+                "contribution": 4,
+            }
+        ],
+        "top_suppressors": top_suppressors,
+        "corroboration_summary": {
+            "candidate_join_evidence": candidate_join_evidence,
+            "linked_source_summary": linked_source_summary,
+        },
+        "contributing_lanes": contributing_lanes,
+        "linked_source_summary": linked_source_summary,
+        "candidate_join_evidence": candidate_join_evidence,
+        "event_id": event_id,
+        "event_hash": f"mission-{event_id}",
+        "entity_id": 5000 + event_id if has_vendor_context else None,
+        "category": "notice",
+        "source": "SAM.gov",
+        "doc_id": f"DOC-{event_id}" if has_core_identifiers else None,
+        "source_url": source_url,
+        "snippet": f"Ranked mission review fixture row {event_id}",
+        "occurred_at": "2026-03-10T00:00:00+00:00",
+        "created_at": "2026-03-11T00:00:00+00:00",
+        "place_text": "Arlington, VA" if has_classification_context else None,
+        "place_region": "VA, USA" if has_classification_context else None,
+        "solicitation_number": solicitation_number,
+        "notice_id": f"NOTICE-{event_id}" if solicitation_number else None,
+        "document_id": f"DOC-{event_id}" if has_core_identifiers else None,
+        "award_id": award_id,
+        "piid": award_id,
+        "generated_unique_award_id": f"GUA-{event_id}" if award_id else None,
+        "source_record_id": f"SRC-{event_id}" if has_foia_handles else None,
+        "awarding_agency_code": "DOE" if has_agency_target else None,
+        "awarding_agency_name": "Department of Energy" if has_agency_target else None,
+        "funding_agency_code": "NNSA" if has_agency_target else None,
+        "funding_agency_name": "National Nuclear Security Administration" if has_agency_target else None,
+        "contracting_office_code": "DOE-42" if has_agency_target else None,
+        "contracting_office_name": "DOE Procurement Office" if has_agency_target else None,
+        "recipient_name": "Acme Mission Support LLC" if has_vendor_context else None,
+        "recipient_uei": "UEI-ACME" if has_vendor_context else None,
+        "recipient_parent_uei": None,
+        "recipient_duns": None,
+        "recipient_cage_code": "CAGE-123" if has_vendor_context else None,
+        "vendor_name": "Acme Mission Support LLC" if has_vendor_context else None,
+        "vendor_uei": "UEI-ACME" if has_vendor_context else None,
+        "vendor_parent_uei": None,
+        "vendor_duns": None,
+        "vendor_cage_code": "CAGE-123" if has_vendor_context else None,
+        "psc_code": "R425" if has_classification_context else None,
+        "psc_description": "Engineering and Technical Services" if has_classification_context else None,
+        "naics_code": "541330" if has_classification_context else None,
+        "naics_description": "Engineering Services" if has_classification_context else None,
+        "has_core_identifiers": has_core_identifiers,
+        "has_agency_target": has_agency_target,
+        "has_vendor_context": has_vendor_context,
+        "has_classification_context": has_classification_context,
+        "has_foia_handles": has_foia_handles,
+        "completeness_summary": {},
+    }
+
+
+def _write_mission_review_exports(tmp_path: Path, *, scoring_version: str, rows: list[dict]) -> dict:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    lead_csv = tmp_path / "mission_review_fixture.csv"
+    lead_csv.write_text("rank,score\n", encoding="utf-8")
+    lead_json = tmp_path / "mission_review_fixture.json"
+    review_summary_json = tmp_path / "mission_review_fixture_review_summary.json"
+
+    completeness_counts = {
+        field: sum(1 for row in rows if bool(row.get(field)))
+        for field in (
+            "has_core_identifiers",
+            "has_agency_target",
+            "has_vendor_context",
+            "has_classification_context",
+            "has_foia_handles",
+        )
+    }
+
+    _write_json(
+        lead_json,
+        {
+            "count": len(rows),
+            "scoring_version": scoring_version,
+            "family_groups": [],
+            "items": rows,
+        },
+    )
+    _write_json(
+        review_summary_json,
+        {
+            "scoring_version": scoring_version,
+            "effective_window": {
+                "earliest": "2026-03-10T00:00:00+00:00",
+                "latest": "2026-03-11T00:00:00+00:00",
+                "span_days": 1,
+            },
+            "completeness_counts": completeness_counts,
+        },
+    )
+    return {
+        "lead_snapshot": {
+            "csv": lead_csv,
+            "json": lead_json,
+            "review_summary_json": review_summary_json,
+            "count": len(rows),
+        }
+    }
+
+
+def _healthy_sam_doctor_status() -> dict:
+    return {
+        "db": {"status": "ok"},
+        "counts": {
+            "events_window": 60,
+            "events_with_entity_window": 48,
+            "lead_snapshots_total": 1,
+        },
+        "keywords": {
+            "scanned_events": 60,
+            "events_with_keywords": 52,
+            "coverage_pct": 86.7,
+            "unique_keywords": 12,
+        },
+        "entities": {
+            "window_linked_coverage_pct": 80.0,
+            "sample_scanned_events": 60,
+            "sample_events_with_identity_signal": 60,
+            "sample_events_with_identity_signal_linked": 48,
+            "sample_identity_signal_coverage_pct": 80.0,
+            "sample_events_with_name": 60,
+            "sample_events_with_name_linked": 48,
+            "sample_name_coverage_pct": 80.0,
+        },
+        "correlations": {
+            "by_lane": {
+                "same_keyword": 9,
+                "kw_pair": 14,
+                "same_sam_naics": 4,
+                "same_entity": 6,
+                "same_uei": 2,
+            }
+        },
+        "sam_context": {
+            "scanned_events": 60,
+            "events_with_research_context": 50,
+            "research_context_coverage_pct": 83.3,
+            "events_with_core_procurement_context": 53,
+            "core_procurement_context_coverage_pct": 88.3,
+            "avg_context_fields_per_event": 4.2,
+            "coverage_by_field_pct": {
+                "sam_notice_type": 100.0,
+                "sam_solicitation_number": 96.7,
+                "sam_naics_code": 86.7,
+            },
+            "top_notice_types": [],
+            "top_naics_codes": [],
+            "top_set_aside_codes": [],
+        },
+        "hints": [],
+    }
+
+
 def _fill_adjudication_csv(path: Path, updates: dict[int, dict[str, str]]) -> None:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
@@ -490,7 +733,7 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
         require_nonzero=True,
     )
 
-    assert res["status"] == "ok"
+    assert res["status"] == "warning"
     assert res["smoke_passed"] is True
 
     artifacts = res["artifacts"]
@@ -511,24 +754,25 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert review_board_md_path.exists()
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary_payload["workflow_status"] == "ok"
-    assert summary_payload["quality"] == "healthy"
+    assert summary_payload["workflow_status"] == "warning"
+    assert summary_payload["quality"] == "degraded"
     assert summary_payload["smoke_passed"] is True
     assert summary_payload["required_checks_passed"] is True
     assert summary_payload["has_required_failures"] is False
-    assert summary_payload["has_advisory_failures"] is False
+    assert summary_payload["has_advisory_failures"] is True
     assert summary_payload["has_usable_artifacts"] is True
-    assert summary_payload["partially_useful"] is False
+    assert summary_payload["partially_useful"] is True
     assert summary_payload["comparison_requested"] is False
     assert summary_payload["comparison_available"] is False
     assert summary_payload["comparison_empty"] is False
-    assert summary_payload["reason_codes"] == []
-    assert summary_payload["operator_messages"] == []
+    assert summary_payload["reason_codes"]
+    assert summary_payload["operator_messages"]
     assert summary_payload["scoring_version"] == "v3"
     check_names = {c.get("name") for c in summary_payload.get("checks", [])}
     assert "events_window_threshold" in check_names
     assert "sam_research_context_events_threshold" in check_names
     assert "snapshot_items_threshold" in check_names
+    assert "scoring_version_is_v3" in check_names
 
     assert summary_payload.get("thresholds")
     assert summary_payload.get("quality_gate_policy", {}).get("required_checks")
@@ -538,8 +782,8 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert manifest_payload.get("bundle_version") == SAM_BUNDLE_VERSION
     assert manifest_payload.get("workflow_type") == "samgov-smoke"
     assert manifest_payload.get("scoring_version") == "v3"
-    assert manifest_payload.get("workflow_status") == "ok"
-    assert manifest_payload.get("quality") == "healthy"
+    assert manifest_payload.get("workflow_status") == "warning"
+    assert manifest_payload.get("quality") == "degraded"
     generated_files = manifest_payload.get("generated_files") or {}
     assert "workflow_result_json" in generated_files
     assert "workflow_summary_json" in generated_files
@@ -567,10 +811,11 @@ def test_samgov_smoke_bundle_fixture_captures_baseline(tmp_path: Path):
     assert "workflow_type=samgov-smoke" in report_html
     assert "scoring_version=v3" in report_html
     assert "workflow_status" in report_html
-    assert "healthy" in report_html
+    assert "degraded" in report_html
     assert "Pipeline health" in report_html
     assert "Source coverage/context health" in report_html
     assert "Lead-signal quality" in report_html
+    assert "Mission Quality" in report_html
 
     review_board_html = review_board_path.read_text(encoding="utf-8")
     assert "FOIA Lead Review Board" in review_board_html
@@ -617,7 +862,7 @@ def test_samgov_smoke_bundle_records_explicit_posted_window(tmp_path: Path):
         require_nonzero=True,
     )
 
-    assert res["status"] == "ok"
+    assert res["status"] in {"ok", "warning"}
     assert res["run_metadata"]["posted_window_mode"] == "explicit_dates"
     assert res["run_metadata"]["effective_posted_from"] == "2024-01-01"
     assert res["run_metadata"]["effective_posted_to"] == "2024-03-31"
@@ -685,30 +930,78 @@ def test_samgov_smoke_bundle_can_emit_scoring_comparison_artifact(tmp_path: Path
     assert "compare_scoring_versions=v2,v3" in report_html
 
 
-def test_samgov_validation_warning_with_usable_artifacts_is_partially_useful(tmp_path: Path):
-    db_path = tmp_path / "sam_validation_warning.db"
-    db_url = f"sqlite:///{db_path.as_posix()}"
+def test_samgov_validation_warning_with_usable_artifacts_is_partially_useful(tmp_path: Path, monkeypatch):
+    strong_rows = [
+        _mission_review_row(
+            rank=1,
+            score=20,
+            scoring_version="v3",
+            event_id=301,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_proxy_procurement_continuity_classified_followon:sole_source_follow_on_classified_context"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["same_entity", "kw_pair"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-301",
+        ),
+        _mission_review_row(
+            rank=2,
+            score=14,
+            scoring_version="v3",
+            event_id=302,
+            lead_family="range_test_infrastructure",
+            matched_rules=["sam_dod_flight_test_range_instrumentation:range_telemetry_support_services"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["same_agency", "kw_pair"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=False,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-302",
+        ),
+        _mission_review_row(
+            rank=3,
+            score=13,
+            scoring_version="v3",
+            event_id=303,
+            lead_family="facility_security_hardening",
+            matched_rules=["sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context"],
+            pair_count=0,
+            top_suppressors=[],
+            contributing_lanes=["same_doc_id"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-303",
+        ),
+    ]
+    exports = _write_mission_review_exports(tmp_path / "validation_warning_exports", scoring_version="v3", rows=strong_rows)
 
-    ensure_schema(db_url)
-    SessionFactory = get_session_factory(db_url)
-    now = datetime.now(timezone.utc)
+    def fake_run_samgov_workflow(**_kwargs):
+        return {
+            "source": "SAM.gov",
+            "status": "ok",
+            "ingest": {"status": "success", "fetched": 25, "inserted": 25, "normalized": 25},
+            "snapshot": {"items": len(strong_rows)},
+            "exports": exports,
+        }
 
-    with SessionFactory() as db:
-        _seed_sam_events(db, now)
-        db.commit()
-
+    monkeypatch.setattr(workflow_module, "run_samgov_workflow", fake_run_samgov_workflow)
+    monkeypatch.setattr(workflow_module, "doctor_status", lambda **_kwargs: _healthy_sam_doctor_status())
     res = run_samgov_validation_workflow(
-        database_url=db_url,
-        skip_ingest=True,
-        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
-        window_days=30,
-        min_events_entity=2,
-        min_events_keywords=2,
-        max_events_keywords=200,
-        max_keywords_per_event=10,
         bundle_root=tmp_path / "validation_warning_bundle",
         require_nonzero=True,
-        threshold_overrides={"same_sam_naics_lane_min": 2.0},
+        skip_ingest=False,
+        threshold_overrides={"same_sam_naics_lane_min": 5.0},
     )
 
     assert res["workflow_status"] == "warning"
@@ -1051,29 +1344,78 @@ def test_samgov_bundle_reports_include_adjudication_metrics_when_present(tmp_pat
 
 
 
-def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
-    db_path = tmp_path / "sam_validation.db"
-    db_url = f"sqlite:///{db_path.as_posix()}"
+def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path, monkeypatch):
+    strong_rows = [
+        _mission_review_row(
+            rank=1,
+            score=21,
+            scoring_version="v3",
+            event_id=401,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_proxy_procurement_continuity_classified_followon:sole_source_follow_on_classified_context"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["same_entity", "kw_pair"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-401",
+        ),
+        _mission_review_row(
+            rank=2,
+            score=15,
+            scoring_version="v3",
+            event_id=402,
+            lead_family="range_test_infrastructure",
+            matched_rules=["sam_dod_flight_test_range_instrumentation:range_telemetry_support_services"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["same_agency", "kw_pair"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=False,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-402",
+        ),
+        _mission_review_row(
+            rank=3,
+            score=14,
+            scoring_version="v3",
+            event_id=403,
+            lead_family="facility_security_hardening",
+            matched_rules=["sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context"],
+            pair_count=0,
+            top_suppressors=[],
+            contributing_lanes=["same_doc_id"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-403",
+        ),
+    ]
+    exports = _write_mission_review_exports(tmp_path / "validation_metadata_exports", scoring_version="v3", rows=strong_rows)
 
-    ensure_schema(db_url)
-    SessionFactory = get_session_factory(db_url)
-    now = datetime.now(timezone.utc)
+    def fake_run_samgov_workflow(**_kwargs):
+        return {
+            "source": "SAM.gov",
+            "status": "ok",
+            "ingest": {"status": "success", "fetched": 25, "inserted": 25, "normalized": 25},
+            "snapshot": {"items": len(strong_rows)},
+            "exports": exports,
+        }
 
-    with SessionFactory() as db:
-        _seed_sam_events(db, now)
-        db.commit()
+    monkeypatch.setattr(workflow_module, "run_samgov_workflow", fake_run_samgov_workflow)
+    monkeypatch.setattr(workflow_module, "doctor_status", lambda **_kwargs: _healthy_sam_doctor_status())
 
     res = run_samgov_validation_workflow(
-        database_url=db_url,
-        skip_ingest=True,
-        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
-        window_days=30,
-        min_events_entity=2,
-        min_events_keywords=2,
-        max_events_keywords=200,
-        max_keywords_per_event=10,
         bundle_root=tmp_path / "validation_artifacts",
         require_nonzero=True,
+        skip_ingest=False,
     )
 
     assert res.get("validation_mode") == "larger"
@@ -1085,9 +1427,9 @@ def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
     assert "workflow_execution" in (res.get("quality_gate_policy", {}).get("required_checks") or [])
     assert "ingest_nonzero" in (res.get("quality_gate_policy", {}).get("required_checks") or [])
     assert "workflow_execution" in (res.get("quality_gate_policy", {}).get("effective_required_checks") or [])
-    assert "ingest_nonzero" in (res.get("quality_gate_policy", {}).get("effective_advisory_checks") or [])
+    assert "ingest_nonzero" in (res.get("quality_gate_policy", {}).get("effective_required_checks") or [])
     overrides = res.get("quality_gate_policy", {}).get("policy_overrides") or []
-    assert any(item.get("name") == "ingest_nonzero" for item in overrides)
+    assert overrides == []
 
     artifacts = res.get("artifacts") or {}
     manifest_path = Path(artifacts.get("bundle_manifest_json"))
@@ -1123,6 +1465,502 @@ def test_samgov_validation_workflow_emits_larger_mode_metadata(tmp_path: Path):
     assert "Lead-signal quality" in report_html
     assert "advisory" in report_html
     assert "required" in report_html
+
+
+def test_samgov_validation_fails_on_mission_quality_weak_ranked_surface(tmp_path: Path, monkeypatch):
+    weak_rows = [
+        _mission_review_row(
+            rank=1,
+            score=12,
+            scoring_version="v2",
+            event_id=101,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_procurement_starter:idiq_vehicle"],
+            pair_count=2,
+            top_suppressors=[{"label": "operational_noise_terms:admin_facility_ops_noise", "penalty": 4}],
+            contributing_lanes=["kw_pair"],
+            has_core_identifiers=False,
+            has_agency_target=False,
+            has_vendor_context=False,
+            has_classification_context=False,
+            has_foia_handles=False,
+        ),
+        _mission_review_row(
+            rank=2,
+            score=12,
+            scoring_version="v2",
+            event_id=102,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_procurement_starter:task_or_delivery_order"],
+            pair_count=2,
+            top_suppressors=[{"label": "operational_noise_terms:generic_facility_maintenance_noise", "penalty": 4}],
+            contributing_lanes=["kw_pair"],
+            has_core_identifiers=False,
+            has_agency_target=False,
+            has_vendor_context=False,
+            has_classification_context=False,
+            has_foia_handles=False,
+        ),
+        _mission_review_row(
+            rank=3,
+            score=11,
+            scoring_version="v2",
+            event_id=103,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_procurement_starter:idiq_vehicle"],
+            pair_count=1,
+            top_suppressors=[{"label": "operational_noise_terms:security_training_noise", "penalty": 4}],
+            contributing_lanes=["kw_pair"],
+            has_core_identifiers=False,
+            has_agency_target=False,
+            has_vendor_context=False,
+            has_classification_context=False,
+            has_foia_handles=False,
+        ),
+        _mission_review_row(
+            rank=4,
+            score=11,
+            scoring_version="v2",
+            event_id=104,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_procurement_starter:idiq_vehicle"],
+            pair_count=1,
+            top_suppressors=[{"label": "operational_noise_terms:admin_facility_ops_noise", "penalty": 4}],
+            contributing_lanes=["kw_pair"],
+            has_core_identifiers=False,
+            has_agency_target=False,
+            has_vendor_context=False,
+            has_classification_context=False,
+            has_foia_handles=False,
+        ),
+        _mission_review_row(
+            rank=5,
+            score=11,
+            scoring_version="v2",
+            event_id=105,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_procurement_starter:task_or_delivery_order"],
+            pair_count=2,
+            top_suppressors=[{"label": "operational_noise_terms:generic_medical_clinical_noise", "penalty": 4}],
+            contributing_lanes=["kw_pair"],
+            has_core_identifiers=False,
+            has_agency_target=False,
+            has_vendor_context=False,
+            has_classification_context=False,
+            has_foia_handles=False,
+        ),
+        _mission_review_row(
+            rank=6,
+            score=10,
+            scoring_version="v2",
+            event_id=106,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_procurement_starter:idiq_vehicle"],
+            pair_count=1,
+            top_suppressors=[{"label": "operational_noise_terms:admin_facility_ops_noise", "penalty": 4}],
+            contributing_lanes=["kw_pair"],
+            has_core_identifiers=False,
+            has_agency_target=False,
+            has_vendor_context=False,
+            has_classification_context=False,
+            has_foia_handles=False,
+        ),
+        _mission_review_row(
+            rank=7,
+            score=10,
+            scoring_version="v2",
+            event_id=107,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_procurement_starter:task_or_delivery_order"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["kw_pair"],
+            has_core_identifiers=False,
+            has_agency_target=False,
+            has_vendor_context=False,
+            has_classification_context=False,
+            has_foia_handles=False,
+        ),
+        _mission_review_row(
+            rank=8,
+            score=10,
+            scoring_version="v2",
+            event_id=108,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_procurement_starter:idiq_vehicle"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["kw_pair"],
+            has_core_identifiers=False,
+            has_agency_target=False,
+            has_vendor_context=False,
+            has_classification_context=False,
+            has_foia_handles=False,
+        ),
+        _mission_review_row(
+            rank=9,
+            score=9,
+            scoring_version="v2",
+            event_id=109,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=[
+                "sam_proxy_procurement_continuity_classified_followon:sole_source_follow_on_classified_context"
+            ],
+            pair_count=0,
+            top_suppressors=[],
+            contributing_lanes=["same_entity"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-109",
+            candidate_join_evidence=[
+                {
+                    "status": "candidate",
+                    "evidence_types": ["identifier_exact"],
+                    "linked_sources": ["USAspending"],
+                    "score_signal": 63,
+                }
+            ],
+        ),
+        _mission_review_row(
+            rank=10,
+            score=9,
+            scoring_version="v2",
+            event_id=110,
+            lead_family="range_test_infrastructure",
+            matched_rules=[
+                "sam_dod_flight_test_range_instrumentation:range_telemetry_support_services"
+            ],
+            pair_count=0,
+            top_suppressors=[],
+            contributing_lanes=["same_agency"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=False,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-110",
+        ),
+    ]
+    exports = _write_mission_review_exports(tmp_path / "mission_weak_exports", scoring_version="v2", rows=weak_rows)
+
+    def fake_run_samgov_workflow(**_kwargs):
+        return {
+            "source": "SAM.gov",
+            "status": "ok",
+            "ingest": {"status": "success", "fetched": 50, "inserted": 50, "normalized": 50},
+            "snapshot": {"items": len(weak_rows)},
+            "exports": exports,
+        }
+
+    monkeypatch.setattr(workflow_module, "run_samgov_workflow", fake_run_samgov_workflow)
+    monkeypatch.setattr(workflow_module, "doctor_status", lambda **_kwargs: _healthy_sam_doctor_status())
+
+    res = run_samgov_validation_workflow(
+        bundle_root=tmp_path / "validation_mission_fail",
+        require_nonzero=True,
+        skip_ingest=False,
+    )
+
+    assert res["status"] == "failed"
+    assert res["required_failure_categories"] == ["mission_quality"]
+    assert "mission_quality_failed" in res["reason_codes"]
+    assert any("Mission-quality review gates failed" in message for message in res["operator_messages"])
+
+    failed_by_name = {item.get("name"): item for item in res.get("failed_required_checks", [])}
+    assert "scoring_version_is_v3" in failed_by_name
+    assert "top_leads_core_field_coverage_threshold" in failed_by_name
+    assert "top_leads_family_diversity_threshold" in failed_by_name
+    assert "nonstarter_pack_presence_threshold" in failed_by_name
+    assert "starter_only_pair_dominance_threshold" in failed_by_name
+    assert "score_spread_threshold" in failed_by_name
+    assert "routine_noise_share_threshold" in failed_by_name
+    assert "foia_draftability_threshold" in failed_by_name
+
+    scoring_check = failed_by_name["scoring_version_is_v3"]
+    assert scoring_check["category"] == "mission_quality"
+    assert scoring_check["policy_level"] == "required"
+    assert scoring_check["threshold"] == "v3"
+    assert scoring_check["observed"]["lead_snapshot_scoring_version"] == "v2"
+    assert scoring_check["why"]
+    assert scoring_check["hint"]
+
+    summary_payload = json.loads(Path(res["artifacts"]["smoke_summary_json"]).read_text(encoding="utf-8"))
+    summary_checks = {item.get("name"): item for item in summary_payload.get("checks", [])}
+    assert summary_checks["scoring_version_is_v3"]["category"] == "mission_quality"
+    assert summary_checks["foia_draftability_threshold"]["category"] == "mission_quality"
+    assert summary_checks["starter_only_pair_dominance_threshold"]["required"] is True
+    assert summary_payload["mission_quality"]["scoring_version"] == "v2"
+    assert summary_payload["mission_quality"]["family_diversity"]["unique_primary_families"] == 2
+
+    manifest_payload = json.loads(Path(res["artifacts"]["bundle_manifest_json"]).read_text(encoding="utf-8"))
+    assert manifest_payload["check_summary"]["by_category"]["mission_quality"]["failed_required"] >= 1
+
+    report_html = Path(res["artifacts"]["report_html"]).read_text(encoding="utf-8")
+    assert "Mission Quality" in report_html
+    assert "scoring_version_is_v3" in report_html
+    assert "starter_only_pair_dominance_threshold" in report_html
+    assert "Mission-quality review gates failed" in report_html
+
+
+def test_samgov_validation_passes_when_mission_quality_is_strong_and_serialized(tmp_path: Path, monkeypatch):
+    pass_rows = [
+        _mission_review_row(
+            rank=1,
+            score=26,
+            scoring_version="v3",
+            event_id=201,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=[
+                "sam_proxy_procurement_continuity_classified_followon:sole_source_follow_on_classified_context",
+                "sam_proxy_classified_contract_security_admin:dd254_classification_guide_contract_context",
+            ],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["sam_usaspending_candidate_join", "same_entity", "kw_pair"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-201",
+            candidate_join_evidence=[
+                {
+                    "status": "candidate",
+                    "evidence_types": ["identifier_exact", "contract_family"],
+                    "linked_sources": ["USAspending"],
+                    "score_signal": 76,
+                }
+            ],
+            linked_source_summary=[{"source": "USAspending", "linked_event_count": 2, "lanes": ["sam_usaspending_candidate_join"]}],
+        ),
+        _mission_review_row(
+            rank=2,
+            score=24,
+            scoring_version="v3",
+            event_id=202,
+            lead_family="range_test_infrastructure",
+            matched_rules=["sam_dod_flight_test_range_instrumentation:range_telemetry_support_services"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["same_agency", "kw_pair"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=False,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-202",
+        ),
+        _mission_review_row(
+            rank=3,
+            score=23,
+            scoring_version="v3",
+            event_id=203,
+            lead_family="facility_security_hardening",
+            matched_rules=["sam_proxy_secure_compartmented_facility_engineering:icd705_scif_sapf_facility_upgrade_context"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["same_doc_id", "kw_pair"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-203",
+        ),
+        _mission_review_row(
+            rank=4,
+            score=21,
+            scoring_version="v3",
+            event_id=204,
+            lead_family="exploitation_materials_handling",
+            matched_rules=["sam_proxy_materials_exploitation_forensics:materials_forensic_lab_context"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["same_naics", "kw_pair"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            award_id="AWD-204",
+        ),
+        _mission_review_row(
+            rank=5,
+            score=20,
+            scoring_version="v3",
+            event_id=205,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_proxy_operator_site_program_pairs:operator_site_pair_proxy_context"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["same_contract_id", "same_entity"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=False,
+            has_foia_handles=True,
+            award_id="AWD-205",
+        ),
+        _mission_review_row(
+            rank=6,
+            score=18,
+            scoring_version="v3",
+            event_id=206,
+            lead_family="range_test_infrastructure",
+            matched_rules=["sam_proxy_optical_tracking_transient_collection:optical_ir_tracking_context"],
+            pair_count=1,
+            top_suppressors=[],
+            contributing_lanes=["same_place_region", "kw_pair"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=False,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-206",
+        ),
+        _mission_review_row(
+            rank=7,
+            score=17,
+            scoring_version="v3",
+            event_id=207,
+            lead_family="facility_security_hardening",
+            matched_rules=["sam_proxy_classified_contract_security_admin:comsec_type1_secure_comms_context"],
+            pair_count=0,
+            top_suppressors=[],
+            contributing_lanes=["same_doc_id"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-207",
+        ),
+        _mission_review_row(
+            rank=8,
+            score=16,
+            scoring_version="v3",
+            event_id=208,
+            lead_family="exploitation_materials_handling",
+            matched_rules=["sam_proxy_controlled_sample_containment_storage:glovebox_inert_sample_handling_context"],
+            pair_count=0,
+            top_suppressors=[],
+            contributing_lanes=["same_agency"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-208",
+        ),
+        _mission_review_row(
+            rank=9,
+            score=15,
+            scoring_version="v3",
+            event_id=209,
+            lead_family="range_test_infrastructure",
+            matched_rules=["sam_procurement_starter:idiq_vehicle"],
+            pair_count=1,
+            top_suppressors=[{"label": "operational_noise_terms:admin_facility_ops_noise", "penalty": 2}],
+            contributing_lanes=["kw_pair", "same_agency"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=False,
+            has_classification_context=True,
+            has_foia_handles=True,
+            solicitation_number="SOL-209",
+        ),
+        _mission_review_row(
+            rank=10,
+            score=14,
+            scoring_version="v3",
+            event_id=210,
+            lead_family="vendor_network_contract_lineage",
+            matched_rules=["sam_proxy_procurement_continuity_classified_followon:classified_annex_continuity_context"],
+            pair_count=0,
+            top_suppressors=[],
+            contributing_lanes=["same_entity"],
+            has_core_identifiers=True,
+            has_agency_target=True,
+            has_vendor_context=True,
+            has_classification_context=False,
+            has_foia_handles=True,
+            award_id="AWD-210",
+        ),
+    ]
+    exports = _write_mission_review_exports(tmp_path / "mission_pass_exports", scoring_version="v3", rows=pass_rows)
+
+    def fake_run_samgov_workflow(**_kwargs):
+        return {
+            "source": "SAM.gov",
+            "status": "ok",
+            "ingest": {"status": "success", "fetched": 50, "inserted": 50, "normalized": 50},
+            "snapshot": {"items": len(pass_rows)},
+            "exports": exports,
+        }
+
+    monkeypatch.setattr(workflow_module, "run_samgov_workflow", fake_run_samgov_workflow)
+    monkeypatch.setattr(workflow_module, "doctor_status", lambda **_kwargs: _healthy_sam_doctor_status())
+
+    res = run_samgov_validation_workflow(
+        bundle_root=tmp_path / "validation_mission_pass",
+        require_nonzero=True,
+        skip_ingest=False,
+    )
+
+    assert res["status"] == "ok"
+    assert res["required_checks_passed"] is True
+    assert res["required_failure_categories"] == []
+    checks_by_name = {item.get("name"): item for item in res.get("checks", [])}
+    assert checks_by_name["scoring_version_is_v3"]["passed"] is True
+    assert checks_by_name["foia_draftability_threshold"]["passed"] is True
+    assert checks_by_name["starter_only_pair_dominance_threshold"]["passed"] is True
+    assert checks_by_name["routine_noise_share_threshold"]["passed"] is True
+    assert checks_by_name["dossier_linkage_threshold"]["passed"] is True
+
+    summary_payload = json.loads(Path(res["artifacts"]["smoke_summary_json"]).read_text(encoding="utf-8"))
+    mission_quality = summary_payload["mission_quality"]
+    assert mission_quality["scoring_version"] == "v3"
+    assert mission_quality["row_scoring_versions"] == ["v3"]
+    assert mission_quality["core_field_coverage_pct"] >= 70.0
+    assert mission_quality["family_diversity"]["unique_primary_families"] >= 3
+    assert mission_quality["nonstarter_pack_presence_pct"] >= 60.0
+    assert mission_quality["starter_only_pair_share_pct"] <= 35.0
+    assert mission_quality["routine_noise_share_pct"] <= 35.0
+    assert mission_quality["foia_draftability"]["draftable_share_pct"] >= 40.0
+    assert mission_quality["dossier_linkage_pct"] == 100.0
+
+    scoring_check = next(item for item in summary_payload["checks"] if item["name"] == "scoring_version_is_v3")
+    assert sorted(scoring_check.keys()) == sorted(
+        [
+            "actual",
+            "category",
+            "category_label",
+            "comparator",
+            "expected",
+            "hint",
+            "kind",
+            "name",
+            "observed",
+            "ok",
+            "passed",
+            "policy_level",
+            "required",
+            "result",
+            "severity",
+            "status",
+            "threshold",
+            "unit",
+            "why",
+        ]
+    )
+
+    report_html = Path(res["artifacts"]["report_html"]).read_text(encoding="utf-8")
+    assert "Mission Quality" in report_html
+    assert "lead_snapshot_scoring_version" in report_html
+    assert "foia_draftability_pct" in report_html
 
 
 def test_samgov_smoke_threshold_contract_fails_with_context_and_naics_misses(tmp_path: Path):
@@ -1250,6 +2088,7 @@ def test_samgov_validation_required_quality_misses_fail_larger_mode(tmp_path: Pa
     assert res["required_failure_categories"] == [
         "source_coverage_context_health",
         "lead_signal_quality",
+        "mission_quality",
     ]
 
     failed_by_name = {item.get("name"): item for item in res.get("failed_required_checks", [])}
@@ -1257,6 +2096,8 @@ def test_samgov_validation_required_quality_misses_fail_larger_mode(tmp_path: Pa
     assert "sam_research_context_coverage_threshold" in failed_by_name
     assert "keyword_or_kw_pair_signal_threshold" in failed_by_name
     assert "snapshot_items_threshold" in failed_by_name
+    assert "top_leads_core_field_coverage_threshold" in failed_by_name
+    assert "foia_draftability_threshold" in failed_by_name
 
     advisory_by_name = {item.get("name"): item for item in res.get("failed_advisory_checks", [])}
     assert "events_with_keywords_coverage_threshold" in advisory_by_name
@@ -1340,7 +2181,7 @@ def test_samgov_smoke_keyword_coverage_uses_sampled_population(tmp_path: Path, m
         skip_ingest=False,
     )
 
-    assert res["status"] == "ok"
+    assert res["status"] == "warning"
     checks_by_name = {item.get("name"): item for item in res.get("checks", [])}
     kw_cov = checks_by_name["events_with_keywords_coverage_threshold"]
 

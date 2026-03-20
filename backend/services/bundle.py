@@ -328,6 +328,16 @@ def _summary_comparison(summary: dict[str, Any], manifest: Optional[dict[str, An
     return {}
 
 
+def _summary_mission_quality(summary: dict[str, Any], manifest: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    mission_quality = summary.get("mission_quality") if isinstance(summary.get("mission_quality"), dict) else {}
+    if mission_quality:
+        return mission_quality
+    manifest_mission_quality = (manifest or {}).get("mission_quality")
+    if isinstance(manifest_mission_quality, dict):
+        return manifest_mission_quality
+    return {}
+
+
 def render_sam_bundle_report(
     *,
     bundle_dir: Path,
@@ -356,6 +366,7 @@ def render_sam_bundle_report(
         baseline.get("correlations_by_lane") if isinstance(baseline.get("correlations_by_lane"), dict) else {}
     )
     comparison = _summary_comparison(summary)
+    mission_quality = _summary_mission_quality(summary)
     quality = _quality_name(summary)
     reason_codes = _summary_list(summary, "reason_codes")
     operator_messages = _summary_list(summary, "operator_messages")
@@ -473,6 +484,43 @@ def render_sam_bundle_report(
     if not comparison_messages_markup:
         comparison_messages_markup = "<li>No comparison messages recorded.</li>"
 
+    mission_quality_rows = ""
+    if mission_quality:
+        family_diversity = (
+            mission_quality.get("family_diversity") if isinstance(mission_quality.get("family_diversity"), dict) else {}
+        )
+        score_spread = mission_quality.get("score_spread") if isinstance(mission_quality.get("score_spread"), dict) else {}
+        foia_draftability = (
+            mission_quality.get("foia_draftability") if isinstance(mission_quality.get("foia_draftability"), dict) else {}
+        )
+        mission_quality_rows = "".join(
+            [
+                _row("mission_top_n", mission_quality.get("mission_top_n")),
+                _row("considered_top_leads", mission_quality.get("considered_top_leads")),
+                _row("lead_snapshot_scoring_version", mission_quality.get("scoring_version")),
+                _row("row_scoring_versions", mission_quality.get("row_scoring_versions")),
+                _row("core_field_coverage_pct", mission_quality.get("core_field_coverage_pct")),
+                _row("family_diversity", family_diversity.get("unique_primary_families")),
+                _row("top_family_share_pct", family_diversity.get("top_family_share_pct")),
+                _row("nonstarter_pack_presence_pct", mission_quality.get("nonstarter_pack_presence_pct")),
+                _row("starter_only_pair_share_pct", mission_quality.get("starter_only_pair_share_pct")),
+                _row("routine_noise_share_pct", mission_quality.get("routine_noise_share_pct")),
+                _row("score_spread", score_spread.get("spread")),
+                _row("score_spread_summary", score_spread.get("summary")),
+                _row("foia_draftability_pct", foia_draftability.get("draftable_share_pct")),
+                _row("foia_draftability_levels", foia_draftability.get("levels")),
+                _row("dossier_linkage_pct", mission_quality.get("dossier_linkage_pct")),
+                _row("mission_verdict", (mission_quality.get("verdict") or {}).get("detail") if isinstance(mission_quality.get("verdict"), dict) else mission_quality.get("verdict")),
+            ]
+        )
+    mission_quality_markup = (
+        "<h2>Mission Quality</h2>"
+        "<div class=\"meta\">These metrics are computed from the exported ranked lead artifacts, not from ingest-only counts.</div>"
+        f"<table><tbody>{mission_quality_rows}</tbody></table>"
+        if mission_quality_rows
+        else ""
+    )
+
     file_rows: list[str] = []
     files = flatten_bundle_files(artifacts=artifacts, bundle_dir=bundle_dir)
     for file_id, rel_path in sorted(files.items()):
@@ -528,6 +576,7 @@ def render_sam_bundle_report(
   <h2>Comparison</h2>
   <table><tbody>{comparison_rows}</tbody></table>
   <ul>{comparison_messages_markup}</ul>
+  {mission_quality_markup}
   {review_board_markup}
 
   <h2>Checks</h2>
