@@ -1112,6 +1112,26 @@ def _lead_family_selection_summary(assignments: list[dict[str, Any]]) -> dict[st
     }
 
 
+def _reviewable_secondary_families(assignments: list[dict[str, Any]]) -> list[str]:
+    if len(assignments) <= 1:
+        return []
+
+    runner_up = assignments[1]
+    runner_up_score = _safe_int(_norm_dict(runner_up.get("selection")).get("selection_score"), default=0)
+    minimum_selection_score = max(runner_up_score - 3, 1)
+
+    families: list[str] = []
+    for assignment in assignments[1:]:
+        family = _norm_text(assignment.get("family"))
+        if not family:
+            continue
+        selection_score = _safe_int(_norm_dict(assignment.get("selection")).get("selection_score"), default=0)
+        if selection_score < minimum_selection_score:
+            continue
+        families.append(family)
+    return families
+
+
 def classify_lead_families(
     *,
     details: dict[str, Any],
@@ -1208,7 +1228,7 @@ def classify_lead_families(
     )
 
     primary = assignments[0] if assignments else None
-    secondary = [str(item.get("family")) for item in assignments[1:]]
+    secondary = _reviewable_secondary_families(assignments)
     selection_summary = _lead_family_selection_summary(assignments)
 
     enriched["corroboration_summary"] = corroboration_summary
