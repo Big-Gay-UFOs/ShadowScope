@@ -40,6 +40,86 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
+def _coerce_utc_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _max_dt(left: Optional[datetime], right: Optional[datetime]) -> Optional[datetime]:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left if left >= right else right
+
+
+def _min_dt(left: Optional[datetime], right: Optional[datetime]) -> Optional[datetime]:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left if left <= right else right
+
+
+def _iso_or_none(value: Any) -> Any:
+    return value.isoformat() if hasattr(value, "isoformat") else value
+
+
+def _sam_posted_window_datetime_bounds(window: dict[str, object]) -> tuple[Optional[datetime], Optional[datetime]]:
+    payload = serialize_sam_posted_window(window)
+    posted_from = payload.get("posted_from")
+    posted_to = payload.get("posted_to")
+    if not isinstance(posted_from, str) or not posted_from.strip():
+        return None, None
+    if not isinstance(posted_to, str) or not posted_to.strip():
+        return None, None
+    try:
+        start_date = date.fromisoformat(posted_from)
+        end_date = date.fromisoformat(posted_to)
+    except ValueError:
+        return None, None
+    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+    end_dt = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
+    return start_dt, end_dt
+
+
+def _clamp_sam_snapshot_filters_to_posted_window(
+    *,
+    posted_window: dict[str, object],
+    date_from: Optional[datetime],
+    date_to: Optional[datetime],
+    occurred_after: Optional[datetime],
+    occurred_before: Optional[datetime],
+) -> dict[str, Optional[datetime]]:
+    start_dt, end_dt = _sam_posted_window_datetime_bounds(posted_window)
+    if start_dt is None or end_dt is None:
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "occurred_after": occurred_after,
+            "occurred_before": occurred_before,
+        }
+    return {
+        "date_from": _max_dt(_coerce_utc_datetime(date_from), start_dt),
+        "date_to": _min_dt(_coerce_utc_datetime(date_to), end_dt),
+        "occurred_after": (
+            _max_dt(_coerce_utc_datetime(occurred_after), start_dt)
+            if occurred_after is not None
+            else None
+        ),
+        "occurred_before": (
+            _min_dt(_coerce_utc_datetime(occurred_before), end_dt)
+            if occurred_before is not None
+            else None
+        ),
+    }
+
+
 DEFAULT_SAM_SMOKE_THRESHOLDS: dict[str, float] = {
     # Keep this low enough for deterministic fixture tests, but above trivial non-zero.
     "events_window_min": 3.0,
@@ -163,6 +243,11 @@ SAM_VALIDATION_CHECK_POLICIES: dict[str, dict[str, dict[str, Any]]] = {
             "required": True,
         },
         "snapshot_items_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "snapshot_window_integrity": {
             "category": "lead_signal_quality",
             "severity": "error",
             "required": True,
@@ -315,6 +400,11 @@ SAM_VALIDATION_CHECK_POLICIES: dict[str, dict[str, dict[str, Any]]] = {
             "required": False,
         },
         "snapshot_items_threshold": {
+            "category": "lead_signal_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "snapshot_window_integrity": {
             "category": "lead_signal_quality",
             "severity": "error",
             "required": True,
@@ -1029,6 +1119,13 @@ def run_samgov_workflow(
 ) -> dict[str, Any]:
     """One-command SAM.gov workflow wrapper."""
     requested_window = resolve_sam_posted_window(days=ingest_days, posted_from=posted_from, posted_to=posted_to)
+    clamped_snapshot_window = _clamp_sam_snapshot_filters_to_posted_window(
+        posted_window=requested_window,
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+    )
 
     def _resolve_snapshot_notes(res: dict[str, Any], base_notes: Optional[str]) -> Optional[str]:
         ingest_window = None
@@ -1061,10 +1158,10 @@ def run_samgov_workflow(
         min_events_keywords=int(min_events_keywords),
         max_events_keywords=int(max_events_keywords),
         max_keywords_per_event=int(max_keywords_per_event),
-        date_from=date_from,
-        date_to=date_to,
-        occurred_after=occurred_after,
-        occurred_before=occurred_before,
+        date_from=clamped_snapshot_window.get("date_from"),
+        date_to=clamped_snapshot_window.get("date_to"),
+        occurred_after=clamped_snapshot_window.get("occurred_after"),
+        occurred_before=clamped_snapshot_window.get("occurred_before"),
         created_after=created_after,
         created_before=created_before,
         since_days=since_days,
@@ -1102,6 +1199,17 @@ def run_samgov_workflow(
         keywords=keywords,
         ontology_path=Path(ontology_path),
     )
+    res["run_metadata"]["requested_window"] = serialize_sam_posted_window(requested_window)
+    res["run_metadata"]["effective_window"] = serialize_sam_posted_window(effective_window)
+    res["run_metadata"]["snapshot_window"] = {
+        "date_from": _iso_or_none(clamped_snapshot_window.get("date_from")),
+        "date_to": _iso_or_none(clamped_snapshot_window.get("date_to")),
+        "occurred_after": _iso_or_none(clamped_snapshot_window.get("occurred_after")),
+        "occurred_before": _iso_or_none(clamped_snapshot_window.get("occurred_before")),
+        "created_after": _iso_or_none(created_after),
+        "created_before": _iso_or_none(created_before),
+        "since_days": int(since_days) if since_days is not None else None,
+    }
     return res
 
 
@@ -1276,9 +1384,89 @@ def run_samgov_validation_workflow(
     )
 
 
+def run_samgov_evaluation_workflow(
+    *,
+    ingest_days: Optional[int] = None,
+    posted_from: Optional[date] = None,
+    posted_to: Optional[date] = None,
+    pages: int = 5,
+    page_size: int = 100,
+    max_records: Optional[int] = 250,
+    start_page: int = 1,
+    keywords: Optional[list[str]] = None,
+    api_key: Optional[str] = None,
+    ontology_path: Path = Path("examples/ontology_sam_procurement_starter.json"),
+    ontology_days: int = 30,
+    entity_days: int = 30,
+    entity_batch: int = 500,
+    window_days: int = 30,
+    min_events_entity: int = 2,
+    min_events_keywords: int = 2,
+    max_events_keywords: int = 200,
+    max_keywords_per_event: int = 10,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    occurred_after: Optional[datetime] = None,
+    occurred_before: Optional[datetime] = None,
+    created_after: Optional[datetime] = None,
+    created_before: Optional[datetime] = None,
+    since_days: Optional[int] = None,
+    min_score: int = 1,
+    snapshot_limit: int = 200,
+    scan_limit: int = 5000,
+    scoring_version: str = "v3",
+    notes: Optional[str] = "samgov FOIA lead evaluation",
+    bundle_root: Optional[Path] = None,
+    database_url: Optional[str] = None,
+    require_nonzero: bool = True,
+    skip_ingest: bool = False,
+    threshold_overrides: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    from backend.services.samgov_evaluation import run_samgov_evaluation_workflow as run_eval
+
+    return run_eval(
+        ingest_days=int(ingest_days) if ingest_days is not None else None,
+        posted_from=posted_from,
+        posted_to=posted_to,
+        pages=int(pages),
+        page_size=int(page_size),
+        max_records=max_records,
+        start_page=int(start_page),
+        keywords=keywords,
+        api_key=api_key,
+        ontology_path=Path(ontology_path),
+        ontology_days=int(ontology_days),
+        entity_days=int(entity_days),
+        entity_batch=int(entity_batch),
+        window_days=int(window_days),
+        min_events_entity=int(min_events_entity),
+        min_events_keywords=int(min_events_keywords),
+        max_events_keywords=int(max_events_keywords),
+        max_keywords_per_event=int(max_keywords_per_event),
+        date_from=date_from,
+        date_to=date_to,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        created_after=created_after,
+        created_before=created_before,
+        since_days=since_days,
+        min_score=int(min_score),
+        snapshot_limit=int(snapshot_limit),
+        scan_limit=int(scan_limit),
+        scoring_version=str(scoring_version),
+        notes=notes,
+        bundle_root=(Path(bundle_root).expanduser() if bundle_root else None),
+        database_url=database_url,
+        require_nonzero=bool(require_nonzero),
+        skip_ingest=bool(skip_ingest),
+        threshold_overrides=threshold_overrides,
+    )
+
+
 __all__ = [
     "run_usaspending_workflow",
     "run_samgov_workflow",
     "run_samgov_smoke_workflow",
     "run_samgov_validation_workflow",
+    "run_samgov_evaluation_workflow",
 ]

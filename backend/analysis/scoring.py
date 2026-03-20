@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import re
 from typing import Any, Dict, List, Tuple
 
 from backend.services.lead_families import LEAD_FAMILY_TAXONOMY
@@ -37,6 +38,101 @@ _STRUCTURAL_CORRELATION_LANES = {
     "same_naics",
     "same_place_region",
     "same_sam_naics",
+}
+_ROUTINE_NEGATIVE_HINTS = {
+    "commodity_supply_chain",
+    "facility_maintenance_upgrade",
+    "site_security_access_control",
+    "industrial_equipment_support",
+    "aviation_spares_lineage",
+}
+_CLASSIFICATION_HINT_SPECS: dict[str, dict[str, Any]] = {
+    "commodity_supply_chain": {
+        "label": "Commodity supply chain",
+        "penalty": 5,
+        "rule_keys": {
+            "operational_noise_terms:nsn_line_item_commodity_noise",
+            "operational_noise_terms:nsn_part_number_quantity_noise",
+        },
+        "patterns": (
+            r"\b(?:nsn|national stock number|catalog|part number|spare parts?|line item|fsc)\b",
+        ),
+    },
+    "facility_maintenance_upgrade": {
+        "label": "Facility maintenance upgrade",
+        "penalty": 5,
+        "rule_keys": {
+            "operational_noise_terms:admin_facility_ops_noise",
+            "sam_proxy_noise_expansion:generic_facility_maintenance_noise",
+        },
+        "patterns": (
+            r"\b(?:roofing|paving|striping|grounds maintenance|janitorial|custodial|landscaping|hvac|insulation|chiller|boiler|base maintenance)\b",
+        ),
+    },
+    "site_security_access_control": {
+        "label": "Site security access control",
+        "penalty": 4,
+        "rule_keys": {
+            "sam_proxy_noise_expansion:security_training_noise",
+            "sam_proxy_classified_contract_security_admin:visit_authorization_courier_access_context",
+        },
+        "patterns": (
+            r"\b(?:access control|badge(?:ing)?|turnstile|gate system|security camera|cctv|video surveillance|perimeter fence|guard booth)\b",
+        ),
+    },
+    "industrial_equipment_support": {
+        "label": "Industrial equipment support",
+        "penalty": 4,
+        "rule_keys": set(),
+        "patterns": (
+            r"\b(?:generator|compressor|pump|valve|transformer|switchgear|elevator|hoist|industrial equipment|mechanical equipment)\b",
+        ),
+    },
+    "aviation_spares_lineage": {
+        "label": "Aviation spares lineage",
+        "penalty": 5,
+        "rule_keys": set(),
+        "patterns": (
+            r"\b(?:aircraft|airframe|aviation|avionics|rotorcraft)\b.{0,80}\b(?:spare|repair|overhaul|replacement|part number|catalog)\b",
+            r"\b(?:spare|repair|overhaul|replacement|part number|catalog)\b.{0,80}\b(?:aircraft|airframe|aviation|avionics|rotorcraft)\b",
+        ),
+    },
+    "proxy_infrastructure_materials": {
+        "label": "Proxy infrastructure materials",
+        "penalty": 0,
+        "rule_keys": {
+            "sam_proxy_secure_compartmented_facility_engineering:secure_power_env_control_hardening_context",
+            "sam_dod_hardened_subsurface_infrastructure:hardened_portal_life_support_context",
+        },
+        "patterns": (
+            r"\b(?:rebar|reinforcing steel|concrete|shielded enclosure|rf shielding|blast door|buried fiber|cbrn filtration)\b",
+        ),
+    },
+    "test_range_support": {
+        "label": "Test range support",
+        "penalty": 0,
+        "rule_keys": {
+            "sam_dod_flight_test_range_instrumentation:range_telemetry_support_services",
+            "sam_dod_flight_test_range_instrumentation:site_range_anchor_support_context",
+            "sam_proxy_optical_tracking_transient_collection:optical_ir_tracking_context",
+            "sam_proxy_optical_tracking_transient_collection:trajectory_reconstruction_timing_context",
+        },
+        "patterns": (
+            r"\b(?:range instrumentation|telemetry|test support|optical tracking|trajectory reconstruction|sensor calibration)\b",
+        ),
+    },
+    "advanced_manufacturing_support": {
+        "label": "Advanced manufacturing support",
+        "penalty": 0,
+        "rule_keys": {
+            "sam_proxy_advanced_metrology_trace_analysis:structural_mechanical_metrology_context",
+            "sam_proxy_advanced_metrology_trace_analysis:electron_microstructure_context",
+            "sam_dod_advanced_aerospace_support:survivability_materials_aerospace_support",
+        },
+        "patterns": (
+            r"\b(?:additive manufacturing|precision machining|five-axis|5-axis|autoclave|composite tooling|vacuum furnace|plasma spray|thermal spray)\b",
+        ),
+    },
 }
 
 
@@ -96,6 +192,11 @@ def _to_float(value: Any) -> float:
 
 def _has_text(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _context_blob(*values: Any) -> str:
+    parts = [str(value).strip().lower() for value in values if str(value or "").strip()]
+    return " ".join(parts)
 
 
 def _keyword_parts(value: Any) -> tuple[str, str]:
@@ -208,6 +309,60 @@ def _clause_signal_magnitude(bucket: str, weight: int) -> int:
     if bucket == "starter":
         return 1 + (1 if magnitude >= 2 else 0)
     return 0
+
+
+def _detect_classification_hints(
+    *,
+    context: dict[str, Any],
+    positive_rule_keys: set[str],
+    suppressor_rule_keys: set[str],
+) -> tuple[list[str], list[dict[str, Any]], int]:
+    text_blob = _context_blob(
+        context.get("snippet"),
+        context.get("notice_award_type"),
+        context.get("category"),
+        context.get("naics_code"),
+        context.get("psc_code"),
+    )
+    matched_tags: list[str] = []
+    matches: list[dict[str, Any]] = []
+    routine_penalty = 0
+    rule_keys = {str(item).strip().lower() for item in positive_rule_keys | suppressor_rule_keys if str(item).strip()}
+
+    for tag, spec in _CLASSIFICATION_HINT_SPECS.items():
+        match_modes: list[str] = []
+        rule_set = {str(item).strip().lower() for item in spec.get("rule_keys") or set() if str(item).strip()}
+        if rule_set and any(rule in rule_keys for rule in rule_set):
+            match_modes.append("rule")
+        for pattern in spec.get("patterns") or ():
+            try:
+                if re.search(pattern, text_blob):
+                    match_modes.append("text")
+                    break
+            except re.error:
+                continue
+        if not match_modes:
+            continue
+        matched_tags.append(tag)
+        penalty = _to_int(spec.get("penalty", 0))
+        if tag in _ROUTINE_NEGATIVE_HINTS and penalty > 0:
+            routine_penalty += penalty
+        matches.append(
+            {
+                "tag": tag,
+                "label": str(spec.get("label") or tag.replace("_", " ")),
+                "matched_by": sorted(set(match_modes)),
+                "penalty": penalty if penalty > 0 else 0,
+            }
+        )
+
+    matches.sort(
+        key=lambda item: (
+            -_to_int(item.get("penalty", 0)),
+            str(item.get("tag") or ""),
+        )
+    )
+    return matched_tags, matches, min(int(routine_penalty), 12)
 
 
 def _copy_signal(
@@ -687,6 +842,7 @@ def _score_from_keywords_clauses_v3_tuned(
     corroboration_lanes: set[str] = set()
     non_pair_corroboration_lanes: set[str] = set()
     structural_lanes: set[str] = set()
+    candidate_corroboration_count = 0
 
     pair_bonus_input = max(_to_int(pair_bonus), 0)
     pair_items = [item for item in correlation_items if str(item.get("lane") or "") == "kw_pair"]
@@ -831,6 +987,8 @@ def _score_from_keywords_clauses_v3_tuned(
             corroboration_signal_scores.append(contribution)
             corroboration_lanes.add(lane)
             non_pair_corroboration_lanes.add(lane)
+            if lane == "sam_usaspending_candidate_join":
+                candidate_corroboration_count += 1
             corroboration_sources.append(
                 _copy_signal(
                     label=str(item.get("summary") or item.get("correlation_key") or lane).strip(),
@@ -1124,7 +1282,13 @@ def _score_from_keywords_clauses_v3_tuned(
     else:
         structural_correlation_bonus = 0
 
-    structural_context_score = min(6, int(sum(structural_signal_scores)))
+    structural_context_score = min(5, int(sum(structural_signal_scores)))
+    classification_tags, classification_matches, routine_noise_penalty = _detect_classification_hints(
+        context=context,
+        positive_rule_keys=positive_rule_keys,
+        suppressor_rule_keys=suppressor_rule_keys,
+    )
+    routine_noise_tags = [tag for tag in classification_tags if tag in _ROUTINE_NEGATIVE_HINTS]
 
     original_investigability_score = int(investigability_score)
     original_structural_context_score = int(structural_context_score)
@@ -1152,7 +1316,26 @@ def _score_from_keywords_clauses_v3_tuned(
     if routine_noise_rule_hits and (starter_only_pair_count > 0 or starter_context_score > 0):
         routine_noise_surcharge += 1
     noise_uncorroborated_surcharge = 4 if suppressor_penalties and proxy_relevance_score < 8 and corroboration_score < 4 else 0
-    noise_penalty = min(20, int(noise_penalty_core + noise_uncorroborated_surcharge + routine_noise_surcharge))
+    routine_noise_penalty_applied = 0
+    if routine_noise_penalty > 0 and proxy_relevance_score < 8 and corroboration_score < 4:
+        routine_noise_penalty_applied = routine_noise_penalty
+    noise_penalty = min(
+        20,
+        int(
+            noise_penalty_core
+            + noise_uncorroborated_surcharge
+            + routine_noise_surcharge
+            + routine_noise_penalty_applied
+        ),
+    )
+
+    pair_or_candidate_corroboration = bool(pair_bonus_applied > 0 or candidate_corroboration_count > 0)
+    top_rank_gate_penalty = 0
+    if proxy_relevance_score <= 0 and not pair_or_candidate_corroboration:
+        top_rank_gate_penalty = max(
+            0,
+            investigability_score + structural_context_score - 2 - min(int(context_ontology_score), 1),
+        )
 
     total_score = int(
         proxy_relevance_score
@@ -1161,6 +1344,18 @@ def _score_from_keywords_clauses_v3_tuned(
         + structural_context_score
         - noise_penalty
     )
+    if top_rank_gate_penalty > 0:
+        total_score -= int(top_rank_gate_penalty)
+
+    ranking_tier = "background"
+    if proxy_relevance_score >= 8 and pair_or_candidate_corroboration:
+        ranking_tier = "highest"
+    elif proxy_relevance_score >= 6 or pair_or_candidate_corroboration or corroboration_score >= 4:
+        ranking_tier = "review"
+    elif proxy_relevance_score > 0:
+        ranking_tier = "candidate"
+    if proxy_relevance_score <= 0 and not pair_or_candidate_corroboration:
+        ranking_tier = "context_only"
 
     positive_items = (
         top_positive_signals
@@ -1221,6 +1416,7 @@ def _score_from_keywords_clauses_v3_tuned(
         "noise_uncorroborated_surcharge": int(noise_uncorroborated_surcharge),
         "routine_noise_surcharge": int(routine_noise_surcharge),
         "noise_penalty_core": int(noise_penalty_core),
+        "routine_noise_penalty_applied": int(routine_noise_penalty_applied),
         "context_clause_score": int(context_clause_score),
         "context_keyword_score": int(context_keyword_score),
         "starter_clause_score": int(starter_clause_score),
@@ -1234,6 +1430,13 @@ def _score_from_keywords_clauses_v3_tuned(
         "positive_signal_count": len(positive_rule_keys),
         "suppressor_hit_count": len(suppressor_rule_keys),
         "routine_noise_hit_count": len(routine_noise_rule_hits),
+        "candidate_corroboration_count": int(candidate_corroboration_count),
+        "pair_or_candidate_corroboration": bool(pair_or_candidate_corroboration),
+        "top_rank_gate_penalty": int(top_rank_gate_penalty),
+        "ranking_tier": ranking_tier,
+        "classification_tags": classification_tags,
+        "classification_matches": classification_matches[:8],
+        "routine_noise_tags": routine_noise_tags,
         "proxy_relevance_score": int(proxy_relevance_score),
         "investigability_score": int(investigability_score),
         "corroboration_score": int(corroboration_score),
@@ -1279,6 +1482,8 @@ def _score_from_keywords_clauses_v3_tuned(
                 "noise_uncorroborated_surcharge": int(noise_uncorroborated_surcharge),
                 "weak_proxy_investigability_delta": int(weak_proxy_investigability_delta),
                 "weak_proxy_structural_delta": int(weak_proxy_structural_delta),
+                "routine_noise_penalty_applied": int(routine_noise_penalty_applied),
+                "top_rank_gate_penalty": int(top_rank_gate_penalty),
             },
         },
     }

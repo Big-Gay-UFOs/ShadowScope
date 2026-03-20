@@ -414,6 +414,56 @@ def test_workflow_samgov_validate_allows_configuring_lead_dossier_top_n(monkeypa
     assert captured.get("lead_dossier_top_n") == 6
 
 
+def test_workflow_samgov_evaluate_defaults_to_v3(monkeypatch):
+    captured = {}
+
+    def fake_run_samgov_evaluation_workflow(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "ok",
+            "required_checks_passed": True,
+            "bundle_dir": "data/exports/evaluation/samgov/test",
+            "checks": [],
+            "artifacts": {},
+            "evaluation_summary": {},
+        }
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_evaluation_workflow", fake_run_samgov_evaluation_workflow)
+
+    result = runner.invoke(cli_module.app, ["workflow", "samgov-evaluate", "--days", "21", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("ingest_days") == 21
+    assert captured.get("scoring_version") == "v3"
+
+
+def test_workflow_samgov_evaluate_accepts_explicit_posted_window(monkeypatch):
+    captured = {}
+
+    def fake_run_samgov_evaluation_workflow(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "ok",
+            "required_checks_passed": True,
+            "bundle_dir": "data/exports/evaluation/samgov/test",
+            "checks": [],
+            "artifacts": {},
+            "evaluation_summary": {},
+        }
+
+    monkeypatch.setattr("backend.services.workflow.run_samgov_evaluation_workflow", fake_run_samgov_evaluation_workflow)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["workflow", "samgov-evaluate", "--posted-from", "2024-01-01", "--posted-to", "2024-03-31", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured.get("ingest_days") is None
+    assert captured.get("posted_from").isoformat() == "2024-01-01"
+    assert captured.get("posted_to").isoformat() == "2024-03-31"
+
+
 def test_workflow_samgov_validate_cli_surfaces_required_failures(monkeypatch):
     def fake_run_samgov_validation_workflow(**_kwargs):
         return {
