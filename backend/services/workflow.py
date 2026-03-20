@@ -55,6 +55,14 @@ DEFAULT_SAM_SMOKE_THRESHOLDS: dict[str, float] = {
     "sam_naics_code_coverage_pct_min": 60.0,
     "same_sam_naics_lane_min": 1.0,
     "snapshot_items_min": 1.0,
+    "top_leads_core_field_coverage_pct_min": 70.0,
+    "top_leads_family_diversity_min": 3.0,
+    "nonstarter_pack_presence_pct_min": 60.0,
+    "starter_only_pair_dominance_pct_max": 35.0,
+    "score_spread_min": 5.0,
+    "routine_noise_share_pct_max": 35.0,
+    "dossier_linkage_pct_min": 100.0,
+    "foia_draftability_pct_min": 40.0,
 }
 
 DEFAULT_SAM_LARGER_THRESHOLDS: dict[str, float] = dict(DEFAULT_SAM_SMOKE_THRESHOLDS)
@@ -63,6 +71,7 @@ SAM_VALIDATION_CATEGORY_LABELS: dict[str, str] = {
     "pipeline_health": "Pipeline health",
     "source_coverage_context_health": "Source coverage/context health",
     "lead_signal_quality": "Lead-signal quality",
+    "mission_quality": "Mission quality",
 }
 
 SAM_VALIDATION_CHECK_POLICIES: dict[str, dict[str, dict[str, Any]]] = {
@@ -169,6 +178,51 @@ SAM_VALIDATION_CHECK_POLICIES: dict[str, dict[str, dict[str, Any]]] = {
         },
         "comparison_effective_window_matches_request": {
             "category": "source_coverage_context_health",
+            "severity": "warning",
+            "required": False,
+        },
+        "scoring_version_is_v3": {
+            "category": "mission_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "top_leads_core_field_coverage_threshold": {
+            "category": "mission_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "top_leads_family_diversity_threshold": {
+            "category": "mission_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "nonstarter_pack_presence_threshold": {
+            "category": "mission_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "starter_only_pair_dominance_threshold": {
+            "category": "mission_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "score_spread_threshold": {
+            "category": "mission_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "routine_noise_share_threshold": {
+            "category": "mission_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "dossier_linkage_threshold": {
+            "category": "mission_quality",
+            "severity": "warning",
+            "required": False,
+        },
+        "foia_draftability_threshold": {
+            "category": "mission_quality",
             "severity": "warning",
             "required": False,
         },
@@ -284,6 +338,51 @@ SAM_VALIDATION_CHECK_POLICIES: dict[str, dict[str, dict[str, Any]]] = {
             "severity": "warning",
             "required": False,
         },
+        "scoring_version_is_v3": {
+            "category": "mission_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "top_leads_core_field_coverage_threshold": {
+            "category": "mission_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "top_leads_family_diversity_threshold": {
+            "category": "mission_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "nonstarter_pack_presence_threshold": {
+            "category": "mission_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "starter_only_pair_dominance_threshold": {
+            "category": "mission_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "score_spread_threshold": {
+            "category": "mission_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "routine_noise_share_threshold": {
+            "category": "mission_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "dossier_linkage_threshold": {
+            "category": "mission_quality",
+            "severity": "error",
+            "required": True,
+        },
+        "foia_draftability_threshold": {
+            "category": "mission_quality",
+            "severity": "error",
+            "required": True,
+        },
     },
 }
 
@@ -305,7 +404,7 @@ def _resolve_sam_validation_thresholds(
         if key not in resolved:
             continue
         parsed = _safe_float(value, default=resolved[key])
-        if key.endswith("_pct_min"):
+        if key.endswith("_pct_min") or key.endswith("_pct_max"):
             parsed = max(0.0, min(100.0, parsed))
         else:
             parsed = max(0.0, parsed)
@@ -432,7 +531,14 @@ def _threshold_check(
     category: Optional[str] = None,
 ) -> dict[str, Any]:
     observed_num = _safe_float(observed, default=0.0)
-    ok = observed_num >= threshold if comparator == ">=" else False
+    comparators = {
+        ">=": observed_num >= threshold,
+        "<=": observed_num <= threshold,
+        ">": observed_num > threshold,
+        "<": observed_num < threshold,
+        "==": abs(observed_num - threshold) < 1e-9,
+    }
+    ok = comparators.get(comparator, False)
     expected = f"{comparator} {_format_threshold_value(threshold)}{unit}"
     return _serialize_check(
         name=name,
