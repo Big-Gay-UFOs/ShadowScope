@@ -519,7 +519,7 @@ ss inspect bundle --path <bundle_dir> --json
 
 `ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now honor the manifest-driven workflow gate status, required/advisory split, and category failures instead of relying on smoke-only pass heuristics.
 
-Normalized SAM bundle contract (`samgov.bundle.v1`):
+Normalized SAM bundle contract (`samgov.bundle.v2`):
 
 ```text
 <bundle_dir>/
@@ -540,6 +540,8 @@ Normalized SAM bundle contract (`samgov.bundle.v1`):
     foia_lead_review_board.html
     foia_lead_review_board.md
 ```
+
+`samgov.bundle.v2` keeps the flattened quality/status fields and surfaces requested vs effective comparison windows directly in `report/bundle_report.html`.
 
 Lead snapshot review exports now include a canonical `review_summary.json` artifact that records the snapshot id, scoring version, effective review window, review artifact filenames, completeness counts, and whether per-row evidence packages are available.
 

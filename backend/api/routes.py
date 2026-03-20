@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from backend.api.deps import get_db_session
 from backend.api.correlations import router as correlations_router
 from backend.services.explainability import (
+    build_event_context_payload,
     enrich_lead_score_details,
     load_event_correlation_evidence,
     load_event_linked_source_summary,
@@ -346,6 +347,7 @@ def list_lead_snapshot_items(
             clauses=ev.clauses,
             base_details=item.score_details if isinstance(item.score_details, dict) else {},
             correlations=correlations_by_event.get(int(item.event_id), []),
+            event_context=build_event_context_payload(ev),
         )
         context = linked_source_context.get(int(item.event_id), {})
         details = classify_lead_families(

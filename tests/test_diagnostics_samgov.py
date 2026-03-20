@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.db.models import Event, ensure_schema, get_session_factory
-from backend.services.bundle import inspect_bundle
+from backend.services.bundle import SAM_BUNDLE_VERSION, inspect_bundle
 from backend.services.diagnostics import diagnose_samgov
 from backend.services.workflow import run_samgov_smoke_workflow
 
@@ -97,7 +97,7 @@ def test_inspect_bundle_reads_manifest_and_files(tmp_path: Path):
     assert inspected["bundle_integrity_status"] == "ok"
     assert inspected["workflow_status"] == res["status"]
     manifest = inspected.get("manifest") or {}
-    assert manifest.get("bundle_version") == "samgov.bundle.v1"
+    assert manifest.get("bundle_version") == SAM_BUNDLE_VERSION
     generated_files = inspected.get("generated_files") or {}
     assert "workflow_result_json" in generated_files
     assert "report_html" in generated_files
@@ -231,7 +231,7 @@ def test_diagnose_samgov_honors_failed_required_quality_bundle(tmp_path: Path):
     _write_json(
         bundle_dir / "bundle_manifest.json",
         {
-            "bundle_version": "samgov.bundle.v1",
+            "bundle_version": SAM_BUNDLE_VERSION,
             "source": "SAM.gov",
             "workflow_type": "samgov-validation",
             "validation_mode": "larger",

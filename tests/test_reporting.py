@@ -2,6 +2,7 @@ import json
 import re
 from pathlib import Path
 
+from backend.services.bundle import SAM_BUNDLE_VERSION
 from backend.services.reporting import (
     find_latest_sam_smoke_bundle,
     generate_sam_report,
@@ -217,7 +218,7 @@ def _write_hardened_bundle(bundle_dir: Path, *, status: str, required_checks_pas
     _write_json(
         bundle_dir / "bundle_manifest.json",
         {
-            "bundle_version": "samgov.bundle.v1",
+            "bundle_version": SAM_BUNDLE_VERSION,
             "source": "SAM.gov",
             "workflow_type": "samgov-validation",
             "validation_mode": "larger",

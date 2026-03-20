@@ -208,7 +208,7 @@ Interpretation:
 - Each check now serializes `name`, `observed`, `threshold`, `severity`, `required` vs `advisory`, and pass/fail.
 - `ss diagnose samgov`, `ss inspect bundle`, and bundle-backed reports now read the manifest/gate status directly so larger-run warnings and failures are not flattened into legacy smoke-style PASS output.
 
-Bundle contract (`samgov.bundle.v1`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries.
+Bundle contract (`samgov.bundle.v2`) is manifest-driven via `bundle_manifest.json` and stable `generated_files` entries. The bundle report also renders requested and effective comparison windows directly for historical/control comparisons.
 
 Retry tuning for larger SAM windows:
 

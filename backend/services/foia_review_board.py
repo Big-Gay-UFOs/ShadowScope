@@ -10,7 +10,11 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 from backend.services.adjudication import load_bundle_adjudication_state
-from backend.services.lead_families import lead_family_label, summarize_lead_family_groups
+from backend.services.lead_families import (
+    lead_family_label,
+    summarize_lead_family_distribution,
+    summarize_lead_family_groups,
+)
 from backend.services.review_contract import (
     candidate_join_text,
     linked_source_text,
@@ -812,10 +816,50 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
             item["dossier_path"] = dossier_path
 
     family_groups = summarize_lead_family_groups(rows_raw)
-    family_rows = [
-        [group.get("label") or group.get("lead_family") or "Unassigned", group.get("count"), group.get("top_rank"), group.get("top_score")]
-        for group in family_groups[:8]
-    ]
+    family_distribution = summarize_lead_family_distribution(rows_raw)
+    family_rows = []
+    primary_by_family = {
+        str(group.get("lead_family") or ""): group
+        for group in family_distribution.get("primary") or []
+        if isinstance(group, dict)
+    }
+    secondary_by_family = {
+        str(group.get("lead_family") or ""): group
+        for group in family_distribution.get("secondary") or []
+        if isinstance(group, dict)
+    }
+    any_by_family = {
+        str(group.get("lead_family") or ""): group
+        for group in family_distribution.get("any_assignment") or []
+        if isinstance(group, dict)
+    }
+    family_keys = []
+    for group in family_groups:
+        if not isinstance(group, dict):
+            continue
+        family_key = str(group.get("lead_family") or "")
+        if family_key and family_key not in family_keys:
+            family_keys.append(family_key)
+    for group in family_distribution.get("secondary") or []:
+        if not isinstance(group, dict):
+            continue
+        family_key = str(group.get("lead_family") or "")
+        if family_key and family_key not in family_keys:
+            family_keys.append(family_key)
+    for family_key in family_keys[:8]:
+        primary_group = primary_by_family.get(family_key, {})
+        secondary_group = secondary_by_family.get(family_key, {})
+        any_group = any_by_family.get(family_key, {})
+        family_rows.append(
+            [
+                primary_group.get("label") or lead_family_label(family_key) or family_key or "Unassigned",
+                primary_group.get("count", 0),
+                secondary_group.get("count", 0),
+                any_group.get("count", 0),
+                primary_group.get("top_rank"),
+                primary_group.get("top_score"),
+            ]
+        )
     diagnostics_rows = derived_rows[: _TOP_LEAD_TABLE_LIMIT]
     routine_noise_pct = _format_pct(
         (100.0 * sum(1 for item in diagnostics_rows if item["routine_noise"]) / len(diagnostics_rows))
@@ -916,7 +960,12 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         "<div class=\"diag-grid\">"
         "<div class=\"diag-card\">"
         "<h3>Family Distribution</h3>"
-        + _table_html(["Family", "Count", "Top rank", "Top score"], family_rows, fallback="No family distribution available.")
+        + _table_html(
+            ["Family", "Primary", "Secondary", "Any assignment", "Top rank", "Top score"],
+            family_rows,
+            fallback="No family distribution available.",
+        )
+        + f"<p class=\"note\">Ambiguous leads: {_esc(family_distribution.get('ambiguous_items', 0))} of {_esc(family_distribution.get('total_items', 0))}</p>"
         + "</div>"
         "<div class=\"diag-card\">"
         "<h3>Score Spread / Compression</h3>"
@@ -1128,13 +1177,16 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
                 "",
             ]
         )
-    family_distribution_text = ", ".join([f"{row[0]}={row[1]}" for row in family_rows]) or "Unavailable"
+    family_distribution_text = ", ".join(
+        [f"{row[0]} primary={row[1]} secondary={row[2]} any={row[3]}" for row in family_rows]
+    ) or "Unavailable"
     non_starter_text = ", ".join([f"{item['rule']} ({item['hits']})" for item in top_non_starter_rules]) or "Unavailable"
     md_lines.extend(
         [
             "## Run-Level Diagnostics",
             "",
             f"- Family distribution: {family_distribution_text}",
+            f"- Ambiguous leads: {family_distribution.get('ambiguous_items', 0)} of {family_distribution.get('total_items', 0)}",
             f"- Score spread / compression: {_score_spread_summary(rows_raw)}",
             f"- Starter-only pair dominance: {starter_only_pct}",
             f"- Routine-noise share: {routine_noise_pct}",

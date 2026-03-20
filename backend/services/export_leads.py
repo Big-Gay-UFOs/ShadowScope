@@ -13,11 +13,17 @@ from backend.db.models import Event, LeadSnapshot, LeadSnapshotItem, get_session
 from backend.runtime import EXPORTS_DIR, ensure_runtime_directories
 from backend.services.deltas import compute_lead_deltas
 from backend.services.explainability import (
+    build_event_context_payload,
     enrich_lead_score_details,
     load_event_correlation_evidence,
     load_event_linked_source_summary,
 )
-from backend.services.lead_families import classify_lead_families, lead_matches_family, summarize_lead_family_groups
+from backend.services.lead_families import (
+    classify_lead_families,
+    lead_matches_family,
+    summarize_lead_family_distribution,
+    summarize_lead_family_groups,
+)
 from backend.services.leads import compare_lead_scoring_versions
 from backend.services.review_contract import (
     CANONICAL_RANKED_LEAD_REVIEW_FIELDS,
@@ -71,6 +77,28 @@ def _family_assignment_text(assignment: dict[str, Any]) -> str:
     return review_family_assignment_text(assignment)
 
 
+def _family_selection_text(selection: dict[str, Any]) -> str:
+    primary = str(selection.get("primary_family") or "").strip()
+    runner_up = str(selection.get("runner_up_family") or "").strip()
+    primary_score = selection.get("primary_selection_score")
+    runner_up_score = selection.get("runner_up_selection_score")
+    margin = selection.get("selection_margin")
+    bits: list[str] = []
+    if primary:
+        if primary_score is not None:
+            bits.append(f"primary={primary}({primary_score})")
+        else:
+            bits.append(f"primary={primary}")
+    if runner_up:
+        if runner_up_score is not None:
+            bits.append(f"runner_up={runner_up}({runner_up_score})")
+        else:
+            bits.append(f"runner_up={runner_up}")
+    if margin is not None:
+        bits.append(f"margin={margin}")
+    return " | ".join(bits) if bits else "lead_family_selection"
+
+
 def _candidate_join_text(entry: dict[str, Any]) -> str:
     return review_candidate_join_text(entry)
 
@@ -96,6 +124,8 @@ def _flatten_details(prefix: str, details: dict[str, Any]) -> dict[str, Any]:
     linked_source_summary = corroboration_summary.get("linked_source_summary") or []
     correlation_types_hit = corroboration_summary.get("correlation_types_hit") or []
     family_assignments = details.get("lead_family_assignments") or []
+    family_selection = details.get("lead_family_selection") or {}
+    family_context = details.get("lead_family_context") or {}
     secondary_lead_families = details.get("secondary_lead_families") or []
     subscore_math = details.get("subscore_math") or {}
     return {
@@ -106,6 +136,9 @@ def _flatten_details(prefix: str, details: dict[str, Any]) -> dict[str, Any]:
         f"{prefix}_secondary_lead_families_json": _json_text(secondary_lead_families),
         f"{prefix}_lead_family_assignments_text": _list_text([_family_assignment_text(item) for item in family_assignments], limit=5),
         f"{prefix}_lead_family_assignments_json": _json_text(family_assignments),
+        f"{prefix}_lead_family_selection_text": _family_selection_text(family_selection),
+        f"{prefix}_lead_family_selection_json": _json_text(family_selection),
+        f"{prefix}_lead_family_context_json": _json_text(family_context),
         f"{prefix}_clause_score": _score_part(details, "clause_score", 0),
         f"{prefix}_clause_score_raw": _score_part(details, "clause_score_raw", None),
         f"{prefix}_keyword_score": _score_part(details, "keyword_score", 0),
@@ -191,6 +224,8 @@ def _legacy_review_export_fields(
     linked_source_summary = corroboration_summary.get("linked_source_summary") or []
     correlation_types_hit = corroboration_summary.get("correlation_types_hit") or []
     lead_family_assignments = details.get("lead_family_assignments") or []
+    lead_family_selection = details.get("lead_family_selection") or {}
+    lead_family_context = details.get("lead_family_context") or {}
     return {
         "snapshot_scoring_version": getattr(snapshot, "scoring_version", None),
         "secondary_lead_families_text": _list_text(
@@ -203,6 +238,9 @@ def _legacy_review_export_fields(
             limit=5,
         ),
         "lead_family_assignments_json": _json_text(lead_family_assignments),
+        "lead_family_selection_text": _family_selection_text(lead_family_selection),
+        "lead_family_selection_json": _json_text(lead_family_selection),
+        "lead_family_context_json": _json_text(lead_family_context),
         "clause_score": _score_part(details, "clause_score", 0),
         "clause_score_raw": _score_part(details, "clause_score_raw", None),
         "keyword_score": _score_part(details, "keyword_score", 0),
@@ -278,6 +316,7 @@ def _build_review_summary_payload(
     json_path: Path,
     review_summary_path: Path,
     lead_family_filter: Optional[str],
+    family_distribution: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -291,6 +330,7 @@ def _build_review_summary_payload(
         "row_count": len(rows),
         "effective_window": review_effective_window(rows),
         "completeness_counts": review_completeness_counts(rows),
+        "family_distribution": family_distribution,
         "review_artifact_filenames": {
             "lead_snapshot_csv": csv_path.name,
             "lead_snapshot_json": json_path.name,
@@ -343,6 +383,7 @@ def build_lead_snapshot_export(
             clauses=None if event is None else event.clauses,
             base_details=details,
             correlations=correlations_by_event.get(int(it.event_id), []),
+            event_context=build_event_context_payload(event),
         )
         context = linked_source_context.get(int(it.event_id), {})
         details = classify_lead_families(
@@ -380,6 +421,8 @@ def build_lead_snapshot_export(
         "scoring_version": getattr(snap, "scoring_version", None),
         "notes": getattr(snap, "notes", None),
     }
+    family_groups = summarize_lead_family_groups(rows_out, lead_family_filter=lead_family)
+    family_distribution = summarize_lead_family_distribution(rows_out, lead_family_filter=lead_family)
     payload = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "review_contract_version": RANKED_LEAD_REVIEW_CONTRACT_VERSION,
@@ -387,7 +430,8 @@ def build_lead_snapshot_export(
         "scoring_version": snapshot_payload.get("scoring_version"),
         "snapshot": snapshot_payload,
         "lead_family_filter": lead_family,
-        "family_groups": summarize_lead_family_groups(rows_out, lead_family_filter=lead_family),
+        "family_groups": family_groups,
+        "family_distribution": family_distribution,
         "count": len(rows_out),
         "items": rows_out,
     }
@@ -396,7 +440,8 @@ def build_lead_snapshot_export(
         "snapshot": snapshot_payload,
         "scoring_version": snapshot_payload.get("scoring_version"),
         "lead_family_filter": lead_family,
-        "family_groups": payload["family_groups"],
+        "family_groups": family_groups,
+        "family_distribution": family_distribution,
         "count": len(rows_out),
         "items": rows_out,
         "csv_rows": csv_rows,
@@ -448,6 +493,7 @@ def export_lead_snapshot(
         json_path=json_path,
         review_summary_path=review_summary_path,
         lead_family_filter=lead_family,
+        family_distribution=export_data["family_distribution"],
     )
     review_summary_path.write_text(
         json.dumps(review_summary_payload, ensure_ascii=False, indent=2),
@@ -621,6 +667,7 @@ def export_lead_deltas(
             clauses=None if event is None else event.clauses,
             base_details=base_details,
             correlations=correlations_by_event.get(int(event_id or 0), []),
+            event_context=build_event_context_payload(event),
         )
         context = linked_source_context.get(int(event_id or 0), {})
         return classify_lead_families(

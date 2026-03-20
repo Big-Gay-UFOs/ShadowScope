@@ -78,11 +78,10 @@ Observed ranges:
 Completed in this sprint:
 
 - [x] Added larger-run SAM validation workflow command: `ss workflow samgov-validate`
-- [x] Added normalized SAM bundle contract (`samgov.bundle.v1`) with stable relative paths
+- [x] Added normalized SAM bundle contract (`samgov.bundle.v2`) with stable relative paths
 - [x] Added machine-readable `bundle_manifest.json` and `results/workflow_summary.json`
 - [x] Added bundle HTML report at `report/bundle_report.html`
 - [x] Added source-aware diagnostics command: `ss diagnose samgov`
 - [x] Added bundle inspection command: `ss inspect bundle --path ...`
 - [x] Added retry/rate-limit request diagnostics surfaced from SAM ingest metadata
 - [x] Added regression tests for bundle normalization/report/diagnostics/validation metadata
-
