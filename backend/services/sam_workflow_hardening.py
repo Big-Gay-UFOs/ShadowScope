@@ -90,6 +90,39 @@ def _load_json_payload(path_value: Any) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _path_or_none(path_value: Any) -> Optional[Path]:
+    try:
+        return Path(path_value).expanduser()
+    except Exception:
+        return None
+
+
+def _lead_dossier_artifacts(
+    *,
+    bundle_dir: Path,
+    review_board_artifacts: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Path]]:
+    sources = review_board_artifacts if isinstance(review_board_artifacts, dict) else {}
+    index_json = _path_or_none(sources.get("dossier_index_json"))
+    index_csv = _path_or_none(sources.get("dossier_index_csv"))
+
+    if index_json is None:
+        candidate = bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH
+        if candidate.exists():
+            index_json = candidate
+    if index_csv is None:
+        candidate = bundle_dir / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH
+        if candidate.exists():
+            index_csv = candidate
+
+    artifacts: dict[str, Path] = {}
+    if isinstance(index_json, Path) and index_json.exists():
+        artifacts["index_json"] = index_json
+    if isinstance(index_csv, Path) and index_csv.exists():
+        artifacts["index_csv"] = index_csv
+    return artifacts or None
+
+
 def _snapshot_window_args(
     *,
     date_from: Any = None,
@@ -1529,10 +1562,7 @@ def run_samgov_smoke_workflow_hardened(
         "doctor_status_json": doctor_json,
         "foia_lead_review_board_html": bundle_dir / FOIA_LEAD_REVIEW_BOARD_HTML_PATH,
         "foia_lead_review_board_md": bundle_dir / FOIA_LEAD_REVIEW_BOARD_MD_PATH,
-        "lead_dossiers": {
-            "index_json": bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH,
-            "index_csv": bundle_dir / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH,
-        },
+        "lead_dossiers": None,
         "exports": (workflow_res.get("exports") if isinstance(workflow_res, dict) else None),
     }
 
@@ -1552,10 +1582,10 @@ def run_samgov_smoke_workflow_hardened(
     review_board_artifacts = render_foia_lead_review_board_from_bundle(bundle_dir)
     artifacts["foia_lead_review_board_html"] = review_board_artifacts["html"]
     artifacts["foia_lead_review_board_md"] = review_board_artifacts["markdown"]
-    artifacts["lead_dossiers"] = {
-        "index_json": review_board_artifacts.get("dossier_index_json") or (bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH),
-        "index_csv": review_board_artifacts.get("dossier_index_csv") or (bundle_dir / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH),
-    }
+    artifacts["lead_dossiers"] = _lead_dossier_artifacts(
+        bundle_dir=bundle_dir,
+        review_board_artifacts=review_board_artifacts,
+    )
 
     report_html = render_sam_bundle_report(
         bundle_dir=bundle_dir,

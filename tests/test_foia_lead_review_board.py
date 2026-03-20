@@ -125,12 +125,19 @@ def _lead_row(
     }
 
 
-def _write_bundle(bundle: Path, *, include_adjudication: bool = False, include_leads: bool = True) -> Path:
+def _write_bundle(
+    bundle: Path,
+    *,
+    include_adjudication: bool = False,
+    include_leads: bool = True,
+    lead_dossier_top_n: int = 10,
+) -> Path:
     _write_json(
         bundle / "results" / "workflow_summary.json",
         {
             "generated_at": "2026-03-19T12:00:00+00:00",
             "scoring_version": "v3",
+            "lead_dossier_top_n": lead_dossier_top_n,
             "run_metadata": {
                 "ingest_days": 30,
                 "effective_posted_from": "2026-02-18",
@@ -144,6 +151,7 @@ def _write_bundle(bundle: Path, *, include_adjudication: bool = False, include_l
         bundle / "bundle_manifest.json",
         {
             "generated_at": "2026-03-19T12:00:00+00:00",
+            "lead_dossier_top_n": lead_dossier_top_n,
             "run_parameters": {
                 "ingest_days": 30,
                 "effective_posted_from": "2026-02-18",
@@ -372,6 +380,27 @@ def test_foia_lead_review_board_renders_adjudication_when_present(tmp_path: Path
     assert "Adjudication metrics" in html
     assert "## Adjudication" in markdown
     assert "### Precision @ k" in markdown
+
+
+def test_foia_lead_review_board_keeps_full_reviewer_surface_when_dossier_export_is_reduced(tmp_path: Path):
+    bundle = _write_bundle(
+        tmp_path / "bundle_reduced_dossiers",
+        include_adjudication=False,
+        include_leads=True,
+        lead_dossier_top_n=2,
+    )
+
+    artifacts = render_foia_lead_review_board_from_bundle(bundle)
+
+    html = artifacts["html"].read_text(encoding="utf-8")
+    markdown = artifacts["markdown"].read_text(encoding="utf-8")
+    dossier_index = json.loads((bundle / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH).read_text(encoding="utf-8"))
+
+    assert dossier_index["count"] == 2
+    assert "Range telemetry instrumentation support with clear office and contract handles." in html
+    assert "Range telemetry instrumentation support with clear office and contract handles." in markdown
+    assert "lead_dossiers/lead_003_event_103.md" not in html
+    assert "reviewed top 2 leads" not in html
 
 
 def test_foia_lead_review_board_dossiers_handle_missing_fields_conservatively(tmp_path: Path):
