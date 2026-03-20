@@ -969,6 +969,51 @@ def test_samgov_smoke_bundle_respects_configured_lead_dossier_top_n(tmp_path: Pa
     assert all(item["rank"] in {1, 2} for item in dossier_index_payload["items"])
 
 
+def test_samgov_smoke_bundle_omits_dossier_artifact_paths_when_export_disabled(tmp_path: Path):
+    db_path = tmp_path / "sam_smoke_no_dossiers.db"
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
+    ensure_schema(db_url)
+    SessionFactory = get_session_factory(db_url)
+    now = datetime.now(timezone.utc)
+
+    with SessionFactory() as db:
+        _seed_sam_events(db, now)
+        db.commit()
+
+    res = run_samgov_smoke_workflow(
+        database_url=db_url,
+        skip_ingest=True,
+        ontology_path=Path("examples/ontology_sam_procurement_starter.json"),
+        window_days=30,
+        min_events_entity=2,
+        min_events_keywords=2,
+        max_events_keywords=200,
+        max_keywords_per_event=10,
+        lead_dossier_top_n=0,
+        bundle_root=tmp_path / "smoke_artifacts_no_dossiers",
+        require_nonzero=True,
+    )
+
+    bundle_dir = Path(res["bundle_dir"])
+    summary_payload = json.loads(Path(res["artifacts"]["smoke_summary_json"]).read_text(encoding="utf-8"))
+    manifest_payload = json.loads(Path(res["artifacts"]["bundle_manifest_json"]).read_text(encoding="utf-8"))
+    report_html = Path(res["artifacts"]["report_html"]).read_text(encoding="utf-8")
+    review_board_html = Path(res["artifacts"]["foia_lead_review_board_html"]).read_text(encoding="utf-8")
+
+    assert res["lead_dossier_top_n"] == 0
+    assert not (bundle_dir / FOIA_LEAD_DOSSIER_INDEX_JSON_PATH).exists()
+    assert not (bundle_dir / FOIA_LEAD_DOSSIER_INDEX_CSV_PATH).exists()
+    assert res["artifacts"].get("lead_dossiers") is None
+    assert (summary_payload.get("artifacts") or {}).get("lead_dossiers") is None
+    assert "lead_dossier_index_json" not in (manifest_payload.get("generated_files") or {})
+    assert "lead_dossier_index_csv" not in (manifest_payload.get("generated_files") or {})
+    assert "lead_dossiers/dossier_index.json" not in report_html
+    assert "lead_dossiers/dossier_index.csv" not in report_html
+    assert "Dossier index JSON" not in review_board_html
+    assert "Dossier index CSV" not in review_board_html
+
+
 def test_samgov_smoke_bundle_can_emit_scoring_comparison_artifact(tmp_path: Path):
     db_path = tmp_path / "sam_smoke_compare.db"
     db_url = f"sqlite:///{db_path.as_posix()}"

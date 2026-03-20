@@ -1291,7 +1291,7 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
         lead_snapshot=lead_snapshot,
         review_summary=review_summary,
         bundle_dir=root,
-        mission_top_n=dossier_top_n,
+        mission_top_n=_MISSION_QUALITY_TOP_LEAD_LIMIT,
         dossier_top_n=dossier_top_n,
         dossier_export_enabled=dossier_top_n > 0,
     )
@@ -1302,8 +1302,8 @@ def render_foia_lead_review_board_from_bundle(bundle_dir: Path) -> dict[str, Pat
     verdict = diagnostics["verdict"]
     mission_quality = diagnostics["mission_quality"]
     dossier_index = diagnostics.get("dossier_index") if isinstance(diagnostics.get("dossier_index"), dict) else {}
-    table_limit = dossier_top_n or _TOP_LEAD_TABLE_LIMIT
-    detail_limit = min(dossier_top_n, _TOP_LEAD_DETAIL_LIMIT) if dossier_top_n > 0 else _TOP_LEAD_DETAIL_LIMIT
+    table_limit = _TOP_LEAD_TABLE_LIMIT
+    detail_limit = _TOP_LEAD_DETAIL_LIMIT
     family_rows = []
     primary_by_family = {
         str(group.get("lead_family") or ""): group
