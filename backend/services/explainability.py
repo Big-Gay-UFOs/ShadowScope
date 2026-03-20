@@ -694,10 +694,25 @@ def enrich_lead_score_details(
         details.get("pair_bonus_applied"),
         default=safe_int(details.get("pair_bonus"), default=0),
     )
+    details.setdefault("pair_bonus_quality_cap", safe_int(details.get("pair_bonus_applied"), default=0))
+    details.setdefault("pair_bonus_suppressed", 0)
     details["noise_penalty_applied"] = safe_int(
         details.get("noise_penalty_applied"),
         default=safe_int(details.get("noise_penalty"), default=0),
     )
+    details.setdefault("starter_only_pair_count", 0)
+    details.setdefault("pair_quality_counts", {})
+    details.setdefault("cross_lane_bonus", 0)
+    details.setdefault("family_relevance_bonus", 0)
+    details.setdefault("family_relevant_families", [])
+    details.setdefault("starter_context_score", 0)
+    details.setdefault("nonstarter_context_score", 0)
+    details.setdefault("routine_noise_surcharge", 0)
+    details.setdefault("routine_noise_hit_count", 0)
+    details.setdefault("weak_proxy_context_cap_applied", False)
+    details.setdefault("weak_proxy_context_cap_reason", None)
+    details.setdefault("weak_proxy_investigability_delta", 0)
+    details.setdefault("weak_proxy_structural_delta", 0)
     if "top_clauses" not in details:
         details["top_clauses"] = matched["matched_ontology_clauses"][:5]
     if "corroboration_sources" not in details:
@@ -745,6 +760,17 @@ def enrich_lead_score_details(
             "structural_context_score": structural,
             "noise_penalty": noise,
             "total_score": total,
+            "components": {
+                "pair_bonus_quality_cap": safe_int(details.get("pair_bonus_quality_cap"), default=0),
+                "pair_bonus_suppressed": safe_int(details.get("pair_bonus_suppressed"), default=0),
+                "cross_lane_bonus": safe_int(details.get("cross_lane_bonus"), default=0),
+                "family_relevance_bonus": safe_int(details.get("family_relevance_bonus"), default=0),
+                "starter_context_score": safe_int(details.get("starter_context_score"), default=0),
+                "nonstarter_context_score": safe_int(details.get("nonstarter_context_score"), default=0),
+                "routine_noise_surcharge": safe_int(details.get("routine_noise_surcharge"), default=0),
+                "weak_proxy_investigability_delta": safe_int(details.get("weak_proxy_investigability_delta"), default=0),
+                "weak_proxy_structural_delta": safe_int(details.get("weak_proxy_structural_delta"), default=0),
+            },
         }
         details.setdefault("total_score", total)
     if event_context:

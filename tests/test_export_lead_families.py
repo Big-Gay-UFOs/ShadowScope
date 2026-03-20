@@ -203,10 +203,23 @@ def test_export_lead_snapshot_groups_filtered_secondary_family_under_requested_b
         lead_family="compartmented_support_intel",
     )
     payload = json.loads(result["json"].read_text(encoding="utf-8"))
+    review_summary = json.loads(result["review_summary_json"].read_text(encoding="utf-8"))
 
     assert payload["lead_family_filter"] == "compartmented_support_intel"
     assert payload["count"] == 1
     assert payload["family_groups"][0]["lead_family"] == "compartmented_support_intel"
+    assert {row["lead_family"]: row["count"] for row in payload["family_distribution"]["primary"]} == {
+        "compartmented_support_intel": 1
+    }
+    assert payload["family_distribution"]["secondary"] == []
+    assert {row["lead_family"]: row["count"] for row in payload["family_distribution"]["any_assignment"]} == {
+        "compartmented_support_intel": 1
+    }
+    assert payload["family_distribution"]["ambiguous_items"] == 1
+    assert review_summary["family_distribution"]["secondary"] == []
+    assert {
+        row["lead_family"]: row["count"] for row in review_summary["family_distribution"]["any_assignment"]
+    } == {"compartmented_support_intel": 1}
 
     item = payload["items"][0]
     assert "compartmented_support_intel" in json.loads(item["secondary_lead_families_json"])
